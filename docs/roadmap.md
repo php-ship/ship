@@ -54,15 +54,6 @@
 
 ## Known gaps
 
-- **Reverb credentials aren't provisioned by `ship`.**
-  `REVERB_APP_ID`/`REVERB_APP_KEY`/`REVERB_APP_SECRET` are left for `php
-  artisan install:broadcasting` (or a manual `.env` edit) to set, the
-  same "still needed in the app" split every other `ServiceDefinition`
-  uses (see README's Services table) — `ship` wires the infrastructure
-  (container, port, host/server env vars), not app-level secrets.
-  `ship init` warns if `laravel/reverb` itself isn't installed yet (the
-  `reverb` container's command has nothing to run without it), but
-  doesn't and can't provision the credentials themselves.
 - **`ship up` can leave a late-building service at "Created" without
   starting it** when several services build images in the same run
   (`app`, `webserver`, `reverb` all build from `ship/Dockerfile`). The
