@@ -80,11 +80,19 @@
   using that host port) — reachable over the internal Docker network,
   but not from the host. `ship up` doesn't currently detect or warn
   about this case.
-- **`InitCommand`'s interactive service-picker loop has no test
-  coverage.** `InitCommandViteReminderTest` covers the Vite-reminder
-  logic specifically (with an empty `ServiceRegistry` so every group is
-  skipped), but the `select()`/`ChoiceQuestion` picker itself, and
-  `publishStubs()`'s file-copying, remain untested.
+- **Nothing asserts the picker's answers actually produce the right
+  `ship.json`, or that `publishStubs()` copies the right files for a
+  given selection.** The `select()`/`ChoiceQuestion` fallback path and
+  `publishStubs()` do run inside `InitCommandReverbWarningTest` (real
+  typed answers via `CommandTester::setInputs()`, not the `interactive:
+  false` shortcut `InitCommandViteReminderTest` uses) and
+  `InitCommandViteReminderTest`, so they're exercised -- but only one
+  group (`broadcasting`) is actually picked in either, and no test
+  inspects the written `ship.json` or the copied `ship/` directory's
+  contents (e.g. Garage's stub files, nginx being omitted when a
+  runtime is selected). The Laravel Prompts interactive-UI branch
+  (`canUseLaravelPromptsInteractiveUi()`) has zero coverage either way
+  — `laravel/prompts` isn't installed in this repo's own test suite.
 - **Node version isn't actually configurable.** `NodeService` exists as
   a selectable group but its `composeFragment()`/`environmentVariables()`
   are both empty — Node is installed unconditionally in the Dockerfile's
