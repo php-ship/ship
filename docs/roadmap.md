@@ -75,6 +75,13 @@
   rather than installing via the OS package manager, which only ever
   carries one fixed version tied to that OS release regardless of what
   `NODE_VERSION` says.
+- `ship init` records the installed `php-ship/ship` version into
+  `ship/.ship-version` (via `Ship\Support\ShipVersion`, Composer's
+  `InstalledVersions` API); `ship up` reads it back and warns — never
+  re-publishes on its own, since a project may have hand-edited those
+  files — when it doesn't match what's currently installed, so
+  upgrading `ship` without re-running `init` no longer silently leaves
+  a project on stale stub files.
 - CI matrix across Ubuntu/macOS/Windows x PHP 8.2/8.3/8.4, plus a
   separate `docker-build` job that actually runs `ship init`/`up`/
   `up --prod` against a real fixture Laravel app and a real Docker
@@ -103,12 +110,6 @@
   the command name appears exactly once in `argv` and isn't itself the
   value of an earlier option — fine today, but would need revisiting if
   a global option is ever added before the command name.
-- **Upgrading `ship` on an existing project needs `ship init` re-run.**
-  `ship up` doesn't republish stub files (`ship/Dockerfile`,
-  `ship/nginx/default.conf`, ...) — only `ship init` does. A project that
-  upgrades `ship` and runs `ship up --prod` directly, without re-running
-  `init`, keeps whatever stub files it already had on disk. No
-  version-check/mismatch-warning mechanism exists yet.
 - **Pinned third-party image tags will go stale over time**, same as any
   pinned dependency. No automated version-bump tooling
   (Renovate/Dependabot-style) is set up yet.

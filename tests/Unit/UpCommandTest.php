@@ -8,6 +8,9 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Ship\Console\Commands\UpCommand;
 use Ship\Runtime\ProcessRunner;
+use Ship\Support\ShipVersion;
+use Symfony\Component\Console\Output\BufferedOutput;
+use Symfony\Component\Filesystem\Filesystem;
 
 final class UpCommandTest extends TestCase
 {
@@ -56,5 +59,59 @@ final class UpCommandTest extends TestCase
         $method = new \ReflectionMethod($command, 'containerPortFrom');
 
         self::assertSame($expected, $method->invoke($command, $mapping));
+    }
+
+    /**
+     * Never re-publishes ship/ on its own (see the method's own docblock for why -- a project may
+     * have hand-edited those files), only warns -- so this checks it produces the right warning
+     * text rather than any side effect.
+     */
+    public function test_it_warns_when_the_recorded_stub_version_differs_from_whats_installed(): void
+    {
+        $projectRoot = $this->makeProjectRootWithRecordedVersion('some-other-version-1.2.3');
+
+        $output = new BufferedOutput();
+        $command = new UpCommand($projectRoot, new ProcessRunner());
+        (new \ReflectionMethod($command, 'warnAboutStubVersionMismatch'))->invoke($command, $output);
+
+        (new Filesystem())->remove($projectRoot);
+
+        self::assertStringContainsString('some-other-version-1.2.3', $output->fetch());
+    }
+
+    public function test_it_stays_quiet_when_the_recorded_version_matches(): void
+    {
+        $projectRoot = $this->makeProjectRootWithRecordedVersion((string) ShipVersion::current());
+
+        $output = new BufferedOutput();
+        $command = new UpCommand($projectRoot, new ProcessRunner());
+        (new \ReflectionMethod($command, 'warnAboutStubVersionMismatch'))->invoke($command, $output);
+
+        (new Filesystem())->remove($projectRoot);
+
+        self::assertSame('', $output->fetch());
+    }
+
+    public function test_it_stays_quiet_when_no_version_was_ever_recorded(): void
+    {
+        $projectRoot = sys_get_temp_dir() . '/ship-up-test-' . bin2hex(random_bytes(8));
+        mkdir($projectRoot . '/ship', recursive: true);
+
+        $output = new BufferedOutput();
+        $command = new UpCommand($projectRoot, new ProcessRunner());
+        (new \ReflectionMethod($command, 'warnAboutStubVersionMismatch'))->invoke($command, $output);
+
+        (new Filesystem())->remove($projectRoot);
+
+        self::assertSame('', $output->fetch());
+    }
+
+    private function makeProjectRootWithRecordedVersion(string $version): string
+    {
+        $projectRoot = sys_get_temp_dir() . '/ship-up-test-' . bin2hex(random_bytes(8));
+        mkdir($projectRoot . '/ship', recursive: true);
+        file_put_contents($projectRoot . '/ship/.ship-version', $version . "\n");
+
+        return $projectRoot;
     }
 }

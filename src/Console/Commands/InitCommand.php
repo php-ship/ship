@@ -6,6 +6,7 @@ namespace Ship\Console\Commands;
 
 use Ship\Config\ShipConfig;
 use Ship\Services\ServiceRegistry;
+use Ship\Support\ShipVersion;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -261,6 +262,15 @@ final class InitCommand extends Command
                 $target . '/garage',
                 options: ['override' => true],
             );
+        }
+
+        // Read back by UpCommand to warn when a project upgrades `ship` without re-running
+        // `init` -- the published stub files stay whatever version wrote them, silently, unless
+        // something compares. Omitted (not written as "unknown") when the version can't be
+        // determined at all, so that case can't ever falsely claim a mismatch later either.
+        $version = ShipVersion::current();
+        if ($version !== null) {
+            file_put_contents($target . '/.ship-version', $version . "\n");
         }
 
         $this->ensureDockerignoreExcludesEnv();

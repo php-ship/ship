@@ -195,6 +195,12 @@ init` publishes into `ship/garage/`; picking it that way is the reliable
 option. Re-running `ship init` is always safe too, it just means
 answering every prompt again and republishing `ship/`'s stub files.
 
+Upgrading the `php-ship/ship` package itself is different: `ship up`
+doesn't republish stub files on its own — only `ship init` does — so
+it warns instead, comparing the version recorded at the last `ship
+init` against what's currently installed, and telling you to re-run
+`ship init` if they differ.
+
 ## Production build
 
 `ship up --prod` builds a materially different image, not just the same one

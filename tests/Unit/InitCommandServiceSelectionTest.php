@@ -7,6 +7,7 @@ namespace Ship\Tests\Unit;
 use PHPUnit\Framework\TestCase;
 use Ship\Console\Commands\InitCommand;
 use Ship\Services\ServiceRegistry;
+use Ship\Support\ShipVersion;
 use Symfony\Component\Console\Tester\CommandTester;
 use Symfony\Component\Filesystem\Filesystem;
 
@@ -109,5 +110,16 @@ final class InitCommandServiceSelectionTest extends TestCase
         $this->runInit(['None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
 
         self::assertFileExists($this->projectRoot . '/ship/Dockerfile');
+    }
+
+    /**
+     * Read back by UpCommand's version-mismatch warning -- see UpCommandTest for that side.
+     */
+    public function test_the_installed_ship_version_is_recorded_for_later_mismatch_detection(): void
+    {
+        $this->runInit(['None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
+
+        self::assertFileExists($this->projectRoot . '/ship/.ship-version');
+        self::assertSame(ShipVersion::current(), trim(file_get_contents($this->projectRoot . '/ship/.ship-version')));
     }
 }
