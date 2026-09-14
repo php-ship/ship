@@ -82,6 +82,15 @@
   files — when it doesn't match what's currently installed, so
   upgrading `ship` without re-running `init` no longer silently leaves
   a project on stale stub files.
+- `renovate.json` keeps every pinned version current: Composer
+  dependencies, GitHub Actions versions, and the real Dockerfiles'
+  `FROM` lines via Renovate's own built-in managers, plus a custom
+  regex manager for the Docker image tags pinned as PHP string
+  literals in `src/Services/*.php` (`'image' => 'mysql:9.7'` and
+  friends), which the built-in dockerfile manager can't see since
+  they're not in an actual Dockerfile. Grouped into one PR per run,
+  not one per image, so a version bump gets a single review pass.
+  Needs the Renovate GitHub App enabled on the repo to actually run.
 - CI matrix across Ubuntu/macOS/Windows x PHP 8.2/8.3/8.4, plus a
   separate `docker-build` job that actually runs `ship init`/`up`/
   `up --prod` against a real fixture Laravel app and a real Docker
@@ -110,10 +119,6 @@
   the command name appears exactly once in `argv` and isn't itself the
   value of an earlier option — fine today, but would need revisiting if
   a global option is ever added before the command name.
-- **Pinned third-party image tags will go stale over time**, same as any
-  pinned dependency. No automated version-bump tooling
-  (Renovate/Dependabot-style) is set up yet.
-
 ## Not started
 
 - Mutagen-based sync mode as an opt-in alternative to bind mounts on

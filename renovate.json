@@ -1,0 +1,22 @@
+{
+    "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+    "extends": ["config:recommended"],
+    "customManagers": [
+        {
+            "customType": "regex",
+            "description": "Docker image tags pinned as PHP string literals in ServiceDefinition classes -- Renovate's built-in dockerfile manager only scans actual Dockerfiles (which it already covers natively: stubs/docker/php/Dockerfile*, stubs/docker/garage/Dockerfile), not these.",
+            "fileMatch": ["^src/Services/.*\\.php$"],
+            "matchStrings": [
+                "'image' => '(?<depName>[^:']+):(?<currentValue>[^']+)'"
+            ],
+            "datasourceTemplate": "docker"
+        }
+    ],
+    "packageRules": [
+        {
+            "description": "Every pinned image here is checked and chosen deliberately (see docs/adding-a-service.md's \"Pin image tags\" note) -- group them into one PR per run instead of one PR per image, so a version bump gets one human review pass, not several.",
+            "matchManagers": ["custom.regex", "dockerfile"],
+            "groupName": "Docker image tags"
+        }
+    ]
+}
