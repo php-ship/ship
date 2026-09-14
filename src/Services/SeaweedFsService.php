@@ -37,7 +37,10 @@ final class SeaweedFsService implements ServiceDefinition
                     ? ['ship-seaweedfs-data:/data']
                     : [],
                 'healthcheck' => [
-                    'test' => ['CMD', 'wget', '-q', '-O', '-', 'http://localhost:9333/cluster/status'],
+                    // 127.0.0.1, not "localhost" -- this image's resolver tries ::1 first, which
+                    // nothing listens on, so wget reports connection refused and the container
+                    // never reports healthy despite the master API working fine on IPv4.
+                    'test' => ['CMD', 'wget', '-q', '-O', '-', 'http://127.0.0.1:9333/cluster/status'],
                     'interval' => '10s',
                     'timeout' => '5s',
                     'retries' => 5,

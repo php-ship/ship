@@ -66,6 +66,7 @@ final class InitCommand extends Command
 
         $this->publishStubs($selected);
         $this->warnAboutViteDevServerConfigIfNeeded($io);
+        $this->warnAboutMissingReverbPackageIfNeeded($io, $selected);
 
         $io->success('Wrote ship.json and published the ship/ directory. Run `ship up` to build and start the environment.');
 
@@ -104,6 +105,32 @@ final class InitCommand extends Command
                     hmr: { host: 'localhost' }, // what the *browser* connects back to for HMR
                 },
             JS);
+        $io->newLine();
+    }
+
+    /**
+     * The reverb service unconditionally runs `php artisan reverb:start` -- a fresh Laravel app doesn't
+     * have that command until `laravel/reverb` is actually required, so without this warning `ship up`
+     * would just crash-loop the reverb container with a confusing "no commands defined" error.
+     *
+     * @param array<string, string> $selected
+     */
+    private function warnAboutMissingReverbPackageIfNeeded(SymfonyStyle $io, array $selected): void
+    {
+        if (($selected['broadcasting'] ?? null) !== 'reverb') {
+            return;
+        }
+
+        if (is_dir($this->projectRoot . '/vendor/laravel/reverb')) {
+            return;
+        }
+
+        $io->warning(
+            'Reverb was selected but `laravel/reverb` isn\'t installed yet. The reverb container will '
+            . 'fail to start until you run:'
+        );
+        $io->writeln('    composer require laravel/reverb');
+        $io->writeln('    php artisan install:broadcasting');
         $io->newLine();
     }
 
