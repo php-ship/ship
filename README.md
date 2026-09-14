@@ -140,7 +140,7 @@ doesn't make for you.
 | Garage / SeaweedFS | `AWS_*` env vars (S3-compatible) | `composer require league/flysystem-aws-s3-v3`, and set `FILESYSTEM_DISK=s3` yourself |
 | Octane (Swoole/RoadRunner/FrankenPHP) | `swoole` PHP extension (Swoole only), `OCTANE_SERVER` | `composer require laravel/octane`, then `php artisan octane:install` inside the container once (downloads the RoadRunner binary if that's the one picked) |
 | Dusk | Selenium container, `DUSK_DRIVER_URL` | `composer require --dev laravel/dusk` |
-| Node.js / npm | Installed unconditionally in the base image; `ship npm run dev` works regardless of whether this group is selected | See [Frontend dev server](#frontend-dev-server-vite-hmr) below for HMR |
+| Node.js / npm | Installed unconditionally in the base image, at the version `ship init`'s "Node.js version" prompt sets (`ship.json`'s `node` field, default 24); `ship npm run dev` works regardless of whether this group is selected | See [Frontend dev server](#frontend-dev-server-vite-hmr) below for HMR |
 | Reverb | Its own `reverb` container + published port, `BROADCAST_CONNECTION=reverb`, server-side `REVERB_HOST=reverb`/`REVERB_PORT`/`REVERB_SCHEME` (Docker DNS — `app` talking to `reverb`), browser-side `VITE_REVERB_HOST=localhost`/`VITE_REVERB_PORT`/`VITE_REVERB_SCHEME` (what Echo in the browser actually connects to) | `composer require laravel/reverb`, then `php artisan install:broadcasting` inside the container once (generates `REVERB_APP_ID`/`KEY`/`SECRET` into `.env` — real per-app credentials, not something `ship` provisions). `ship init` warns at selection time if the package isn't installed yet, since the `reverb` container won't start without it. |
 
 Everything in the right column is one-time setup per project, not a `ship`
@@ -155,6 +155,7 @@ plain, readable JSON document:
 ```json
 {
     "php": "8.4",
+    "node": "24",
     "services": {
         "database": "pgsql",
         "cache": "redis",
@@ -167,6 +168,10 @@ plain, readable JSON document:
 
 - `php` — the PHP version built into the image (`ARG PHP_VERSION` in
   `ship/Dockerfile`).
+- `node` — the Node.js major version built into the image (`ARG
+  NODE_VERSION`), independent of whether the `frontend` group's Node
+  service is selected — Node installs unconditionally either way (see
+  the Services table below).
 - `services` — one selected service key per group; a group with no entry
   means "none selected".
 - `extensions` — fully-qualified class names of third-party

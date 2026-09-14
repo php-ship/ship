@@ -54,6 +54,27 @@
   as empty output or a command error, so a naive check misses it
   entirely. Both checks fail loudly with a clear message naming the
   affected service instead of exiting quietly successful.
+- `EntrypointScriptBuilder`'s generated script chowns `storage`,
+  `bootstrap/cache`, `database`, and `var` (existence-checked, so this
+  stays framework-agnostic) to `www-data` after release commands run
+  and before handing off to the real process. Plain php-fpm's
+  request-handling workers run as `www-data`, but everything before
+  that point — the image build, `artisan optimize`'s view cache —
+  runs as root; without this, anything a worker needs to write at
+  request time (an uncached view, Laravel's own default SQLite-backed
+  session driver writing to `database/database.sqlite`) hits a
+  permission error against root-owned files. Scoped to those specific
+  directories, not the whole tree — a recursive chown over `vendor/`
+  too once took tens of seconds and blocked php-fpm from ever starting
+  on a real Laravel app.
+- Node's version is configurable via `ship init`'s "Node.js version"
+  prompt (`ShipConfig::$nodeVersion`, defaulting to 24), backfilled as
+  a `NODE_VERSION` build arg the same way `PHP_VERSION` is. Both
+  Dockerfiles copy the official `node` image's binaries in at that
+  pinned version (matching musl/Alpine or glibc/Debian per base image)
+  rather than installing via the OS package manager, which only ever
+  carries one fixed version tied to that OS release regardless of what
+  `NODE_VERSION` says.
 - CI matrix across Ubuntu/macOS/Windows x PHP 8.2/8.3/8.4, plus a
   separate `docker-build` job that actually runs `ship init`/`up`/
   `up --prod` against a real fixture Laravel app and a real Docker
@@ -74,11 +95,6 @@
   design -- see the method's own docblock for why it's not a hard
   dependency), so every `InitCommand` test exercises the
   `ChoiceQuestion` fallback path only.
-- **Node version isn't actually configurable.** `NodeService` exists as
-  a selectable group but its `composeFragment()`/`environmentVariables()`
-  are both empty — Node is installed unconditionally in the Dockerfile's
-  base stage at a fixed version. Making the version configurable needs
-  the same build-arg plumbing `OCTANE_RUNTIME` uses.
 - **`ProxyCommand` and `ExecCommand`'s raw-argv forwarding** (both read
   `$_SERVER['argv']` directly rather than Console's parsed arguments, so
   a flag meant for the executed command — `-m` in `artisan make:model

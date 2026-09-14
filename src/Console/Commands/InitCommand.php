@@ -57,10 +57,12 @@ final class InitCommand extends Command
         }
 
         $phpVersion = $io->ask('PHP version', '8.4');
+        $nodeVersion = $io->ask('Node.js version', '24');
 
         $config = new ShipConfig(
             phpVersion: (string) $phpVersion,
             services: $selected,
+            nodeVersion: (string) $nodeVersion,
         );
         $config->toFile($this->projectRoot . '/ship.json');
 

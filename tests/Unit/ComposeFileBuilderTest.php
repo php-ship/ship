@@ -121,6 +121,32 @@ final class ComposeFileBuilderTest extends TestCase
         self::assertSame('8.3', $parsed['services']['app']['build']['args']['PHP_VERSION']);
     }
 
+    public function test_node_version_is_configurable_and_backfilled_the_same_way_as_php_version(): void
+    {
+        $registry = new ServiceRegistry([new ReverbService()]);
+        $builder = new ComposeFileBuilder($registry);
+
+        $config = new ShipConfig(
+            phpVersion: '8.4',
+            services: ['broadcasting' => 'reverb'],
+            nodeVersion: '20',
+        );
+        $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Development));
+
+        self::assertSame('20', $parsed['services']['app']['build']['args']['NODE_VERSION']);
+        self::assertSame('20', $parsed['services']['reverb']['build']['args']['NODE_VERSION']);
+    }
+
+    public function test_node_version_defaults_to_24_when_not_specified(): void
+    {
+        $builder = new ComposeFileBuilder($this->registry());
+        $config = new ShipConfig(phpVersion: '8.4', services: []);
+
+        $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Development));
+
+        self::assertSame('24', $parsed['services']['app']['build']['args']['NODE_VERSION']);
+    }
+
     public function test_php_version_backfill_does_not_touch_the_nginx_webserver_target(): void
     {
         $builder = new ComposeFileBuilder($this->registry());

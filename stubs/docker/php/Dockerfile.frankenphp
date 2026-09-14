@@ -5,16 +5,26 @@
 # against FrankenPHP's own docs (frankenphp.dev/docs/docker), not guessed.
 
 ARG PHP_VERSION=8.4
+ARG NODE_VERSION=24
+
+FROM node:${NODE_VERSION}-bookworm-slim AS node
 
 FROM dunglas/frankenphp:1-php${PHP_VERSION}-bookworm AS base
 
-# Node's version tracks whatever Debian bookworm's repo carries. pdo_pgsql/
-# pdo_mysql/redis/pcntl are all unconditional, same as the main Dockerfile --
-# see that file's comment for why.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends nodejs npm \
-    && rm -rf /var/lib/apt/lists/* \
-    && install-php-extensions pdo_pgsql pdo_mysql intl mbstring opcache redis pcntl
+# pdo_pgsql/pdo_mysql/redis/pcntl are all unconditional, same as the main
+# Dockerfile -- see that file's comment for why.
+RUN install-php-extensions pdo_pgsql pdo_mysql intl mbstring opcache redis pcntl
+
+# Copied from the official node image at the pinned NODE_VERSION -- glibc-built (matches this
+# Debian bookworm base, unlike the main Dockerfile's musl/Alpine node image), not installed via
+# `apt-get install nodejs npm`, for the same reason the main Dockerfile doesn't: the OS package
+# repo only ever carries one fixed Node version, independent of NODE_VERSION. See that file's
+# comment on the npm symlinks -- identical reasoning, duplicated here since the base images
+# (and therefore the exact node image variant needed) differ.
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
 WORKDIR /var/www/html
 

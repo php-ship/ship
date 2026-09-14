@@ -35,6 +35,26 @@ final class EntrypointScriptBuilder
         }
 
         $lines[] = '';
+        // Everything up to here (image build, this script's own release commands -- e.g. artisan
+        // optimize's view cache) runs as root, but plain php-fpm's request-handling workers run as
+        // www-data (its own pool config, not something this script controls) -- without this,
+        // anything a worker needs to write at request time (a view Laravel didn't pre-compile,
+        // Symfony's cache warming up further) hits a permission error against root-owned files.
+        // Only the directories a framework actually writes to at runtime, not the whole tree --
+        // recursively chowning vendor/ too adds tens of seconds to every boot for no benefit, and
+        // once blocked php-fpm from ever starting at all on a real Laravel app's vendor/ size.
+        // "database" is in this list for Laravel's own default fresh-install setup: SQLite, both
+        // as the main DB connection and (Laravel 11+) the "database" session/cache driver, with
+        // database.sqlite living outside storage/ entirely -- SQLite needs to write both the file
+        // and its parent directory (for journal/WAL files), so the directory itself has to be
+        // included, not just chmod-ing the file. Existence-checked so this stays
+        // framework-agnostic: harmless (nothing to do) for a framework using none of these paths,
+        // and harmless for Octane runtimes either way since the whole process stays root there
+        // regardless.
+        $lines[] = 'for dir in storage bootstrap/cache database var; do';
+        $lines[] = '    [ -d "$dir" ] && chown -R www-data:www-data "$dir"';
+        $lines[] = 'done';
+        $lines[] = '';
         // exec (not a plain call) replaces this script's process rather
         // than spawning a child of it, so the real server ends up as
         // PID 1 -- otherwise `docker stop`'s SIGTERM hits this shell

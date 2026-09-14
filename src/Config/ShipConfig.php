@@ -19,6 +19,7 @@ final class ShipConfig
         public readonly string $phpVersion,
         public readonly array $services,
         public readonly array $extensions = [],
+        public readonly string $nodeVersion = '24',
     ) {
     }
 
@@ -30,13 +31,14 @@ final class ShipConfig
             );
         }
 
-        /** @var array{php?: string, services?: array<string,string>, extensions?: list<string>} $data */
+        /** @var array{php?: string, node?: string, services?: array<string,string>, extensions?: list<string>} $data */
         $data = json_decode((string) file_get_contents($path), associative: true, flags: JSON_THROW_ON_ERROR);
 
         return new self(
             phpVersion: $data['php'] ?? '8.4',
             services: $data['services'] ?? [],
             extensions: $data['extensions'] ?? [],
+            nodeVersion: $data['node'] ?? '24',
         );
     }
 
@@ -44,6 +46,7 @@ final class ShipConfig
     {
         $payload = [
             'php' => $this->phpVersion,
+            'node' => $this->nodeVersion,
             'services' => $this->services,
             'extensions' => $this->extensions,
         ];

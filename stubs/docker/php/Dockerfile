@@ -1,20 +1,30 @@
 ARG PHP_VERSION=8.4
 ARG OCTANE_RUNTIME=fpm
+ARG NODE_VERSION=24
+
+FROM node:${NODE_VERSION}-alpine AS node
 
 FROM php:${PHP_VERSION}-fpm-alpine AS base
 ARG OCTANE_RUNTIME
 
-# Node's version tracks whatever Alpine's current repo snapshot carries --
-# not independently configurable yet, see docs/roadmap.md.
-#
 # pdo_pgsql/pdo_mysql/pcntl are installed unconditionally regardless of
 # which database or runtime is selected: cheap enough to always install,
 # and avoids plumbing a second build arg through ComposeFileBuilder just
 # for extension selection. pcntl specifically is needed by Laravel Octane
 # (graceful reload/shutdown signal handling) and Laravel Reverb (its
 # server references the SIGINT/SIGTERM/SIGTSTP constants pcntl defines).
-RUN apk add --no-cache libpq-dev icu-dev oniguruma-dev nodejs npm \
+RUN apk add --no-cache libpq-dev icu-dev oniguruma-dev \
     && docker-php-ext-install pdo_pgsql pdo_mysql intl mbstring opcache pcntl
+
+# Copied from the official node image at the pinned NODE_VERSION -- musl-built (matches this
+# Alpine base), not installed via `apk add nodejs npm`, since Alpine's own package repo only ever
+# carries whatever single Node version happens to ship with that Alpine release, independent of
+# NODE_VERSION. npm has no binary of its own; it's a JS CLI run through node, so its install
+# tree (node_modules/npm) has to come along too, with the executable symlinks recreated here.
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
 # phpredis is installed unconditionally (not gated behind a "redis
 # selected" build arg) because RedisService::environmentVariables() sets

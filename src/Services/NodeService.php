@@ -9,8 +9,9 @@ use Ship\Contracts\ShipEnvironment;
 
 /**
  * Deliberately shallow -- `ship npm` works regardless of a selection, as Node installs unconditionally
- * in the base image; most PHP projects need it anyway. What this is actually for: choosing the Node
- * major version, which needs the same build-arg plumbing OCTANE_RUNTIME uses, still not wired up.
+ * in the base image; most PHP projects need it anyway. This group exists so `ship init` prompts for
+ * it, but the Node version itself is a top-level ShipConfig field (like phpVersion), not something
+ * this class carries -- ComposeFileBuilder backfills NODE_VERSION the same way it does PHP_VERSION.
  */
 final class NodeService implements ServiceDefinition
 {

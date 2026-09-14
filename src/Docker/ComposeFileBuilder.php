@@ -53,7 +53,11 @@ final class ComposeFileBuilder
             unset($compose['services'][$name]);
         }
 
-        $compose['services'] = $this->backfillPhpVersionBuildArg($compose['services'], $config->phpVersion);
+        $compose['services'] = $this->backfillVersionBuildArgs(
+            $compose['services'],
+            $config->phpVersion,
+            $config->nodeVersion,
+        );
         $compose['services'] = $this->backfillRestartPolicy($compose['services']);
 
         $compose['services']['app']['environment'] = [
@@ -141,14 +145,15 @@ final class ComposeFileBuilder
     }
 
     /**
-     * "app" sets build.args.PHP_VERSION explicitly, but any other service building a ship/Dockerfile's PHP
-     * stage (reverb so far) needs the same version, not the Dockerfile's ARG default. Applies solely to
-     * dev/prod targets; dev-nginx/prod-nginx don't consume it at all. `??=` lets one already set win.
+     * "app" sets build.args.PHP_VERSION/NODE_VERSION explicitly, but any other service building a
+     * ship/Dockerfile's PHP stage (reverb so far) needs the same versions, not the Dockerfile's ARG
+     * defaults. Applies solely to dev/prod targets; dev-nginx/prod-nginx don't consume either. `??=`
+     * lets one already set win.
      *
      * @param array<string, array<string, mixed>> $services
      * @return array<string, array<string, mixed>>
      */
-    private function backfillPhpVersionBuildArg(array $services, string $phpVersion): array
+    private function backfillVersionBuildArgs(array $services, string $phpVersion, string $nodeVersion): array
     {
         foreach ($services as $name => $service) {
             $target = $service['build']['target'] ?? null;
@@ -159,6 +164,7 @@ final class ComposeFileBuilder
 
             $services[$name]['build']['args'] ??= [];
             $services[$name]['build']['args']['PHP_VERSION'] ??= $phpVersion;
+            $services[$name]['build']['args']['NODE_VERSION'] ??= $nodeVersion;
         }
 
         return $services;
@@ -197,6 +203,7 @@ final class ComposeFileBuilder
                     'target' => $target,
                     'args' => [
                         'PHP_VERSION' => $config->phpVersion,
+                        'NODE_VERSION' => $config->nodeVersion,
                         'OCTANE_RUNTIME' => $this->runtimeBuildArg($runtime),
                     ],
                 ],

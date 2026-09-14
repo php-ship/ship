@@ -47,4 +47,30 @@ final class EntrypointScriptBuilderTest extends TestCase
 
         self::assertStringStartsWith('#!/bin/sh', $script);
     }
+
+    /**
+     * Regression test: plain php-fpm's request-handling workers run as www-data, but everything
+     * before this line (the image build, artisan optimize's view cache) runs as root -- without
+     * this chown, anything a worker needs to write at request time hits a permission error against
+     * root-owned files. Ordering matters: has to run after release commands (which create the
+     * root-owned files in the first place) and before exec (the real process needs it already done).
+     * Scoped to specific directories, not the whole tree -- a recursive chown over vendor/ too once
+     * took tens of seconds and blocked php-fpm from ever starting on a real Laravel app.
+     */
+    public function test_it_chowns_only_the_writable_directories_after_release_commands_and_before_exec(): void
+    {
+        $script = (new EntrypointScriptBuilder())->build(['php artisan optimize']);
+
+        $releasePos = strpos($script, 'php artisan optimize');
+        $chownPos = strpos($script, 'chown -R www-data:www-data');
+        $execPos = strpos($script, 'exec "$@"');
+
+        self::assertNotFalse($releasePos);
+        self::assertNotFalse($chownPos);
+        self::assertNotFalse($execPos);
+        self::assertTrue($releasePos < $chownPos);
+        self::assertTrue($chownPos < $execPos);
+        self::assertStringNotContainsString('chown -R www-data:www-data /var/www/html', $script);
+        self::assertStringContainsString('for dir in storage bootstrap/cache database var', $script);
+    }
 }
