@@ -103,13 +103,6 @@
   the command name appears exactly once in `argv` and isn't itself the
   value of an earlier option — fine today, but would need revisiting if
   a global option is ever added before the command name.
-- **Vite HMR still needs a few lines of `vite.config.js` added by hand.**
-  `ship` publishes the dev server's port and `ship init` prints a
-  reminder with the exact snippet when it detects `vite` in
-  `package.json`, but can't safely auto-edit an *existing*
-  `vite.config.js` itself — reliably patching arbitrary JS with a tool
-  that has no JS parser isn't worth the fragility. See README's
-  "Frontend dev server" section for the snippet.
 - **Upgrading `ship` on an existing project needs `ship init` re-run.**
   `ship up` doesn't republish stub files (`ship/Dockerfile`,
   `ship/nginx/default.conf`, ...) — only `ship init` does. A project that
