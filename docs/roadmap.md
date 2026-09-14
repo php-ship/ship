@@ -40,22 +40,20 @@
 - `app`, `webserver`, and `reverb` all load an optional `.env` from the
   deploy target's filesystem via Compose's `env_file`, never baked into
   the image itself.
-- `ProxyCommand` reads raw `argv` instead of Symfony Console's parsed
-  arguments, so flags meant for the proxied binary (`-m` in
-  `artisan make:model Post -m`) aren't swallowed by Console's own option
-  parser.
-- CI matrix across Ubuntu/macOS/Windows x PHP 8.2/8.3/8.4.
+- CI matrix across Ubuntu/macOS/Windows x PHP 8.2/8.3/8.4, plus a
+  separate `docker-build` job that actually runs `ship init`/`up`/
+  `up --prod` against a real fixture Laravel app and a real Docker
+  daemon — building both images, migrating a real database, and
+  checking the app actually answers over HTTP in both modes. Invokes
+  `bin/ship` directly against a plain fixture app rather than through a
+  Composer dependency, since `$projectRoot` is just `getcwd()` (see
+  `bin/ship`) — that sidesteps a real limitation where a Composer path
+  repository pointing at this checkout can't resolve inside an isolated
+  Docker build context, which would otherwise make the production build
+  half of this job untestable.
 
 ## Known gaps
 
-- **No automated test actually builds and runs the Docker images.**
-  `ComposeFileBuilderTest` and friends assert on the generated YAML
-  structure, which can't catch a docker-compose-schema-level rejection
-  (Compose's schema requires `ports` to be a sequence, but an empty PHP
-  array can dump as a YAML mapping) or a missing PHP extension a service
-  implies but never installs. Worth a slow CI job that actually runs
-  `docker compose up --build` against a generated stack, separate from
-  the fast YAML-structure unit tests.
 - **Reverb credentials aren't provisioned by `ship`.**
   `REVERB_APP_ID`/`REVERB_APP_KEY`/`REVERB_APP_SECRET` are left for `php
   artisan install:broadcasting` (or a manual `.env` edit) to set, the
@@ -92,10 +90,14 @@
   are both empty — Node is installed unconditionally in the Dockerfile's
   base stage at a fixed version. Making the version configurable needs
   the same build-arg plumbing `OCTANE_RUNTIME` uses.
-- **`ProxyCommand`'s raw-argv forwarding** assumes the command name
-  appears exactly once in `argv` and isn't itself a value of an earlier
-  option — fine for `ship artisan ...` today, but would need revisiting
-  if a global option is ever added before the command name.
+- **`ProxyCommand` and `ExecCommand`'s raw-argv forwarding** (both read
+  `$_SERVER['argv']` directly rather than Console's parsed arguments, so
+  a flag meant for the executed command — `-m` in `artisan make:model
+  Post -m`, `--force` in `ship exec app php artisan migrate --force` —
+  isn't swallowed as an unrecognized option on `ship` itself) assumes
+  the command name appears exactly once in `argv` and isn't itself the
+  value of an earlier option — fine today, but would need revisiting if
+  a global option is ever added before the command name.
 - **Vite HMR still needs a few lines of `vite.config.js` added by hand.**
   `ship` publishes the dev server's port and `ship init` prints a
   reminder with the exact snippet when it detects `vite` in
@@ -117,9 +119,6 @@
 
 - Mutagen-based sync mode as an opt-in alternative to bind mounts on
   Windows/macOS, for projects where bind-mount I/O is a bottleneck.
-- A CI job that actually runs `docker compose up --build` against a
-  generated stack and asserts on real HTTP/DB/cache behavior, closing
-  the top "Known gaps" entry above.
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
   already computes generically (`APP_URL`, `PHP_VERSION` backfill). A
   service that needs to know about *other* selected services beyond

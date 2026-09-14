@@ -35,3 +35,99 @@ jobs:
 
       - name: Coding standards
         run: composer cs-check
+
+  docker-build:
+    name: Docker build (dev + prod)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+
+      - name: Install ship's own dependencies
+        run: composer install --prefer-dist --no-progress
+
+      - name: Create a fixture Laravel app
+        run: composer create-project laravel/laravel /tmp/ci-fixture --prefer-dist --no-interaction
+
+      # Invoking bin/ship directly (not through a Composer require) means the fixture app needs
+      # no dependency on this package at all -- $projectRoot is just getcwd(), see bin/ship. That
+      # sidesteps a real limitation: a Composer path repository pointing at this checkout can't
+      # resolve inside an isolated Docker build context, so testing the actual `ship up --prod`
+      # build (not just dev) needs the fixture to have no such dependency in the first place.
+      - name: ship init (MySQL + Redis)
+        working-directory: /tmp/ci-fixture
+        run: |
+          printf 'MySQL\nRedis\nNone\nNone\nNone\nNone\nNone\nNone\nNone\n8.4\n' \
+            | php "$GITHUB_WORKSPACE/bin/ship" init
+
+      - name: Point .env at the ship-provisioned services
+        working-directory: /tmp/ci-fixture
+        run: |
+          php -r '
+          $path = ".env";
+          $content = file_get_contents($path);
+          $replacements = [
+              "DB_CONNECTION" => "mysql",
+              "DB_HOST" => "mysql",
+              "DB_PORT" => "3306",
+              "DB_DATABASE" => "ship",
+              "DB_USERNAME" => "ship",
+              "DB_PASSWORD" => "ship",
+              "CACHE_STORE" => "redis",
+              "REDIS_HOST" => "redis",
+          ];
+          foreach ($replacements as $key => $value) {
+              $pattern = "/^{$key}=.*$/m";
+              $content = preg_match($pattern, $content)
+                  ? preg_replace($pattern, "{$key}={$value}", $content)
+                  : $content . "\n{$key}={$value}\n";
+          }
+          file_put_contents($path, $content);
+          '
+
+      - name: ship up (dev) and verify the stack is actually usable
+        working-directory: /tmp/ci-fixture
+        run: |
+          php "$GITHUB_WORKSPACE/bin/ship" up
+          php "$GITHUB_WORKSPACE/bin/ship" exec app php artisan migrate --force
+          for i in $(seq 1 10); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:80/ || true)
+            [ "$code" = "200" ] && break
+            sleep 3
+          done
+          test "$code" = "200"
+
+      - name: ship db reaches the real MySQL container
+        working-directory: /tmp/ci-fixture
+        run: |
+          out=$(php "$GITHUB_WORKSPACE/bin/ship" db <<< "SELECT 'ci-db-ok' AS result;")
+          echo "$out" | grep -q 'ci-db-ok'
+
+      - name: Tear down dev stack
+        if: always()
+        working-directory: /tmp/ci-fixture
+        run: docker compose -f ship/docker-compose.generated.yml --project-directory . down -v
+
+      - name: ship up --prod builds and boots for real
+        working-directory: /tmp/ci-fixture
+        run: |
+          php "$GITHUB_WORKSPACE/bin/ship" up --prod
+          for i in $(seq 1 10); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:80/ || true)
+            [ "$code" = "200" ] && break
+            sleep 3
+          done
+          test "$code" = "200"
+          # artisan optimize runs at container boot -- see EntrypointScriptBuilder -- so the
+          # cached bootstrap files existing confirms it actually ran, not just that PHP started.
+          php "$GITHUB_WORKSPACE/bin/ship" exec app test -f bootstrap/cache/config.php
+
+      - name: Tear down prod stack
+        if: always()
+        working-directory: /tmp/ci-fixture
+        run: docker compose -f ship/docker-compose.generated.yml --project-directory . down -v --rmi local
