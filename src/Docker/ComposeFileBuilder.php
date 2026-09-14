@@ -36,17 +36,18 @@ final class ComposeFileBuilder
         $removed = [];
 
         foreach ($config->services as $key) {
-            $service = $this->registry->get($key);
+            [$compose, $appEnv, $removed] = $this->applyService($compose, $appEnv, $removed, $key, null, $environment);
+        }
 
-            foreach ($service->composeFragment($environment) as $name => $fragment) {
-                $fragment['networks'] ??= ['ship'];
-                $compose['services'][$name] = isset($compose['services'][$name])
-                    ? $this->mergeServiceFragment($compose['services'][$name], $fragment)
-                    : $fragment;
-            }
-
-            $appEnv += $service->environmentVariables();
-            $removed = [...$removed, ...$service->removes()];
+        foreach ($config->additionalServices as $additional) {
+            [$compose, $appEnv, $removed] = $this->applyService(
+                $compose,
+                $appEnv,
+                $removed,
+                $additional['service'],
+                $additional['name'],
+                $environment,
+            );
         }
 
         foreach ($removed as $name) {
@@ -88,6 +89,44 @@ final class ComposeFileBuilder
         // since ComposeFileBuilderTest only ever parses the YAML back into
         // PHP, which can't tell `{}` and `[]` apart either.
         return Yaml::dump($compose, inline: 6, indent: 2, flags: Yaml::DUMP_EMPTY_ARRAY_AS_SEQUENCE);
+    }
+
+    /**
+     * One selected service -- either the default instance from ship.json's `services` ($instanceName
+     * null) or a named one from `additionalServices` -- merged into the compose services being built
+     * so far. Threads $compose/$appEnv/$removed through as a tuple rather than mutating them in place,
+     * since build() calls this once per default selection and once per additional one, in a plain
+     * foreach either way.
+     *
+     * @param array<string, mixed> $compose
+     * @param array<string, string> $appEnv
+     * @param list<string> $removed
+     * @return array{0: array<string, mixed>, 1: array<string, string>, 2: list<string>}
+     */
+    private function applyService(
+        array $compose,
+        array $appEnv,
+        array $removed,
+        string $key,
+        ?string $instanceName,
+        ShipEnvironment $environment,
+    ): array {
+        $service = $this->registry->get($key);
+
+        foreach ($service->composeFragment($environment, $instanceName) as $name => $fragment) {
+            $fragment['networks'] ??= ['ship'];
+            $compose['services'][$name] = isset($compose['services'][$name])
+                ? $this->mergeServiceFragment($compose['services'][$name], $fragment)
+                : $fragment;
+        }
+
+        // A later, same-name env var wins -- lets additionalServices override a key the default
+        // instance already set, the same "last one wins" rule PHP's own array union would give if
+        // this were still a single flat loop instead of two.
+        $appEnv = [...$appEnv, ...$service->environmentVariables($instanceName)];
+        $removed = [...$removed, ...$service->removes()];
+
+        return [$compose, $appEnv, $removed];
     }
 
     /**

@@ -122,4 +122,45 @@ final class InitCommandServiceSelectionTest extends TestCase
         self::assertFileExists($this->projectRoot . '/ship/.ship-version');
         self::assertSame(ShipVersion::current(), trim(file_get_contents($this->projectRoot . '/ship/.ship-version')));
     }
+
+    public function test_an_additional_named_instance_is_recorded_in_ship_json(): void
+    {
+        $command = new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults()));
+        $tester = new CommandTester($command);
+        $tester->setInputs([
+            // Main loop: default database only, everything else None.
+            'PostgreSQL', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None',
+            // Add-another-instance loop.
+            'yes', 'database', 'MySQL', 'analytics', 'no',
+            // PHP / Node versions.
+            '8.4', '24',
+        ]);
+        $tester->execute([]);
+
+        $additional = $this->shipJson()['additionalServices'];
+
+        self::assertCount(1, $additional);
+        self::assertSame(['group' => 'database', 'service' => 'mysql', 'name' => 'analytics'], $additional[0]);
+    }
+
+    public function test_it_rejects_a_duplicate_instance_name_and_asks_again(): void
+    {
+        $command = new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults()));
+        $tester = new CommandTester($command);
+        $tester->setInputs([
+            'PostgreSQL', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None',
+            'yes', 'database', 'MySQL', 'analytics',
+            'yes', 'cache', 'Redis', 'analytics', 'queue',
+            'no',
+            '8.4', '24',
+        ]);
+        $tester->execute([]);
+
+        $additional = $this->shipJson()['additionalServices'];
+
+        self::assertCount(2, $additional);
+        self::assertSame('analytics', $additional[0]['name']);
+        self::assertSame('queue', $additional[1]['name']);
+        self::assertStringContainsString('already used', $tester->getDisplay());
+    }
 }

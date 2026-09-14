@@ -24,7 +24,10 @@ final class OctaneSwooleService implements ServiceDefinition
         return 'runtime';
     }
 
-    public function composeFragment(ShipEnvironment $environment): array
+    // Only one application runtime ever makes sense per project, so $instanceName -- always null
+    // here in practice, nothing ever offers a second one to select -- is unused.
+
+    public function composeFragment(ShipEnvironment $environment, ?string $instanceName = null): array
     {
         // Targets the already-defined "app" service — ComposeFileBuilder
         // merges this into it rather than replacing it, so build/volumes
@@ -37,7 +40,7 @@ final class OctaneSwooleService implements ServiceDefinition
         ];
     }
 
-    public function environmentVariables(): array
+    public function environmentVariables(?string $instanceName = null): array
     {
         return ['OCTANE_SERVER' => 'swoole'];
     }

@@ -12,14 +12,23 @@ use RuntimeException;
 final class ShipConfig
 {
     /**
-     * @param array<string, string> $services   group => selected service key, e.g. ['database' => 'pgsql']
-     * @param list<string>          $extensions composer package names providing extra ServiceDefinitions
+     * @param array<string, string>                                    $services   group => selected
+     *        service key, e.g. ['database' => 'pgsql'] -- always the *default* instance of that
+     *        group, unprefixed env vars, unchanged since before named instances existed.
+     * @param list<string>                                              $extensions composer package
+     *        names providing extra ServiceDefinitions
+     * @param list<array{group: string, service: string, name: string}> $additionalServices second
+     *        (or third, ...) instance of a service already present in $services, or of a different
+     *        service in the same group -- a second database of a different engine, a second Redis
+     *        for a different purpose, etc. `name` becomes both the compose service suffix and the
+     *        env var prefix (see SupportsNamedInstances), so it has to be unique across this list.
      */
     public function __construct(
         public readonly string $phpVersion,
         public readonly array $services,
         public readonly array $extensions = [],
         public readonly string $nodeVersion = '24',
+        public readonly array $additionalServices = [],
     ) {
     }
 
@@ -31,7 +40,15 @@ final class ShipConfig
             );
         }
 
-        /** @var array{php?: string, node?: string, services?: array<string,string>, extensions?: list<string>} $data */
+        /**
+         * @var array{
+         *     php?: string,
+         *     node?: string,
+         *     services?: array<string,string>,
+         *     extensions?: list<string>,
+         *     additionalServices?: list<array{group: string, service: string, name: string}>,
+         * } $data
+         */
         $data = json_decode((string) file_get_contents($path), associative: true, flags: JSON_THROW_ON_ERROR);
 
         return new self(
@@ -39,6 +56,7 @@ final class ShipConfig
             services: $data['services'] ?? [],
             extensions: $data['extensions'] ?? [],
             nodeVersion: $data['node'] ?? '24',
+            additionalServices: $data['additionalServices'] ?? [],
         );
     }
 
@@ -48,6 +66,7 @@ final class ShipConfig
             'php' => $this->phpVersion,
             'node' => $this->nodeVersion,
             'services' => $this->services,
+            'additionalServices' => $this->additionalServices,
             'extensions' => $this->extensions,
         ];
 

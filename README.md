@@ -20,6 +20,7 @@ small number of known, low-severity gaps that remain.
 - [Services](#services)
 - [Configuration (`ship.json`)](#configuration-shipjson)
   - [Adding a service later](#adding-a-service-later)
+  - [Multiple instances of a service](#multiple-instances-of-a-service)
 - [Production build](#production-build)
 - [HTTPS / TLS](#https--tls)
 - [Backing up data volumes](#backing-up-data-volumes)
@@ -110,7 +111,7 @@ nginx/php config) into your project root — both are meant to be committed.
 | `ship exec <service> <cmd...>` | Runs an arbitrary command inside a running service container. The generic escape hatch every shortcut below wraps. |
 | `ship shell [service]` | Opens an interactive shell (`sh`) in a service; defaults to `app`. |
 | `ship logs [service] [-f]` | Tails logs for one service, or all services if none given. `-f`/`--follow` streams live. |
-| `ship db` | Opens the selected database's interactive client shell (`psql`/`mysql`), reading credentials from that container's own environment. Fails clearly if no database is selected. |
+| `ship db [instance]` | Opens a database's interactive client shell (`psql`/`mysql`), reading credentials from that container's own environment. Omit `instance` for the default database; name one of `additionalServices`' database entries to open that instance instead. Fails clearly if no database is selected, or the named instance doesn't exist. |
 | `ship composer <args...>` | Proxies to `composer` inside the `app` container. |
 | `ship npm <args...>` | Proxies to `npm` inside the `app` container (e.g. `ship npm run dev`, `ship npm install`). |
 | `ship artisan <args...>` | Proxies to `php artisan` inside `app` — only registered when Laravel's `artisan` is detected at the project root. |
@@ -163,6 +164,9 @@ plain, readable JSON document:
         "frontend": "node",
         "broadcasting": "reverb"
     },
+    "additionalServices": [
+        {"group": "database", "service": "mysql", "name": "analytics"}
+    ],
     "extensions": []
 }
 ```
@@ -175,6 +179,10 @@ plain, readable JSON document:
   the Services table below).
 - `services` — one selected service key per group; a group with no entry
   means "none selected".
+- `additionalServices` — extra, named instances beyond the one in
+  `services` (a second database, a second Redis, ...). See
+  [Multiple instances of a service](#multiple-instances-of-a-service)
+  below.
 - `extensions` — fully-qualified class names of third-party
   `ServiceDefinition`/`FrameworkAdapter` implementations to load. See
   [Extending ship](#extending-ship).
@@ -201,6 +209,44 @@ doesn't republish stub files on its own — only `ship init` does — so
 it warns instead, comparing the version recorded at the last `ship
 init` against what's currently installed, and telling you to re-run
 `ship init` if they differ.
+
+### Multiple instances of a service
+
+`ship.json`'s `services` object holds exactly one selection per group —
+enough for a project with one database, one cache, one of everything.
+Some projects genuinely need more: a Postgres primary plus a MySQL
+connection into a legacy system, a second Redis kept separate from the
+default cache/session store, an S3-compatible bucket used only for
+backups. `additionalServices` is for that — each entry adds one more
+instance of a service, under a name of your choice:
+
+```json
+"additionalServices": [
+    {"group": "database", "service": "mysql", "name": "analytics"}
+]
+```
+
+`ship init` offers to add these interactively too, right after the main
+picker ("Add a named additional service instance?"). Either way, that
+`name` becomes two things at once:
+
+- The env vars this instance's connection details use — instead of the
+  default instance's `DB_HOST`/`DB_CONNECTION`/etc., you get
+  `ANALYTICS_DB_HOST`/`ANALYTICS_DB_CONNECTION`/etc. Wire it into your
+  own app config the same way you would for any second connection — for
+  Laravel, a second entry in `config/database.php`'s `connections`
+  array reading those `ANALYTICS_*` variables.
+- The compose service name — `mysql-analytics` here, distinct from the
+  plain `mysql` a default MySQL selection would produce, so named
+  volumes (`ship-mysql-analytics-data`) and `ship db analytics` (open
+  that instance's shell specifically, instead of the default database's)
+  both resolve unambiguously.
+
+Not every group supports this — only ones where a second instance
+actually means something: `database`, `cache`, `storage`, `search`, and
+`mail`. A second application runtime, frontend toolchain, testing
+driver, or broadcasting server isn't a coherent idea, so those stay
+single-select only.
 
 ## Production build
 

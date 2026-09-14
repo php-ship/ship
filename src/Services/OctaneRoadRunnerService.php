@@ -24,7 +24,10 @@ final class OctaneRoadRunnerService implements ServiceDefinition
         return 'runtime';
     }
 
-    public function composeFragment(ShipEnvironment $environment): array
+    // Only one application runtime ever makes sense per project, so $instanceName -- always null
+    // here in practice, nothing ever offers a second one to select -- is unused.
+
+    public function composeFragment(ShipEnvironment $environment, ?string $instanceName = null): array
     {
         return [
             'app' => [
@@ -34,7 +37,7 @@ final class OctaneRoadRunnerService implements ServiceDefinition
         ];
     }
 
-    public function environmentVariables(): array
+    public function environmentVariables(?string $instanceName = null): array
     {
         return ['OCTANE_SERVER' => 'roadrunner'];
     }

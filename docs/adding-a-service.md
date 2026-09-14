@@ -12,9 +12,17 @@ a runtime — is a class implementing `Ship\Contracts\ServiceDefinition`.
    - `group()` — which single-select group it belongs to (`database`,
      `cache`, `runtime`, `storage`, `search`, `mail`, `testing`,
      `frontend` — or a new group name if it doesn't fit any of these)
-   - `composeFragment(ShipEnvironment $environment)` — the Docker Compose
-     service(s) this contributes, keyed by service name
-   - `environmentVariables()` — env vars merged into the `app` service
+   - `composeFragment(ShipEnvironment $environment, ?string $instanceName = null)`
+     — the Docker Compose service(s) this contributes, keyed by service
+     name. `$instanceName` is only non-null for an additional named
+     instance (`ship.json`'s `additionalServices`); if a second instance
+     of your service is a coherent idea, see
+     [Supporting multiple named instances](#supporting-multiple-named-instances)
+     below — if not (a runtime, a frontend toolchain, ...), ignore the
+     parameter entirely, same as `NodeService`/`OctaneSwooleService`/etc.
+     already do.
+   - `environmentVariables(?string $instanceName = null)` — env vars
+     merged into the `app` service. Same `$instanceName` meaning.
    - `removes()` — compose service names to drop (see `OctaneSwooleService`
      for why: Octane runtimes serve HTTP themselves, so they remove the
      `webserver` nginx service that a plain php-fpm setup needs)
@@ -60,20 +68,68 @@ a runtime — is a class implementing `Ship\Contracts\ServiceDefinition`.
   document the limitation the way `DuskService` currently does, and see
   `docs/roadmap.md` for the direction a real fix should take.
 
+## Supporting multiple named instances
+
+Most services only ever make sense once per project — one application
+runtime, one frontend toolchain. Some don't: a project might genuinely
+need a second database of a different engine, or a second Redis kept
+separate from the default cache/session store. `ship.json`'s
+`additionalServices` is how a project asks for that (see README's
+"Multiple instances of a service"); on your side, supporting it means
+using the `Ship\Services\SupportsNamedInstances` trait, already used by
+`PostgresService`/`MySqlService`/`RedisService`/`SeaweedFsService`/
+`GarageService`/`MeilisearchService`/`MailpitService` — any of those is
+a reference to copy from. The trait gives you two methods:
+
+- `composeServiceName(?string $instanceName)` — `key()` itself for the
+  default (`null`) instance, `"{key()}-{instanceName}"` otherwise. Use
+  this as `composeFragment()`'s top-level array key and for deriving
+  named volume names (`"ship-{$name}-data"`, not a hardcoded
+  `"ship-redis-data"`), so two instances never collide.
+- `envPrefix(?string $instanceName)` — empty for the default instance
+  (so its variable names stay exactly what they've always been, zero
+  migration for existing single-instance projects), or the uppercased
+  instance name plus `_` otherwise (e.g. `"ANALYTICS_"`). Prefix every
+  *connection-specific* variable your service returns with it.
+
+One judgment call `environmentVariables()` has to make itself: not
+every variable a service sets is connection-specific. `CACHE_STORE`
+(Redis) and `SCOUT_DRIVER` (Meilisearch) pick the *app-wide default*
+store/driver — a named instance adds a second reachable service, it
+doesn't change what the app uses by default, so those variables should
+only be returned for the default (`null`) instance. `RedisService` and
+`MeilisearchService` are the two examples of that split to copy from.
+
+If running two of your service at once genuinely makes no sense (a
+runtime, a frontend toolchain, a testing driver, a broadcasting
+server), don't use the trait — just accept and ignore `$instanceName`
+in both methods, matching `NodeService`/`OctaneSwooleService`/
+`OctaneRoadRunnerService`/`OctaneFrankenPhpService`/`DuskService`/
+`ReverbService`. `InitCommand::GROUPS_SUPPORTING_ADDITIONAL_INSTANCES`
+is the list of groups `ship init`'s "add another instance" prompt
+offers at all (`database`, `cache`, `storage`, `search`, `mail`) — a
+service in a group outside that list is never asked to support more
+than one instance in the first place, hand-editing `ship.json` aside.
+
 ## Adding `ship db` support to a database service
 
 A database `ServiceDefinition` can also implement
 `Ship\Contracts\ProvidesDatabaseShell` to support `ship db` — a single
-method, `databaseShellCommand(): array{service: string, command: list<string>}`,
-returning the compose service to exec into and the command to run there.
-`PostgresService` and `MySqlService` are the two examples to copy from:
-both read the target container's *own* environment variables (e.g.
-`$POSTGRES_USER`/`$POSTGRES_DB`) rather than duplicating credentials, so
-the shell command always matches whatever that container was actually
-provisioned with. `DbCommand` fails with a clear message if the selected
-database service doesn't implement this interface — it's optional, not
-part of the base `ServiceDefinition` contract, since not every group
-(cache, storage, ...) has a client shell that makes sense here.
+method,
+`databaseShellCommand(?string $instanceName = null): array{service: string, command: list<string>}`,
+returning the compose service to exec into and the command to run
+there. Same `$instanceName` meaning as `composeFragment()` — use
+`composeServiceName($instanceName)` from `SupportsNamedInstances` to
+compute `service`, so `ship db` and `ship db <name>` both resolve to
+the right container. `PostgresService` and `MySqlService` are the two
+examples to copy from: both read the target container's *own*
+environment variables (e.g. `$POSTGRES_USER`/`$POSTGRES_DB`) rather
+than duplicating credentials, so the shell command always matches
+whatever that container was actually provisioned with. `DbCommand`
+fails with a clear message if the selected database service doesn't
+implement this interface — it's optional, not part of the base
+`ServiceDefinition` contract, since not every group (cache, storage,
+...) has a client shell that makes sense here.
 
 ## Extending without forking
 

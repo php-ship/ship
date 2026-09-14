@@ -9,6 +9,8 @@ use Ship\Contracts\ShipEnvironment;
 
 final class RedisService implements ServiceDefinition
 {
+    use SupportsNamedInstances;
+
     public function key(): string
     {
         return 'redis';
@@ -24,14 +26,16 @@ final class RedisService implements ServiceDefinition
         return 'cache';
     }
 
-    public function composeFragment(ShipEnvironment $environment): array
+    public function composeFragment(ShipEnvironment $environment, ?string $instanceName = null): array
     {
+        $name = $this->composeServiceName($instanceName);
+
         return [
-            'redis' => [
+            $name => [
                 'image' => 'redis:8-alpine',
                 'command' => ['redis-server', '--save', $environment->isDevelopment() ? '60 1' : '""'],
                 'volumes' => $environment->isDevelopment()
-                    ? ['ship-redis-data:/data']
+                    ? ["ship-{$name}-data:/data"]
                     : [],
                 'healthcheck' => [
                     'test' => ['CMD', 'redis-cli', 'ping'],
@@ -43,13 +47,18 @@ final class RedisService implements ServiceDefinition
         ];
     }
 
-    public function environmentVariables(): array
+    public function environmentVariables(?string $instanceName = null): array
     {
+        $name = $this->composeServiceName($instanceName);
+        $prefix = $this->envPrefix($instanceName);
+
+        // CACHE_STORE/SESSION_DRIVER pick the app's *default* store -- a named instance adds a
+        // second reachable Redis, it doesn't change what the app uses by default, so only the
+        // default (null) instance sets them.
         return [
-            'CACHE_STORE' => 'redis',
-            'SESSION_DRIVER' => 'redis',
-            'REDIS_HOST' => 'redis',
-            'REDIS_PORT' => '6379',
+            ...($instanceName === null ? ['CACHE_STORE' => 'redis', 'SESSION_DRIVER' => 'redis'] : []),
+            "{$prefix}REDIS_HOST" => $name,
+            "{$prefix}REDIS_PORT" => '6379',
         ];
     }
 

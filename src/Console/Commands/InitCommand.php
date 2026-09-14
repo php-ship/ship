@@ -20,6 +20,12 @@ final class InitCommand extends Command
 {
     private const NONE = '__none__';
 
+    // Groups whose built-in ServiceDefinitions actually give each instance its own env var
+    // prefix and compose service name (see SupportsNamedInstances) -- a second runtime, testing
+    // driver, frontend tool, or broadcasting server has nothing to name, only one of any of
+    // those ever makes sense per project, so this list deliberately excludes them.
+    private const GROUPS_SUPPORTING_ADDITIONAL_INSTANCES = ['database', 'cache', 'storage', 'search', 'mail'];
+
     public function __construct(
         private readonly string          $projectRoot,
         private readonly ServiceRegistry $registry,
@@ -57,6 +63,8 @@ final class InitCommand extends Command
             }
         }
 
+        $additionalServices = $this->promptForAdditionalInstances($io, $input);
+
         $phpVersion = $io->ask('PHP version', '8.4');
         $nodeVersion = $io->ask('Node.js version', '24');
 
@@ -64,6 +72,7 @@ final class InitCommand extends Command
             phpVersion: (string) $phpVersion,
             services: $selected,
             nodeVersion: (string) $nodeVersion,
+            additionalServices: $additionalServices,
         );
         $config->toFile($this->projectRoot . '/ship.json');
 
@@ -137,6 +146,65 @@ final class InitCommand extends Command
         $io->newLine();
     }
 
+    /**
+     * A project needing two genuinely different data stores at once -- a Postgres primary and a
+     * MySQL replica of a legacy system's data, a second Redis for a purpose the default one
+     * shouldn't share -- can't express that through the single-select loop above, since ship.json's
+     * `services` holds exactly one selection per group. This is the opt-in way to add more:
+     * each answer here becomes one ship.json `additionalServices` entry, distinguished by the name
+     * given (also the env var prefix and compose service suffix -- see SupportsNamedInstances).
+     *
+     * @return list<array{group: string, service: string, name: string}>
+     */
+    private function promptForAdditionalInstances(SymfonyStyle $io, InputInterface $input): array
+    {
+        $additional = [];
+        $usedNames = [];
+
+        while ($io->confirm(
+            $additional === []
+                ? 'Add a named additional service instance (e.g. a second database)?'
+                : 'Add another one?',
+            false,
+        )) {
+            $groupChoices = array_filter(
+                self::GROUPS_SUPPORTING_ADDITIONAL_INSTANCES,
+                fn (string $group): bool => $this->registry->inGroup($group) !== [],
+            );
+
+            if ($groupChoices === []) {
+                break;
+            }
+
+            $group = $this->select($io, $input, 'Which kind of service?', array_combine($groupChoices, $groupChoices));
+            $options = $this->registry->inGroup($group);
+            $choices = array_combine(
+                array_map(static fn ($s) => $s->key(), $options),
+                array_map(static fn ($s) => $s->label(), $options),
+            );
+            $service = $this->select($io, $input, 'Which one?', $choices);
+
+            do {
+                $name = strtolower((string) $io->ask(
+                    'Name this instance (used as its env var prefix and compose service suffix, '
+                        . 'e.g. "analytics")',
+                ));
+
+                if ($name === '') {
+                    $io->warning('A name is required.');
+                } elseif (in_array($name, $usedNames, true)) {
+                    $io->warning("\"{$name}\" is already used -- pick a different name.");
+                    $name = '';
+                }
+            } while ($name === '');
+
+            $usedNames[] = $name;
+            $additional[] = ['group' => $group, 'service' => $service, 'name' => $name];
+        }
+
+        return $additional;
+    }
+
     private function projectUsesVite(): bool
     {
         $path = $this->projectRoot . '/package.json';
@@ -184,18 +252,25 @@ final class InitCommand extends Command
      * requiring it here would break any project in that version window. Detecting it at runtime keeps a
      * free ride in the common case: Laravel 11+ already requires it, falling back silently otherwise.
      *
-     * @param array<string, string> $choicesByKey service key => label,
-     *        always includes self::NONE => 'None'
+     * @param array<string, string> $choicesByKey option key => label
+     * @param ?string $default must be an actual key in $choicesByKey, or omitted to default to the
+     *        first one -- Laravel Prompts errors on a default that isn't one of its own options,
+     *        which self::NONE never is for a choice list that has no "None" (the additional-instance
+     *        prompts below, unlike the main per-group loop, which always passes self::NONE here).
      */
     private function select(
         SymfonyStyle $io,
         InputInterface $input,
         string $label,
         array $choicesByKey,
+        ?string $default = null,
     ): string {
+        $default ??= array_key_first($choicesByKey)
+            ?? throw new \LogicException('select() called with no choices to pick from.');
+
         if ($this->canUseLaravelPromptsInteractiveUi($input)) {
             /** @var string */
-            return \Laravel\Prompts\select(label: $label, options: $choicesByKey, default: self::NONE);
+            return \Laravel\Prompts\select(label: $label, options: $choicesByKey, default: $default);
         }
 
         // Numeric-indexed list, not $choicesByKey's own string keys --
@@ -204,15 +279,16 @@ final class InitCommand extends Command
         // internal service keys like "[pgsql]" or "[__none__]".
         $labels = array_values($choicesByKey);
         $keys = array_keys($choicesByKey);
+        $defaultIndex = array_search($default, $keys, strict: true);
 
-        $question = new ChoiceQuestion($label, $labels, 0);
+        $question = new ChoiceQuestion($label, $labels, $defaultIndex === false ? 0 : $defaultIndex);
         $question->setErrorMessage('%s is not a valid choice.');
 
         /** @var string $answerLabel */
         $answerLabel = $io->askQuestion($question);
         $index = array_search($answerLabel, $labels, strict: true);
 
-        return $index === false ? self::NONE : $keys[$index];
+        return $index === false ? $default : $keys[$index];
     }
 
     /**

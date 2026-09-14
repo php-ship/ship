@@ -53,4 +53,19 @@ final class DbCommandTest extends TestCase
         self::assertSame(Command::FAILURE, $exitCode);
         self::assertStringContainsString("doesn't provide a `ship db` shell", $tester->getDisplay());
     }
+
+    public function test_it_fails_clearly_when_the_named_instance_argument_matches_nothing(): void
+    {
+        (new ShipConfig(
+            phpVersion: '8.4',
+            services: ['database' => 'pgsql'],
+            additionalServices: [['group' => 'database', 'service' => 'mysql', 'name' => 'analytics']],
+        ))->toFile($this->projectRoot . '/ship.json');
+
+        $tester = new CommandTester(new DbCommand($this->projectRoot, new ProcessRunner()));
+        $exitCode = $tester->execute(['instance' => 'nonexistent']);
+
+        self::assertSame(Command::FAILURE, $exitCode);
+        self::assertStringContainsString('No database instance named "nonexistent"', $tester->getDisplay());
+    }
 }

@@ -91,6 +91,29 @@
   they're not in an actual Dockerfile. Grouped into one PR per run,
   not one per image, so a version bump gets a single review pass.
   Needs the Renovate GitHub App enabled on the repo to actually run.
+- Multiple named instances of the same kind of service -- a Postgres
+  primary plus a MySQL connection into a different system, a second
+  Redis kept separate from the default cache/session store -- via
+  `ship.json`'s `additionalServices` (`ship init` offers this
+  interactively too, right after the main picker). `database`,
+  `cache`, `storage`, `search`, and `mail` support it; a runtime,
+  frontend toolchain, testing driver, or broadcasting server doesn't,
+  since a second one of any of those isn't a coherent idea.
+  `Ship\Services\SupportsNamedInstances` gives a `ServiceDefinition`
+  the naming convention (`"{key()}-{instanceName}"` for the compose
+  service and named volumes, an uppercased-instance-name env var
+  prefix) that `ComposeFileBuilder`, `DbCommand`, and the service
+  itself all independently have to agree on; every built-in service in
+  a supporting group uses it. `environmentVariables()` and
+  `composeFragment()` both take an optional `$instanceName` (null for
+  the default instance, matching every existing project's ship.json
+  byte-for-byte -- this was additive, not a breaking change for
+  existing single-instance projects, only for third-party
+  `ServiceDefinition` implementations, which now need the parameter in
+  their own method signatures too). Verified live: a real Postgres +
+  MySQL stack, both reachable from the same Laravel app through two
+  separate `config/database.php` connections at once, `ship db` and
+  `ship db analytics` each opening the right one.
 - CI matrix across Ubuntu/macOS/Windows x PHP 8.2/8.3/8.4, plus a
   separate `docker-build` job that actually runs `ship init`/`up`/
   `up --prod` against a real fixture Laravel app and a real Docker

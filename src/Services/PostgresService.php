@@ -10,6 +10,8 @@ use Ship\Contracts\ShipEnvironment;
 
 final class PostgresService implements ServiceDefinition, ProvidesDatabaseShell
 {
+    use SupportsNamedInstances;
+
     public function key(): string
     {
         return 'pgsql';
@@ -25,21 +27,24 @@ final class PostgresService implements ServiceDefinition, ProvidesDatabaseShell
         return 'database';
     }
 
-    public function composeFragment(ShipEnvironment $environment): array
+    public function composeFragment(ShipEnvironment $environment, ?string $instanceName = null): array
     {
+        $name = $this->composeServiceName($instanceName);
+        $prefix = $this->envPrefix($instanceName);
+
         return [
-            'pgsql' => [
+            $name => [
                 'image' => 'postgres:18-alpine',
                 'environment' => [
-                    'POSTGRES_DB' => '${DB_DATABASE:-app}',
-                    'POSTGRES_USER' => '${DB_USERNAME:-app}',
-                    'POSTGRES_PASSWORD' => '${DB_PASSWORD:-secret}',
+                    'POSTGRES_DB' => "\${{$prefix}DB_DATABASE:-app}",
+                    'POSTGRES_USER' => "\${{$prefix}DB_USERNAME:-app}",
+                    'POSTGRES_PASSWORD' => "\${{$prefix}DB_PASSWORD:-secret}",
                 ],
                 'volumes' => $environment->isDevelopment()
-                    ? ['ship-pgsql-data:/var/lib/postgresql']
+                    ? ["ship-{$name}-data:/var/lib/postgresql"]
                     : [],
                 'healthcheck' => [
-                    'test' => ['CMD-SHELL', 'pg_isready -U ${DB_USERNAME:-app}'],
+                    'test' => ['CMD-SHELL', "pg_isready -U \${{$prefix}DB_USERNAME:-app}"],
                     'interval' => '5s',
                     'timeout' => '5s',
                     'retries' => 5,
@@ -48,20 +53,22 @@ final class PostgresService implements ServiceDefinition, ProvidesDatabaseShell
         ];
     }
 
-    public function environmentVariables(): array
+    public function environmentVariables(?string $instanceName = null): array
     {
+        $name = $this->composeServiceName($instanceName);
+        $prefix = $this->envPrefix($instanceName);
+
         return [
-            'DB_CONNECTION' => 'pgsql',
-            'DB_HOST' => 'pgsql',
-            'DB_PORT' => '5432',
-            // Same `${DB_DATABASE:-app}`/`${DB_USERNAME:-app}`/
-            // `${DB_PASSWORD:-secret}` expressions as composeFragment()'s
-            // "pgsql" service, so both sides always resolve from the same
-            // source at the same compose-parse time, never two
-            // independent guesses that could silently drift apart.
-            'DB_DATABASE' => '${DB_DATABASE:-app}',
-            'DB_USERNAME' => '${DB_USERNAME:-app}',
-            'DB_PASSWORD' => '${DB_PASSWORD:-secret}',
+            "{$prefix}DB_CONNECTION" => 'pgsql',
+            "{$prefix}DB_HOST" => $name,
+            "{$prefix}DB_PORT" => '5432',
+            // Same `${..._DATABASE:-app}`/`${..._USERNAME:-app}`/`${..._PASSWORD:-secret}`
+            // expressions as composeFragment()'s own service, so both sides always resolve
+            // from the same source at the same compose-parse time, never two independent
+            // guesses that could silently drift apart.
+            "{$prefix}DB_DATABASE" => "\${{$prefix}DB_DATABASE:-app}",
+            "{$prefix}DB_USERNAME" => "\${{$prefix}DB_USERNAME:-app}",
+            "{$prefix}DB_PASSWORD" => "\${{$prefix}DB_PASSWORD:-secret}",
         ];
     }
 
@@ -70,13 +77,13 @@ final class PostgresService implements ServiceDefinition, ProvidesDatabaseShell
         return [];
     }
 
-    public function databaseShellCommand(): array
+    public function databaseShellCommand(?string $instanceName = null): array
     {
         return [
-            'service' => 'pgsql',
+            'service' => $this->composeServiceName($instanceName),
             // Reads the container's own env vars rather than ship's, so this
-            // always matches whatever the "pgsql" container was actually
-            // provisioned with, even if DB_USERNAME/DB_DATABASE were overridden.
+            // always matches whatever the container was actually provisioned
+            // with, even if DB_USERNAME/DB_DATABASE were overridden.
             'command' => ['sh', '-c', 'exec psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'],
         ];
     }

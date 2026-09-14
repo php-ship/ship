@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use Ship\Config\ShipConfig;
 use Ship\Contracts\ShipEnvironment;
 use Ship\Docker\ComposeFileBuilder;
+use Ship\Services\MySqlService;
 use Ship\Services\PostgresService;
 use Ship\Services\RedisService;
 use Ship\Services\ReverbService;
@@ -200,5 +201,53 @@ final class ComposeFileBuilderTest extends TestCase
 
         self::assertSame([['path' => '.env', 'required' => false]], $parsed['services']['app']['env_file']);
         self::assertSame([['path' => '.env', 'required' => false]], $parsed['services']['webserver']['env_file']);
+    }
+
+    public function test_an_additional_named_instance_gets_its_own_compose_service_and_prefixed_env_vars(): void
+    {
+        $registry = new ServiceRegistry([new PostgresService(), new MySqlService()]);
+        $builder = new ComposeFileBuilder($registry);
+        $config = new ShipConfig(
+            phpVersion: '8.4',
+            services: ['database' => 'pgsql'],
+            additionalServices: [['group' => 'database', 'service' => 'mysql', 'name' => 'analytics']],
+        );
+
+        $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Development));
+
+        // Default instance untouched: same compose service name and env var names as always,
+        // not overwritten by the additional instance sharing the same "DB_" variable family.
+        self::assertArrayHasKey('pgsql', $parsed['services']);
+        self::assertSame('pgsql', $parsed['services']['app']['environment']['DB_HOST']);
+        self::assertSame('pgsql', $parsed['services']['app']['environment']['DB_CONNECTION']);
+
+        // Additional instance: its own compose service, its own prefixed env vars.
+        self::assertArrayHasKey('mysql-analytics', $parsed['services']);
+        self::assertSame('mysql-analytics', $parsed['services']['app']['environment']['ANALYTICS_DB_HOST']);
+        self::assertSame('mysql', $parsed['services']['app']['environment']['ANALYTICS_DB_CONNECTION']);
+    }
+
+    public function test_two_additional_instances_of_the_same_service_get_distinct_compose_services_and_volumes(): void
+    {
+        $registry = new ServiceRegistry([new RedisService()]);
+        $builder = new ComposeFileBuilder($registry);
+        $config = new ShipConfig(
+            phpVersion: '8.4',
+            services: ['cache' => 'redis'],
+            additionalServices: [['group' => 'cache', 'service' => 'redis', 'name' => 'queue']],
+        );
+
+        $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Development));
+
+        self::assertArrayHasKey('redis', $parsed['services']);
+        self::assertArrayHasKey('redis-queue', $parsed['services']);
+        self::assertArrayHasKey('ship-redis-data', $parsed['volumes']);
+        self::assertArrayHasKey('ship-redis-queue-data', $parsed['volumes']);
+
+        // Only the default instance sets the app-wide default store -- a named instance adds a
+        // second reachable Redis, it doesn't change what the app uses by default.
+        self::assertSame('redis', $parsed['services']['app']['environment']['CACHE_STORE']);
+        self::assertArrayNotHasKey('QUEUE_CACHE_STORE', $parsed['services']['app']['environment']);
+        self::assertSame('redis-queue', $parsed['services']['app']['environment']['QUEUE_REDIS_HOST']);
     }
 }

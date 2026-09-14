@@ -30,7 +30,10 @@ final class ReverbService implements ServiceDefinition
         return 'broadcasting';
     }
 
-    public function composeFragment(ShipEnvironment $environment): array
+    // Only one broadcasting server ever makes sense per project, so $instanceName -- always null
+    // here in practice, nothing ever offers a second one to select -- is unused.
+
+    public function composeFragment(ShipEnvironment $environment, ?string $instanceName = null): array
     {
         return [
             'reverb' => [
@@ -53,7 +56,7 @@ final class ReverbService implements ServiceDefinition
         ];
     }
 
-    public function environmentVariables(): array
+    public function environmentVariables(?string $instanceName = null): array
     {
         return [
             'BROADCAST_CONNECTION' => 'reverb',

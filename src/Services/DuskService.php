@@ -24,7 +24,10 @@ final class DuskService implements ServiceDefinition
         return 'testing';
     }
 
-    public function composeFragment(ShipEnvironment $environment): array
+    // Only one browser testing driver ever makes sense per project, so $instanceName -- always
+    // null here in practice, nothing ever offers a second one to select -- is unused.
+
+    public function composeFragment(ShipEnvironment $environment, ?string $instanceName = null): array
     {
         return [
             'selenium' => [
@@ -34,7 +37,7 @@ final class DuskService implements ServiceDefinition
         ];
     }
 
-    public function environmentVariables(): array
+    public function environmentVariables(?string $instanceName = null): array
     {
         return [
             // APP_URL isn't set here; ComposeFileBuilder computes it once, generically, for every

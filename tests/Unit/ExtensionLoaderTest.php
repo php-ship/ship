@@ -27,12 +27,12 @@ final class FakeExtensionService implements ServiceDefinition
         return 'testing-only';
     }
 
-    public function composeFragment(ShipEnvironment $environment): array
+    public function composeFragment(ShipEnvironment $environment, ?string $instanceName = null): array
     {
         return [];
     }
 
-    public function environmentVariables(): array
+    public function environmentVariables(?string $instanceName = null): array
     {
         return [];
     }

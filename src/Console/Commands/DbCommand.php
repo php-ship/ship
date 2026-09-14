@@ -12,10 +12,11 @@ use Ship\Runtime\ProcessRunner;
 use Ship\Services\ServiceRegistry;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
-#[AsCommand(name: 'db', description: "Open the selected database's interactive client shell")]
+#[AsCommand(name: 'db', description: "Open a selected database's interactive client shell")]
 final class DbCommand extends Command
 {
     public function __construct(
@@ -25,16 +26,47 @@ final class DbCommand extends Command
         parent::__construct();
     }
 
+    protected function configure(): void
+    {
+        $this->addArgument(
+            'instance',
+            InputArgument::OPTIONAL,
+            'Name of an additional database instance (see ship.json\'s additionalServices) -- '
+                . 'omit for the default one (ship.json\'s services.database)',
+        );
+    }
+
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $config = ShipConfig::fromFile($this->projectRoot . '/ship.json');
-        $databaseKey = $config->services['database'] ?? null;
+        /** @var string|null $instanceArg */
+        $instanceArg = $input->getArgument('instance');
 
-        if ($databaseKey === null) {
-            $output->writeln('<error>No database service is selected. Run `ship init` and pick one, '
-                . 'or add a "database" entry to ship.json\'s services object.</error>');
+        if ($instanceArg === null) {
+            $databaseKey = $config->services['database'] ?? null;
+            $instanceName = null;
 
-            return Command::FAILURE;
+            if ($databaseKey === null) {
+                $output->writeln('<error>No database service is selected. Run `ship init` and pick '
+                    . 'one, or add a "database" entry to ship.json\'s services object.</error>');
+
+                return Command::FAILURE;
+            }
+        } else {
+            $additional = $this->findAdditionalDatabase($config, $instanceArg);
+
+            if ($additional === null) {
+                $output->writeln(sprintf(
+                    '<error>No database instance named "%s" -- check ship.json\'s '
+                        . 'additionalServices.</error>',
+                    $instanceArg,
+                ));
+
+                return Command::FAILURE;
+            }
+
+            $databaseKey = $additional['service'];
+            $instanceName = $additional['name'];
         }
 
         $registry = new ServiceRegistry(ServiceRegistry::defaults());
@@ -50,11 +82,25 @@ final class DbCommand extends Command
             return Command::FAILURE;
         }
 
-        $shell = $service->databaseShellCommand();
+        $shell = $service->databaseShellCommand($instanceName);
 
         return $this->runner->runInteractive(
             [...ComposeCommand::baseArgs($this->projectRoot), 'exec', $shell['service'], ...$shell['command']],
             $this->projectRoot,
         );
+    }
+
+    /**
+     * @return array{group: string, service: string, name: string}|null
+     */
+    private function findAdditionalDatabase(ShipConfig $config, string $name): ?array
+    {
+        foreach ($config->additionalServices as $additional) {
+            if ($additional['group'] === 'database' && $additional['name'] === $name) {
+                return $additional;
+            }
+        }
+
+        return null;
     }
 }

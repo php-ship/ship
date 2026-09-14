@@ -14,6 +14,8 @@ use Ship\Contracts\ShipEnvironment;
  */
 final class GarageService implements ServiceDefinition
 {
+    use SupportsNamedInstances;
+
     public function key(): string
     {
         return 'garage';
@@ -29,10 +31,12 @@ final class GarageService implements ServiceDefinition
         return 'storage';
     }
 
-    public function composeFragment(ShipEnvironment $environment): array
+    public function composeFragment(ShipEnvironment $environment, ?string $instanceName = null): array
     {
+        $name = $this->composeServiceName($instanceName);
+
         return [
-            'garage' => [
+            $name => [
                 'build' => [
                     'context' => './ship/garage',
                     'dockerfile' => 'Dockerfile',
@@ -47,7 +51,7 @@ final class GarageService implements ServiceDefinition
                     'GARAGE_DEFAULT_BUCKET' => 'local',
                 ],
                 'volumes' => $environment->isDevelopment()
-                    ? ['ship-garage-data:/data', 'ship-garage-meta:/meta']
+                    ? ["ship-{$name}-data:/data", "ship-{$name}-meta:/meta"]
                     : [],
                 // No shell or curl in a FROM-scratch image -- `status` is the
                 // only way to check the node is up, over its own local RPC.
@@ -62,17 +66,20 @@ final class GarageService implements ServiceDefinition
         ];
     }
 
-    public function environmentVariables(): array
+    public function environmentVariables(?string $instanceName = null): array
     {
+        $name = $this->composeServiceName($instanceName);
+        $prefix = $this->envPrefix($instanceName);
+
         return [
-            'AWS_ENDPOINT' => 'http://garage:3900',
-            'AWS_USE_PATH_STYLE_ENDPOINT' => 'true',
-            'AWS_DEFAULT_REGION' => 'garage',
+            "{$prefix}AWS_ENDPOINT" => "http://{$name}:3900",
+            "{$prefix}AWS_USE_PATH_STYLE_ENDPOINT" => 'true',
+            "{$prefix}AWS_DEFAULT_REGION" => 'garage',
             // Must match composeFragment()'s GARAGE_DEFAULT_ACCESS_KEY/
             // GARAGE_DEFAULT_SECRET_KEY/GARAGE_DEFAULT_BUCKET above.
-            'AWS_ACCESS_KEY_ID' => 'ship',
-            'AWS_SECRET_ACCESS_KEY' => 'shipsecret',
-            'AWS_BUCKET' => 'local',
+            "{$prefix}AWS_ACCESS_KEY_ID" => 'ship',
+            "{$prefix}AWS_SECRET_ACCESS_KEY" => 'shipsecret',
+            "{$prefix}AWS_BUCKET" => 'local',
         ];
     }
 

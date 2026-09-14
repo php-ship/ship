@@ -12,6 +12,8 @@ use Ship\Contracts\ShipEnvironment;
  */
 final class SeaweedFsService implements ServiceDefinition
 {
+    use SupportsNamedInstances;
+
     public function key(): string
     {
         return 'seaweedfs';
@@ -27,14 +29,16 @@ final class SeaweedFsService implements ServiceDefinition
         return 'storage';
     }
 
-    public function composeFragment(ShipEnvironment $environment): array
+    public function composeFragment(ShipEnvironment $environment, ?string $instanceName = null): array
     {
+        $name = $this->composeServiceName($instanceName);
+
         return [
-            'seaweedfs' => [
+            $name => [
                 'image' => 'chrislusf/seaweedfs:4.46',
                 'command' => ['server', '-s3', '-s3.port=8333', '-dir=/data'],
                 'volumes' => $environment->isDevelopment()
-                    ? ['ship-seaweedfs-data:/data']
+                    ? ["ship-{$name}-data:/data"]
                     : [],
                 'healthcheck' => [
                     // 127.0.0.1, not "localhost" -- this image's resolver tries ::1 first, which
@@ -49,18 +53,21 @@ final class SeaweedFsService implements ServiceDefinition
         ];
     }
 
-    public function environmentVariables(): array
+    public function environmentVariables(?string $instanceName = null): array
     {
+        $name = $this->composeServiceName($instanceName);
+        $prefix = $this->envPrefix($instanceName);
+
         // Generic AWS SDK-standard names, not framework-specific, so any
         // S3 client (Laravel's Storage facade, aws-sdk-php directly,
         // Flysystem, ...) can consume them the same way.
         return [
-            'AWS_ENDPOINT' => 'http://seaweedfs:8333',
-            'AWS_USE_PATH_STYLE_ENDPOINT' => 'true',
-            'AWS_DEFAULT_REGION' => 'us-east-1',
-            'AWS_ACCESS_KEY_ID' => 'ship',
-            'AWS_SECRET_ACCESS_KEY' => 'shipsecret',
-            'AWS_BUCKET' => 'local',
+            "{$prefix}AWS_ENDPOINT" => "http://{$name}:8333",
+            "{$prefix}AWS_USE_PATH_STYLE_ENDPOINT" => 'true',
+            "{$prefix}AWS_DEFAULT_REGION" => 'us-east-1',
+            "{$prefix}AWS_ACCESS_KEY_ID" => 'ship',
+            "{$prefix}AWS_SECRET_ACCESS_KEY" => 'shipsecret',
+            "{$prefix}AWS_BUCKET" => 'local',
         ];
     }
 
