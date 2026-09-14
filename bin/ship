@@ -1,0 +1,21 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+$autoloadPaths = [
+    __DIR__ . '/../vendor/autoload.php',      // running from within this repo
+    __DIR__ . '/../../../autoload.php',       // installed as a dependency
+];
+
+foreach ($autoloadPaths as $path) {
+    if (file_exists($path)) {
+        require $path;
+        break;
+    }
+}
+
+use Ship\Console\Application;
+
+$application = new Application(projectRoot: getcwd() ?: '.');
+exit($application->run());

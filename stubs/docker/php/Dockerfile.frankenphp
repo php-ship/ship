@@ -1,0 +1,68 @@
+# FrankenPHP has its own base image (Debian + Caddy + embedded PHP), so this
+# mirrors stubs/docker/php/Dockerfile's dev/builder/prod stage structure but
+# can't share it — see OctaneFrankenPhpService's docblock for why. Image tag
+# format and the bundled install-php-extensions script are both confirmed
+# against FrankenPHP's own docs (frankenphp.dev/docs/docker), not guessed.
+
+ARG PHP_VERSION=8.4
+
+FROM dunglas/frankenphp:1-php${PHP_VERSION}-bookworm AS base
+
+# Node's version tracks whatever Debian bookworm's repo carries. pdo_pgsql/
+# pdo_mysql/redis/pcntl are all unconditional, same as the main Dockerfile --
+# see that file's comment for why.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends nodejs npm \
+    && rm -rf /var/lib/apt/lists/* \
+    && install-php-extensions pdo_pgsql pdo_mysql intl mbstring opcache redis pcntl
+
+WORKDIR /var/www/html
+
+# ---- dev -------------------------------------------------------------
+FROM base AS dev
+RUN install-php-extensions xdebug
+COPY ship/dev/php.ini /usr/local/etc/php/conf.d/99-ship-dev.ini
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+COPY ship/dev/entrypoint.sh /usr/local/bin/ship-entrypoint
+RUN chmod +x /usr/local/bin/ship-entrypoint
+ENTRYPOINT ["/usr/local/bin/ship-entrypoint"]
+# No CMD here: FrankenPHP's default CMD from its base image would start
+# Caddy directly off a Caddyfile, but Octane manages FrankenPHP itself via
+# `php artisan octane:start --server=frankenphp` -- that's what
+# OctaneFrankenPhpService sets as the compose-level `command:`, which
+# becomes this ENTRYPOINT's "$@" regardless of what CMD would have been.
+
+# ---- builder -----------------------------------------------------------
+FROM base AS builder
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+COPY composer.json composer.lock ./
+RUN composer install --no-dev --no-scripts --no-autoloader --optimize-autoloader
+COPY . .
+RUN composer dump-autoload --optimize --no-dev
+
+# ---- assets --------------------------------------------------------------
+# See stubs/docker/php/Dockerfile's "assets" stage -- identical reasoning,
+# duplicated here rather than shared since this Dockerfile can't FROM the
+# other one (different base images entirely).
+FROM builder AS assets
+RUN if [ -f package.json ]; then \
+        (npm ci || npm install) && npm run build; \
+    fi
+
+# ---- prod --------------------------------------------------------------
+FROM base AS prod
+COPY ship/prod/php.ini /usr/local/etc/php/conf.d/99-ship-prod.ini
+COPY --from=assets /var/www/html /var/www/html
+# See stubs/docker/php/Dockerfile's matching entrypoint wiring -- same
+# generated-not-static file, same reasoning.
+COPY ship/prod/entrypoint.sh /usr/local/bin/ship-entrypoint
+RUN chmod +x /usr/local/bin/ship-entrypoint
+ENTRYPOINT ["/usr/local/bin/ship-entrypoint"]
+
+# KNOWN GAP: the base dunglas/frankenphp image ships a HEALTHCHECK against
+# Caddy's admin metrics endpoint (localhost:2019/metrics). That's correct
+# when FrankenPHP runs as its own Caddy-driven process, but Octane instead
+# manages FrankenPHP through the PHP extension embedded in this image, not
+# by running the binary against a Caddyfile — so that inherited healthcheck
+# may not reflect what's actually running. Not fixed here; flagging rather
+# than silently inheriting a healthcheck that might be meaningless.

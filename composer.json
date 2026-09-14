@@ -1,0 +1,52 @@
+{
+    "name": "php-ship/ship",
+    "description": "Framework-agnostic, cross-platform Docker development environment for PHP — no WSL required.",
+    "keywords": ["docker", "development-environment", "php", "devops", "octane", "cross-platform"],
+    "homepage": "https://github.com/php-ship/ship",
+    "license": "MIT",
+    "type": "library",
+    "authors": [
+        {
+            "name": "php-ship"
+        }
+    ],
+    "require": {
+        "php": "^8.2",
+        "symfony/console": "^7.4 || ^8.0",
+        "symfony/process": "^7.0 || ^8.0",
+        "symfony/yaml": "^7.0 || ^8.0",
+        "symfony/filesystem": "^7.0 || ^8.0"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.0",
+        "friendsofphp/php-cs-fixer": "^3.75",
+        "phpstan/phpstan": "^2.0",
+        "phpstan/phpstan-strict-rules": "^2.0"
+    },
+    "suggest": {
+        "laravel/prompts": "Enables arrow-key selection in `ship init`. Not required -- falls back to a numbered prompt without it. Already present via laravel/framework in any Laravel >=11 project, so this is 'free' for the common case; deliberately not a hard require since laravel/prompts conflicts with laravel/framework 10.17-10.24."
+    },
+    "autoload": {
+        "psr-4": {
+            "Ship\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Ship\\Tests\\": "tests/"
+        }
+    },
+    "bin": ["bin/ship"],
+    "scripts": {
+        "test": "phpunit",
+        "cs-check": "php-cs-fixer fix --dry-run --diff",
+        "cs-fix": "php-cs-fixer fix",
+        "analyse": "phpstan analyse src --level=8"
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": false
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
