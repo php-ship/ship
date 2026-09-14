@@ -20,6 +20,8 @@ still missing before relying on this beyond local development.
 - [Configuration (`ship.json`)](#configuration-shipjson)
   - [Adding a service later](#adding-a-service-later)
 - [Production build](#production-build)
+- [HTTPS / TLS](#https--tls)
+- [Backing up data volumes](#backing-up-data-volumes)
 - [Frontend dev server (Vite HMR)](#frontend-dev-server-vite-hmr)
 - [Running more than one project at once](#running-more-than-one-project-at-once)
 - [Customizing the stack](#customizing-the-stack)
@@ -237,6 +239,48 @@ wherever it runs, and start it there with real environment variables
 injected by the orchestrator — a single `docker compose up -d` against
 the same generated compose file, once the image exists and the env vars
 are in place.
+
+## HTTPS / TLS
+
+`webserver` only listens on plain HTTP (port 80) — `ship` doesn't
+terminate TLS itself. This is a deliberate scope boundary, not an
+oversight: TLS termination is meant to happen in front of `ship`, the
+same way it would in front of any other containerized app —
+
+- a load balancer or reverse proxy you already run (an ALB/NLB, Cloudflare,
+  a Caddy/Traefik/another nginx instance) forwarding plain HTTP to
+  `webserver`'s published port, or
+- a sidecar you add yourself via
+  [`docker-compose.override.yml`](#customizing-the-stack) — for example a
+  `caddy` or `traefik` service in front of `webserver`, with your certs
+  mounted in.
+
+Serving real traffic over the bare `${APP_PORT:-80}:80` `ship` publishes
+by default, with nothing in front of it, means serving it over plain
+HTTP. Put a TLS-terminating layer in front before that port reaches the
+public internet.
+
+## Backing up data volumes
+
+Every stateful service (`ship-pgsql-data`, `ship-mysql-data`,
+`ship-redis-data`, `ship-seaweedfs-data`, `ship-meilisearch-data`, ...)
+persists to a named Docker volume, not a bind mount — `docker volume ls`
+lists them, prefixed with the project's directory name. `ship` doesn't
+back these up or rotate them; that's left to whatever backup tooling
+your deploy target already uses. A one-off manual backup of a single
+volume looks like:
+
+```sh
+docker run --rm -v <project>_ship-pgsql-data:/data -v "$PWD":/backup \
+    alpine tar czf /backup/pgsql-data.tar.gz -C /data .
+```
+
+and restoring is the same in reverse (`tar xzf` into a fresh volume
+mounted the same way). For anything beyond an occasional manual backup —
+scheduled snapshots, offsite storage, point-in-time recovery — use your
+database engine's own tooling (`pg_dump`/`mysqldump` via `ship db`, or
+the volume backup approach above pointed at a proper backup destination)
+rather than relying on the named volume alone.
 
 ## Frontend dev server (Vite HMR)
 
