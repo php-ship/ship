@@ -40,6 +40,20 @@
 - `app`, `webserver`, and `reverb` all load an optional `.env` from the
   deploy target's filesystem via Compose's `env_file`, never baked into
   the image itself.
+- `ship up` verifies the stack it just started, not just that `docker
+  compose up --build -d` exited 0. It checks every expected service
+  against `docker compose ps --status running`, retrying once for
+  anything not yet up (self-heals a Docker Compose/Desktop concurrency
+  quirk under simultaneous image builds, where a late-building service
+  can otherwise sit at "Created" without ever starting); then, for
+  anything with a published port, confirms the port actually bound on
+  the host, not just that the container is running -- Docker can leave
+  a service "running" while silently dropping its port publish if
+  something else already owns that host port, and `docker compose
+  port` reports that failure as the literal string "invalid IP:0", not
+  as empty output or a command error, so a naive check misses it
+  entirely. Both checks fail loudly with a clear message naming the
+  affected service instead of exiting quietly successful.
 - CI matrix across Ubuntu/macOS/Windows x PHP 8.2/8.3/8.4, plus a
   separate `docker-build` job that actually runs `ship init`/`up`/
   `up --prod` against a real fixture Laravel app and a real Docker
@@ -54,23 +68,6 @@
 
 ## Known gaps
 
-- **`ship up` can leave a late-building service at "Created" without
-  starting it** when several services build images in the same run
-  (`app`, `webserver`, `reverb` all build from `ship/Dockerfile`). The
-  generated compose file's dependency graph is correct — this is a
-  Docker Compose/Desktop concurrency quirk under simultaneous builds,
-  not something `ship` generates wrong. `ship up` now checks every
-  expected service against `docker compose ps --status running` after
-  its own `up --build -d` call, retries once, and reports a clear
-  failure naming whatever's still not running instead of exiting
-  quietly successful.
-- **That check only confirms a container is running, not that its
-  published ports actually bound.** A container can report "running"
-  while Docker silently drops one of its port publishes (observed with
-  Reverb's default `8080` colliding with an unrelated container already
-  using that host port) — reachable over the internal Docker network,
-  but not from the host. `ship up` doesn't currently detect or warn
-  about this case.
 - **Nothing asserts the picker's answers actually produce the right
   `ship.json`, or that `publishStubs()` copies the right files for a
   given selection.** The `select()`/`ChoiceQuestion` fallback path and

@@ -97,7 +97,13 @@ final class UpCommand extends Command
             return $result;
         }
 
-        return $this->ensureEveryServiceStarted($compose, $output);
+        $result = $this->ensureEveryServiceStarted($compose, $output);
+
+        if ($result !== Command::SUCCESS) {
+            return $result;
+        }
+
+        return $this->ensurePublishedPortsAreBound($compose, $output);
     }
 
     /**
@@ -155,6 +161,105 @@ final class UpCommand extends Command
         );
 
         return $output === '' ? [] : explode("\n", $output);
+    }
+
+    /**
+     * A container reporting "running" doesn't mean its published ports actually bound -- Docker
+     * can silently drop one if another process already owns that host port (observed with
+     * Reverb's default 8080 colliding with an unrelated container), leaving the service reachable
+     * over the internal Docker network but not from the host. Nothing to retry here, unlike
+     * ensureEveryServiceStarted() -- another process squatting on the port won't free it up on its
+     * own, so this only needs to turn an otherwise-silent failure into a visible one. Checked right
+     * after `up` returns, Docker's own async network setup can still be mid-flight either way --
+     * `docker compose port` observed reporting a port as bound moments before the bind actually
+     * failed, not just the reverse (slow-but-fine). portIsBound() waits out that settling window
+     * instead of trusting whatever the first read says.
+     */
+    private function ensurePublishedPortsAreBound(string $composeYaml, OutputInterface $output): int
+    {
+        /** @var array{services?: array<string, array{ports?: list<string>}>} $parsed */
+        $parsed = Yaml::parse($composeYaml);
+
+        $unbound = [];
+
+        foreach ($parsed['services'] ?? [] as $name => $service) {
+            foreach ($service['ports'] ?? [] as $mapping) {
+                $containerPort = $this->containerPortFrom($mapping);
+
+                if ($containerPort !== null && !$this->portIsBound($name, $containerPort)) {
+                    $unbound[] = "{$name} ({$containerPort})";
+                }
+            }
+        }
+
+        if ($unbound === []) {
+            return Command::SUCCESS;
+        }
+
+        $output->writeln(sprintf(
+            '<error>ship: %s did not actually bind to the host, even though the container is '
+                . 'running -- something else on this machine is already using that port. Free it '
+                . 'up, or override it (see README\'s "Running more than one project at once" '
+                . 'section), then retry.</error>',
+            implode(', ', $unbound),
+        ));
+
+        return Command::FAILURE;
+    }
+
+    /**
+     * The *last* of 3 readings, 1 second apart, is the answer -- not the first. See
+     * ensurePublishedPortsAreBound()'s docblock: an early reading can go either way while Docker's
+     * async network setup is still mid-flight, so only a reading taken after that settles is
+     * trustworthy.
+     */
+    private function portIsBound(string $service, string $containerPort): bool
+    {
+        $bound = false;
+
+        for ($attempt = 1; $attempt <= 3; $attempt++) {
+            $raw = $this->runner->runQuiet(
+                [...ComposeCommand::baseArgs($this->projectRoot), 'port', $service, $containerPort],
+                $this->projectRoot,
+            );
+            $bound = $this->looksActuallyBound($raw);
+
+            if ($attempt < 3) {
+                sleep(1);
+            }
+        }
+
+        return $bound;
+    }
+
+    /**
+     * Empty output isn't the only failure shape -- `docker compose port` prints the literal
+     * "invalid IP:0", not an error and not empty, when a service's port mapping exists in its
+     * metadata but the actual host bind never succeeded. Only a real "host:port" with a non-zero
+     * numeric port counts as genuinely bound.
+     */
+    private function looksActuallyBound(string $output): bool
+    {
+        if ($output === '') {
+            return false;
+        }
+
+        $port = substr($output, (int) strrpos($output, ':') + 1);
+
+        return $port !== '' && ctype_digit($port) && $port !== '0';
+    }
+
+    /**
+     * Compose port mappings look like "80:80" or "${APP_PORT:-80}:80" -- only the container-side
+     * port (the part after the last ":") matters for `docker compose port`, so the host side's
+     * env-var syntax never needs resolving here.
+     */
+    private function containerPortFrom(string $mapping): ?string
+    {
+        $parts = explode(':', $mapping);
+        $containerPort = end($parts);
+
+        return $containerPort !== '' ? $containerPort : null;
     }
 
     /**
