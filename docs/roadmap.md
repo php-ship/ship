@@ -68,19 +68,12 @@
 
 ## Known gaps
 
-- **Nothing asserts the picker's answers actually produce the right
-  `ship.json`, or that `publishStubs()` copies the right files for a
-  given selection.** The `select()`/`ChoiceQuestion` fallback path and
-  `publishStubs()` do run inside `InitCommandReverbWarningTest` (real
-  typed answers via `CommandTester::setInputs()`, not the `interactive:
-  false` shortcut `InitCommandViteReminderTest` uses) and
-  `InitCommandViteReminderTest`, so they're exercised -- but only one
-  group (`broadcasting`) is actually picked in either, and no test
-  inspects the written `ship.json` or the copied `ship/` directory's
-  contents (e.g. Garage's stub files, nginx being omitted when a
-  runtime is selected). The Laravel Prompts interactive-UI branch
-  (`canUseLaravelPromptsInteractiveUi()`) has zero coverage either way
-  — `laravel/prompts` isn't installed in this repo's own test suite.
+- **The Laravel Prompts interactive-UI branch
+  (`canUseLaravelPromptsInteractiveUi()`) has zero test coverage.**
+  `laravel/prompts` isn't installed in this repo's own test suite (by
+  design -- see the method's own docblock for why it's not a hard
+  dependency), so every `InitCommand` test exercises the
+  `ChoiceQuestion` fallback path only.
 - **Node version isn't actually configurable.** `NodeService` exists as
   a selectable group but its `composeFragment()`/`environmentVariables()`
   are both empty — Node is installed unconditionally in the Dockerfile's
