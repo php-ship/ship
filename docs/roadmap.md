@@ -119,6 +119,7 @@
   the command name appears exactly once in `argv` and isn't itself the
   value of an earlier option — fine today, but would need revisiting if
   a global option is ever added before the command name.
+
 ## Not started
 
 - Mutagen-based sync mode as an opt-in alternative to bind mounts on
