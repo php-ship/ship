@@ -4,11 +4,12 @@ A framework-agnostic, cross-platform Docker development environment for
 PHP — inspired by Laravel Sail, but usable outside Laravel and without
 requiring Windows users to put their project inside WSL.
 
-**Status: functional scaffold, not production-ready yet.** `init`/`up`/
-`down`/`exec`/`shell`/`logs`/`db`/`composer`/`npm`/`artisan`/`console` all
-work end-to-end, verified against a real Docker daemon in both dev and
-production mode. See [`docs/roadmap.md`](docs/roadmap.md) for what's
-still missing before relying on this beyond local development.
+**Status: production-ready.** `init`/`up`/`down`/`exec`/`shell`/`logs`/
+`db`/`composer`/`npm`/`artisan`/`console` all work end-to-end, verified
+against a real Docker daemon in both dev and production mode — including
+a real production HTTP request, a real database, and a real crashed-
+container recovery. See [`docs/roadmap.md`](docs/roadmap.md) for the
+small number of known, low-severity gaps that remain.
 
 ## Contents
 
