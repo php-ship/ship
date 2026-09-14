@@ -18,8 +18,10 @@
 - `ComposeFileBuilder` merges fragments (not overwrites) so a runtime can
   override `app`'s command while keeping its build/volumes, derives
   top-level named volumes generically, backfills `PHP_VERSION` onto any
-  service building a `ship/Dockerfile` PHP stage, and switches whether
-  `webserver` (nginx) exists based on runtime selection.
+  service building a `ship/Dockerfile` PHP stage, switches whether
+  `webserver` (nginx) exists based on runtime selection, and gives every
+  service a `restart: unless-stopped` policy so a crash (or host reboot)
+  recovers on its own instead of staying down.
 - One `ship/Dockerfile` builds five targets: `dev`, `builder`, `assets`,
   `prod` (the `app` service), and `dev-nginx`/`prod-nginx` (the
   `webserver` service). `Dockerfile.frankenphp` mirrors the same stage
@@ -68,9 +70,18 @@
   (`app`, `webserver`, `reverb` all build from `ship/Dockerfile`). The
   generated compose file's dependency graph is correct — this is a
   Docker Compose/Desktop concurrency quirk under simultaneous builds,
-  not something `ship` generates wrong. Re-running `ship up`, or
-  `docker compose -f ship/docker-compose.generated.yml up -d
-  <service>` directly, starts it.
+  not something `ship` generates wrong. `ship up` now checks every
+  expected service against `docker compose ps --status running` after
+  its own `up --build -d` call, retries once, and reports a clear
+  failure naming whatever's still not running instead of exiting
+  quietly successful.
+- **That check only confirms a container is running, not that its
+  published ports actually bound.** A container can report "running"
+  while Docker silently drops one of its port publishes (observed with
+  Reverb's default `8080` colliding with an unrelated container already
+  using that host port) — reachable over the internal Docker network,
+  but not from the host. `ship up` doesn't currently detect or warn
+  about this case.
 - **`InitCommand`'s interactive service-picker loop has no test
   coverage.** `InitCommandViteReminderTest` covers the Vite-reminder
   logic specifically (with an empty `ServiceRegistry` so every group is

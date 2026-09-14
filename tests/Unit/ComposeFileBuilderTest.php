@@ -150,6 +150,21 @@ final class ComposeFileBuilderTest extends TestCase
         self::assertStringNotContainsString('ports: {}', $yaml);
     }
 
+    public function test_every_service_gets_a_restart_policy_so_a_crash_recovers_on_its_own(): void
+    {
+        $builder = new ComposeFileBuilder($this->registry());
+        $config = new ShipConfig(
+            phpVersion: '8.4',
+            services: ['database' => 'pgsql', 'cache' => 'redis'],
+        );
+
+        $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Production));
+
+        foreach (array_keys($parsed['services']) as $name) {
+            self::assertSame('unless-stopped', $parsed['services'][$name]['restart'], "service \"{$name}\"");
+        }
+    }
+
     public function test_app_and_webserver_load_an_optional_env_file_for_real_production_secrets(): void
     {
         $builder = new ComposeFileBuilder($this->registry());

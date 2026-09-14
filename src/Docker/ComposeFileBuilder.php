@@ -54,6 +54,7 @@ final class ComposeFileBuilder
         }
 
         $compose['services'] = $this->backfillPhpVersionBuildArg($compose['services'], $config->phpVersion);
+        $compose['services'] = $this->backfillRestartPolicy($compose['services']);
 
         $compose['services']['app']['environment'] = [
             ...$compose['services']['app']['environment'] ?? [],
@@ -158,6 +159,23 @@ final class ComposeFileBuilder
 
             $services[$name]['build']['args'] ??= [];
             $services[$name]['build']['args']['PHP_VERSION'] ??= $phpVersion;
+        }
+
+        return $services;
+    }
+
+    /**
+     * Every generated service is a long-running daemon, never a one-shot command, so `unless-stopped`
+     * applies uniformly -- without it, a container that crashes (or a host that reboots) just stays down
+     * until someone notices and runs `ship up` again. `??=` lets a fragment set its own value instead.
+     *
+     * @param array<string, array<string, mixed>> $services
+     * @return array<string, array<string, mixed>>
+     */
+    private function backfillRestartPolicy(array $services): array
+    {
+        foreach ($services as $name => $service) {
+            $services[$name]['restart'] ??= 'unless-stopped';
         }
 
         return $services;

@@ -20,6 +20,7 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Yaml\Yaml;
 
 #[AsCommand(name: 'up', description: 'Build and start the environment')]
 final class UpCommand extends Command
@@ -87,10 +88,73 @@ final class UpCommand extends Command
         file_put_contents($entrypointPath, (new EntrypointScriptBuilder())->build($releaseCommands));
         chmod($entrypointPath, 0755);
 
-        return $this->runner->runInteractive(
+        $result = $this->runner->runInteractive(
             [...ComposeCommand::baseArgs($this->projectRoot), 'up', '--build', '-d'],
             $this->projectRoot,
         );
+
+        if ($result !== Command::SUCCESS) {
+            return $result;
+        }
+
+        return $this->ensureEveryServiceStarted($compose, $output);
+    }
+
+    /**
+     * `docker compose up --build -d` exiting 0 doesn't guarantee every service actually started -- under
+     * several simultaneous image builds, Compose can leave a service sitting at "Created" without ever
+     * starting it (observed with webserver/reverb; not something the generated compose file causes, see
+     * docs/roadmap.md). One retry self-heals that. A service still not running after the retry is a real
+     * failure the caller needs to see, not something to paper over.
+     */
+    private function ensureEveryServiceStarted(string $composeYaml, OutputInterface $output): int
+    {
+        /** @var array{services?: array<string, mixed>} $parsed */
+        $parsed = Yaml::parse($composeYaml);
+        $expected = array_keys($parsed['services'] ?? []);
+
+        $notRunning = array_diff($expected, $this->runningServices());
+
+        if ($notRunning === []) {
+            return Command::SUCCESS;
+        }
+
+        $output->writeln(sprintf(
+            '<comment>ship: %s did not start with the rest of the stack -- retrying...</comment>',
+            implode(', ', $notRunning),
+        ));
+
+        $this->runner->runInteractive(
+            [...ComposeCommand::baseArgs($this->projectRoot), 'up', '-d', ...$notRunning],
+            $this->projectRoot,
+        );
+
+        $stillNotRunning = array_diff($notRunning, $this->runningServices());
+
+        if ($stillNotRunning === []) {
+            return Command::SUCCESS;
+        }
+
+        $output->writeln(sprintf(
+            '<error>ship: %s still did not start. Check `ship logs %s`.</error>',
+            implode(', ', $stillNotRunning),
+            array_values($stillNotRunning)[0],
+        ));
+
+        return Command::FAILURE;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function runningServices(): array
+    {
+        $output = $this->runner->runQuiet(
+            [...ComposeCommand::baseArgs($this->projectRoot), 'ps', '--services', '--status', 'running'],
+            $this->projectRoot,
+        );
+
+        return $output === '' ? [] : explode("\n", $output);
     }
 
     /**
