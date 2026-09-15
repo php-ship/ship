@@ -89,7 +89,7 @@ final class UpCommand extends Command
         }
         $entrypointPath = $entrypointDir . '/entrypoint.sh';
         file_put_contents($entrypointPath, (new EntrypointScriptBuilder())->build($releaseCommands));
-        chmod($entrypointPath, 0755);
+        chmod($entrypointPath, 0o755);
 
         $result = $this->runner->runInteractive(
             [...ComposeCommand::baseArgs($this->projectRoot), 'up', '--build', '-d'],
@@ -101,6 +101,12 @@ final class UpCommand extends Command
         }
 
         $result = $this->ensureEveryServiceStarted($compose, $output);
+
+        if ($result !== Command::SUCCESS) {
+            return $result;
+        }
+
+        $result = $this->ensureHealthchecksPass($compose, $output);
 
         if ($result !== Command::SUCCESS) {
             return $result;
@@ -198,6 +204,78 @@ final class UpCommand extends Command
         );
 
         return $output === '' ? [] : explode("\n", $output);
+    }
+
+    /**
+     * A service reporting "running" doesn't mean whatever's inside it is actually ready --
+     * MySQL/Postgres/Redis's own images take a few seconds beyond process start before they'll
+     * accept real connections (longest on a fresh volume's first boot), which is exactly why their
+     * ServiceDefinitions declare a `healthcheck` in the first place. Nothing before this ever
+     * consulted it, so `ship up` immediately followed by `ship exec app php artisan migrate` --
+     * a completely normal thing to do -- could race ahead of the database and fail with
+     * "connection refused" even though `ship up` itself had already reported success. Only
+     * services that declare a healthcheck are waited on; anything without one has no health
+     * status to check and stays covered by ensureEveryServiceStarted() alone.
+     */
+    private function ensureHealthchecksPass(string $composeYaml, OutputInterface $output): int
+    {
+        /** @var array{services?: array<string, array{healthcheck?: mixed}>} $parsed */
+        $parsed = Yaml::parse($composeYaml);
+
+        $unhealthy = [];
+
+        foreach ($parsed['services'] ?? [] as $name => $service) {
+            if (isset($service['healthcheck']) && !$this->serviceBecomesHealthy($name)) {
+                $unhealthy[] = $name;
+            }
+        }
+
+        if ($unhealthy === []) {
+            return Command::SUCCESS;
+        }
+
+        $output->writeln(sprintf(
+            '<error>ship: %s never became healthy -- check `ship logs %s`.</error>',
+            implode(', ', $unhealthy),
+            $unhealthy[0],
+        ));
+
+        return Command::FAILURE;
+    }
+
+    /**
+     * Polls for up to 30s -- well past any built-in healthcheck's own interval x retries (5s x 5 =
+     * 25s), which already covers a fresh volume's first-boot initialization -- rather than trusting
+     * a single reading, since a container can sit at "starting" for several polls before Docker
+     * marks it "healthy".
+     */
+    private function serviceBecomesHealthy(string $service): bool
+    {
+        $containerId = trim($this->runner->runQuiet(
+            [...ComposeCommand::baseArgs($this->projectRoot), 'ps', '-q', $service],
+            $this->projectRoot,
+        ));
+
+        if ($containerId === '') {
+            return false;
+        }
+
+        for ($attempt = 1; $attempt <= 15; $attempt++) {
+            $status = trim($this->runner->runQuiet(
+                ['docker', 'inspect', $containerId, '--format', '{{.State.Health.Status}}'],
+                $this->projectRoot,
+            ));
+
+            if ($status === 'healthy') {
+                return true;
+            }
+
+            if ($attempt < 15) {
+                sleep(2);
+            }
+        }
+
+        return false;
     }
 
     /**

@@ -58,8 +58,16 @@
   something else already owns that host port, and `docker compose
   port` reports that failure as the literal string "invalid IP:0", not
   as empty output or a command error, so a naive check misses it
-  entirely. Both checks fail loudly with a clear message naming the
-  affected service instead of exiting quietly successful.
+  entirely. Between those two checks, any service that declares a
+  `healthcheck` (MySQL, Postgres, Redis) is also waited on to actually
+  reach "healthy", not just "running" -- a fresh volume's first boot
+  can take several seconds after the process starts before it accepts
+  real connections, and without this a `ship up` immediately followed
+  by `ship exec app php artisan migrate` could race ahead of the
+  database and fail with a connection error even though `ship up`
+  itself had already reported success. All three checks fail loudly
+  with a clear message naming the affected service instead of exiting
+  quietly successful.
 - `EntrypointScriptBuilder`'s generated script chowns `storage`,
   `bootstrap/cache`, `database`, and `var` (existence-checked, so this
   stays framework-agnostic) to `www-data` after release commands run
