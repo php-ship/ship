@@ -148,3 +148,71 @@ jobs:
         if: always()
         working-directory: /tmp/ci-fixture
         run: docker compose -f ship/docker-compose.generated.yml --project-directory . down -v --rmi local
+
+      # A separate fixture (not a reuse of the one above) specifically for the Octane/Swoole
+      # runtime: it needs its own PECL extension compiled at image build time (see
+      # stubs/docker/php/Dockerfile's swoole build step), which the default fpm runtime the rest
+      # of this job covers never exercises at all -- exactly how a missing build dependency there
+      # (brotli-dev, needed by Swoole's own configure script) once shipped past a fully green CI.
+      - name: Create a fixture Laravel app for the Swoole runtime
+        run: composer create-project laravel/laravel /tmp/ci-fixture-swoole --prefer-dist --no-interaction
+
+      # "1" picks the runtime group's first non-None option (Octane/Swoole) by index rather than
+      # its label text, which contains an em dash ("Octane (Swoole) — default") not worth the risk
+      # of mismatching over a plain-ASCII shell pipe.
+      - name: ship init (MySQL + Redis + Octane/Swoole)
+        working-directory: /tmp/ci-fixture-swoole
+        run: |
+          printf 'MySQL\nRedis\n1\nNone\nNone\nNone\nNone\nNone\nNone\n8.4\n' \
+            | php "$GITHUB_WORKSPACE/bin/ship" init
+
+      - name: Point .env at the ship-provisioned services (Swoole fixture)
+        working-directory: /tmp/ci-fixture-swoole
+        run: |
+          php -r '
+          $path = ".env";
+          $content = file_get_contents($path);
+          $replacements = [
+              "DB_CONNECTION" => "mysql",
+              "DB_HOST" => "mysql",
+              "DB_PORT" => "3306",
+              "DB_DATABASE" => "ship",
+              "DB_USERNAME" => "ship",
+              "DB_PASSWORD" => "ship",
+              "CACHE_STORE" => "redis",
+              "REDIS_HOST" => "redis",
+          ];
+          foreach ($replacements as $key => $value) {
+              $pattern = "/^{$key}=.*$/m";
+              $content = preg_match($pattern, $content)
+                  ? preg_replace($pattern, "{$key}={$value}", $content)
+                  : $content . "\n{$key}={$value}\n";
+          }
+          file_put_contents($path, $content);
+          '
+
+      # Port 8000, not 80 -- OctaneSwooleService::removes() drops "webserver" entirely and
+      # OctaneSwooleService::composeFragment() has "app" itself publish ${APP_PORT:-8000}:8000, so
+      # there's no nginx in front of it here the way the default fpm fixture above has.
+      - name: ship up builds and boots the Swoole runtime for real
+        working-directory: /tmp/ci-fixture-swoole
+        run: |
+          php "$GITHUB_WORKSPACE/bin/ship" up
+          for i in $(seq 1 10); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/ || true)
+            [ "$code" = "200" ] && break
+            sleep 3
+          done
+          test "$code" = "200"
+
+      - name: Dump Swoole stack state on failure
+        if: failure()
+        working-directory: /tmp/ci-fixture-swoole
+        run: |
+          docker compose -f ship/docker-compose.generated.yml --project-directory . ps
+          docker compose -f ship/docker-compose.generated.yml --project-directory . logs
+
+      - name: Tear down Swoole stack
+        if: always()
+        working-directory: /tmp/ci-fixture-swoole
+        run: docker compose -f ship/docker-compose.generated.yml --project-directory . down -v --rmi local
