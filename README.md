@@ -8,8 +8,11 @@ requiring Windows users to put their project inside WSL.
 `db`/`composer`/`npm`/`artisan`/`console` all work end-to-end, verified
 against a real Docker daemon in both dev and production mode — including
 a real production HTTP request, a real database, and a real crashed-
-container recovery. See [`docs/roadmap.md`](docs/roadmap.md) for the
-small number of known, low-severity gaps that remain.
+container recovery. CI passes on every push, across Ubuntu/macOS/Windows
+x PHP 8.2/8.3/8.4 plus a separate job that runs the same dev/production
+verification against a real Docker daemon on every commit. See
+[`docs/roadmap.md`](docs/roadmap.md) for the small number of known,
+low-severity gaps that remain.
 
 ## Contents
 
