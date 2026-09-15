@@ -369,7 +369,8 @@ final class InitCommand extends Command
             'vendor',
         ];
 
-        $existing = is_file($path) ? file($path, FILE_IGNORE_NEW_LINES) ?: [] : [];
+        $fileLines = is_file($path) ? file($path, FILE_IGNORE_NEW_LINES) : [];
+        $existing = $fileLines === false ? [] : $fileLines;
         $missing = array_values(array_diff($required, $existing));
 
         if ($missing === []) {

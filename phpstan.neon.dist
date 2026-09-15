@@ -5,3 +5,12 @@ parameters:
     level: 8
     paths:
         - src
+    ignoreErrors:
+        -
+            # laravel/prompts is deliberately not a require -- InitCommand::select() only calls this
+            # after canUseLaravelPromptsInteractiveUi() confirms function_exists('Laravel\Prompts\select')
+            # at runtime, but PHPStan analyses this repo's own dependency set, where that function
+            # genuinely isn't declared anywhere. See select()'s own docblock for why it stays optional.
+            identifier: function.notFound
+            message: '#^Function Laravel\\Prompts\\select not found\.$#'
+            path: src/Console/Commands/InitCommand.php
