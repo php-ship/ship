@@ -73,6 +73,25 @@ final class OctaneRuntimeMergeTest extends TestCase
         self::assertSame('http://app', $parsed['services']['app']['environment']['APP_URL']);
     }
 
+    /**
+     * Regression test for a real bug reported from live use: baseServices() sets "app".networks to
+     * ["ship"], then applyService() defaults every fragment missing its own networks key to ["ship"]
+     * too (see its own docblock) -- Octane's fragment for "app" doesn't set one, so
+     * mergeServiceFragment() used to concatenate the two into ["ship", "ship"], which Compose's
+     * schema rejects outright ("app" is the only service two fragments both land on without either
+     * setting networks explicitly, which is why only it showed the duplicate).
+     */
+    public function test_networks_is_not_duplicated_when_a_second_fragment_merges_into_app(): void
+    {
+        $registry = new ServiceRegistry([new OctaneSwooleService()]);
+        $builder = new ComposeFileBuilder($registry);
+
+        $config = new ShipConfig(phpVersion: '8.4', services: ['runtime' => 'octane-swoole']);
+        $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Development));
+
+        self::assertSame(['ship'], $parsed['services']['app']['networks']);
+    }
+
     public function test_frankenphp_overrides_only_the_dockerfile_path_not_the_rest_of_build(): void
     {
         $registry = new ServiceRegistry([new OctaneFrankenPhpService()]);

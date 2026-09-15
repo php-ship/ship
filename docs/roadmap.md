@@ -21,7 +21,13 @@
   service building a `ship/Dockerfile` PHP stage, switches whether
   `webserver` (nginx) exists based on runtime selection, and gives every
   service a `restart: unless-stopped` policy so a crash (or host reboot)
-  recovers on its own instead of staying down.
+  recovers on its own instead of staying down. Merging list-type keys
+  (`networks`, `depends_on`, `ports`, `volumes`) across two fragments
+  landing on the same service dedupes the result, since more than one
+  fragment can independently default a value it doesn't set itself
+  (every fragment missing `networks` defaults to `["ship"]`) --
+  concatenating without deduping there produces a value Compose's own
+  schema rejects.
 - One `ship/Dockerfile` builds five targets: `dev`, `builder`, `assets`,
   `prod` (the `app` service), and `dev-nginx`/`prod-nginx` (the
   `webserver` service). `Dockerfile.frankenphp` mirrors the same stage

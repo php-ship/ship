@@ -140,12 +140,22 @@ final class ComposeFileBuilder
      */
     private function mergeServiceFragment(array $base, array $fragment): array
     {
-        $accumulating = ['environment', 'volumes', 'ports', 'networks', 'depends_on', 'env_file'];
+        // Plain lists of scalars -- concatenating two fragments' copies of the same value (most
+        // commonly "networks": applyService() defaults every fragment missing one to ['ship'], so
+        // two fragments both landing on "app" -- baseServices() and an Octane runtime's own, say --
+        // both default it, then concatenate into ['ship', 'ship'], which Compose's schema rejects)
+        // needs deduping after the fact. Not "environment" (associative, a later same-key value
+        // already correctly wins on spread, no duplicate-value case exists) or "env_file" (a list of
+        // arrays, not scalars -- array_unique() would misbehave, stringifying each element first).
+        $accumulatingLists = ['volumes', 'ports', 'networks', 'depends_on'];
+        $accumulatingAsIs = ['environment', 'env_file'];
 
         foreach ($fragment as $key => $value) {
             if ($key === 'build' && isset($base['build']) && is_array($value)) {
                 $base['build'] = [...$base['build'], ...$value];
-            } elseif (in_array($key, $accumulating, true) && isset($base[$key]) && is_array($value)) {
+            } elseif (in_array($key, $accumulatingLists, true) && isset($base[$key]) && is_array($value)) {
+                $base[$key] = array_values(array_unique([...$base[$key], ...$value]));
+            } elseif (in_array($key, $accumulatingAsIs, true) && isset($base[$key]) && is_array($value)) {
                 $base[$key] = [...$base[$key], ...$value];
             } else {
                 $base[$key] = $value;
