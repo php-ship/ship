@@ -1,3 +1,8 @@
+# Without this, a checkout on Windows (whose git defaults to core.autocrlf=true) converts every
+# file to CRLF -- php-cs-fixer's line-ending rule then flags all 55 source files as needing a fix,
+# failing composer cs-check on every windows-latest CI job regardless of what the code says.
+* text=auto eol=lf
+
 /.github export-ignore
 /tests export-ignore
 /.php-cs-fixer.dist.php export-ignore
