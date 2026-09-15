@@ -29,8 +29,7 @@ final class InitCommand extends Command
     public function __construct(
         private readonly string          $projectRoot,
         private readonly ServiceRegistry $registry,
-    )
-    {
+    ) {
         parent::__construct();
     }
 
@@ -52,8 +51,8 @@ final class InitCommand extends Command
             // return the same shape and no label-matching lookup is
             // needed afterwards.
             $choices = [self::NONE => 'None', ...array_combine(
-                array_map(static fn($s) => $s->key(), $options),
-                array_map(static fn($s) => $s->label(), $options),
+                array_map(static fn ($s) => $s->key(), $options),
+                array_map(static fn ($s) => $s->label(), $options),
             )];
 
             $answer = $this->select($io, $input, "Select a {$label}", $choices);
