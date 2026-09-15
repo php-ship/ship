@@ -41,9 +41,13 @@ RUN apk add --no-cache --virtual .build-deps-redis $PHPIZE_DEPS \
 # Swoole needs a compiled PHP extension; RoadRunner is a standalone Go
 # binary pulled in via Composer (spiral/roadrunner-bin) so it needs
 # nothing here; FrankenPHP is handled separately below since it replaces
-# the base image rather than layering onto it.
+# the base image rather than layering onto it. brotli-dev is there
+# specifically for Swoole's own configure step -- it requests Brotli
+# support (--enable-brotli=yes) by default and aborts the whole build
+# with "Package 'libbrotlienc' not found" without it, even though
+# nothing else here uses Brotli.
 RUN if [ "$OCTANE_RUNTIME" = "swoole" ]; then \
-        apk add --no-cache --virtual .build-deps $PHPIZE_DEPS linux-headers \
+        apk add --no-cache --virtual .build-deps $PHPIZE_DEPS linux-headers brotli-dev \
         && pecl install swoole \
         && docker-php-ext-enable swoole \
         && apk del .build-deps; \
