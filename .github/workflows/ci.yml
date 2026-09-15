@@ -157,6 +157,15 @@ jobs:
       - name: Create a fixture Laravel app for the Swoole runtime
         run: composer create-project laravel/laravel /tmp/ci-fixture-swoole --prefer-dist --no-interaction
 
+      # Documented in README's services table as a manual prerequisite -- ship provides the
+      # swoole PHP extension and OCTANE_SERVER, but not the laravel/octane package itself or its
+      # published config, exactly like a real project adopting Octane would need to do themselves.
+      - name: Install Laravel Octane (documented prerequisite for the Octane runtime)
+        working-directory: /tmp/ci-fixture-swoole
+        run: |
+          composer require laravel/octane --no-interaction
+          php artisan octane:install --server=swoole --no-interaction
+
       # "1" picks the runtime group's first non-None option (Octane/Swoole) by index rather than
       # its label text, which contains an em dash ("Octane (Swoole) — default") not worth the risk
       # of mismatching over a plain-ASCII shell pipe.
