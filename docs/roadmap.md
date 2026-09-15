@@ -32,7 +32,21 @@
   `prod` (the `app` service), and `dev-nginx`/`prod-nginx` (the
   `webserver` service). `Dockerfile.frankenphp` mirrors the same stage
   structure for the FrankenPHP runtime, which needs a different base
-  image entirely.
+  image entirely. The `dev` stage's php-fpm pool runs as root (`sed`
+  into `www.conf` at build time, plus `--allow-to-run-as-root`), not
+  the image's default `www-data` -- `dev` bind-mounts the project root
+  straight from the host (see `baseServices()`), so `storage/`,
+  `bootstrap/cache/`, etc. keep whatever host UID/GID created them,
+  almost never `www-data`'s on a real Linux host. Without this, every
+  request fails outright the moment it needs to write anything under
+  the project root (`tempnam(): file created in the system's temporary
+  directory`, from Laravel's atomic config/view cache writes) --
+  invisible on Docker Desktop's Windows/macOS bind mounts, which don't
+  enforce real Unix permissions, but reproduces on any native Linux
+  host, this project's own CI included. Chowning the bind mount to
+  match isn't an option -- that changes the *host's* files. `prod`
+  keeps `www-data`, since its files are baked into the image at a
+  known ownership instead (see `EntrypointScriptBuilder` below).
 - `EntrypointScriptBuilder` renders the `prod` stage's `ENTRYPOINT` script
   from whatever `FrameworkAdapter::releaseCommands()` returns, generated
   fresh by every `ship up` since its content depends on which adapter

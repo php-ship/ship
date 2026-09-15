@@ -60,8 +60,21 @@ COPY ship/dev/php.ini /usr/local/etc/php/conf.d/99-ship-dev.ini
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 COPY ship/dev/entrypoint.sh /usr/local/bin/ship-entrypoint
 RUN chmod +x /usr/local/bin/ship-entrypoint
+# The project root is bind-mounted straight from the host in dev (see baseServices()), so
+# storage/, bootstrap/cache/, etc. keep whatever host UID/GID created them -- on a real Linux
+# host (any native Linux dev machine, and this project's own CI) that's almost never uid 82
+# (www-data), which is who php-fpm's pool workers run as by default. The result: every request
+# fails outright ("tempnam(): file created in the system's temporary directory", from Laravel's
+# atomic config/view cache writes) the moment it needs to write anything under the project root.
+# Chowning the bind mount to match isn't an option either -- that changes the *host's* files,
+# surprising whoever owns them. Running the pool as root instead sidesteps host permissions
+# entirely without ever touching them; dev already trades hardening for convenience (xdebug is
+# always on, and the entrypoint above already runs `composer install` as root when it falls
+# back), so this doesn't lower the bar dev was already set at. Never done in prod -- see that
+# stage below -- where the files are baked into the image at a known ownership instead.
+RUN sed -i 's/^user = .*/user = root/; s/^group = .*/group = root/' /usr/local/etc/php-fpm.d/www.conf
 ENTRYPOINT ["/usr/local/bin/ship-entrypoint"]
-CMD ["php-fpm"]
+CMD ["php-fpm", "--allow-to-run-as-root"]
 
 # ---- builder -----------------------------------------------------------
 FROM base AS builder
