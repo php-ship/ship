@@ -102,6 +102,16 @@ jobs:
           done
           test "$code" = "200"
 
+      # Only ever runs on a failure of the step above -- prints what the containers were actually
+      # doing (compose's own status column, plus every service's stdout/stderr) since a bare
+      # curl failure alone doesn't say why the app wasn't reachable.
+      - name: Dump dev stack state on failure
+        if: failure()
+        working-directory: /tmp/ci-fixture
+        run: |
+          docker compose -f ship/docker-compose.generated.yml --project-directory . ps
+          docker compose -f ship/docker-compose.generated.yml --project-directory . logs
+
       - name: ship db reaches the real MySQL container
         working-directory: /tmp/ci-fixture
         run: |
@@ -126,6 +136,13 @@ jobs:
           # artisan optimize runs at container boot -- see EntrypointScriptBuilder -- so the
           # cached bootstrap files existing confirms it actually ran, not just that PHP started.
           php "$GITHUB_WORKSPACE/bin/ship" exec app test -f bootstrap/cache/config.php
+
+      - name: Dump prod stack state on failure
+        if: failure()
+        working-directory: /tmp/ci-fixture
+        run: |
+          docker compose -f ship/docker-compose.generated.yml --project-directory . ps
+          docker compose -f ship/docker-compose.generated.yml --project-directory . logs
 
       - name: Tear down prod stack
         if: always()
