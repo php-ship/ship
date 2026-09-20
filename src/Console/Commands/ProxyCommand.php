@@ -7,6 +7,7 @@ namespace Ship\Console\Commands;
 use Ship\Docker\ComposeCommand;
 use Ship\Runtime\ProcessRunner;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Input\ArgvInput;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -45,7 +46,7 @@ final class ProxyCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $forwarded = $this->rawArgumentsAfterCommandName();
+        $forwarded = $this->rawArgumentsAfterCommandName($input);
         $binaryParts = explode(' ', $this->binary);
 
         return $this->runner->runInteractive(
@@ -57,18 +58,31 @@ final class ProxyCommand extends Command
     /**
      * Everything typed after `ship <name>`, exactly as typed, with no option/flag interpretation applied.
      *
+     * A real `ship <name> ...` always hands execute() a genuine ArgvInput, already bound (in
+     * Command::run(), before execute() ever runs) to the full Application+Command definition --
+     * so ArgvInput::getRawTokens(strip: true), which resolves the split point via
+     * getFirstArgument(), correctly skips any global option and its value ahead of the command
+     * name in argv, unlike array_search($this->getName(), $argv), which took the first literal
+     * match anywhere, global option value or not. Doesn't (can't, short of reimplementing
+     * getFirstArgument()'s own scan by hand) tell apart a value some earlier option took from an
+     * *identical-looking* command name -- getRawTokens() re-finds its split point by string
+     * equality, not the position getFirstArgument() actually resolved -- but `ship` defines no
+     * such global option today (see docs/roadmap.md). Only reached without a real ArgvInput --
+     * CommandTester's ArrayInput in tests, most notably, which can't represent "unparsed"
+     * arguments at all.
+     *
      * @return list<string>
      */
-    private function rawArgumentsAfterCommandName(): array
+    private function rawArgumentsAfterCommandName(InputInterface $input): array
     {
+        if ($input instanceof ArgvInput) {
+            return $input->getRawTokens(strip: true);
+        }
+
         /** @var list<string> $argv */
         $argv = $_SERVER['argv'] ?? [];
         $position = array_search($this->getName(), $argv, strict: true);
 
-        if ($position === false) {
-            return [];
-        }
-
-        return array_slice($argv, $position + 1);
+        return $position === false ? [] : array_slice($argv, $position + 1);
     }
 }

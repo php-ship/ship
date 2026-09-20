@@ -60,6 +60,25 @@
 - `app`, `webserver`, and `reverb` all load an optional `.env` from the
   deploy target's filesystem via Compose's `env_file`, never baked into
   the image itself.
+- `ProxyCommand` and `ExecCommand` both read raw, unparsed argv rather
+  than Console's own parsed arguments, so a flag meant for the executed
+  command — `-m` in `artisan make:model Post -m`, `--force` in `ship
+  exec app php artisan migrate --force` — isn't swallowed as an
+  unrecognized option on `ship` itself. Finding *where* the forwarded
+  arguments start uses `ArgvInput::getRawTokens(strip: true)` (via
+  Symfony's own `getFirstArgument()`), not a plain search for the
+  command's name in `argv` — that search took the first literal match
+  anywhere, including as some earlier global option's value, which
+  `getRawTokens()` correctly skips instead since it knows the full
+  option definition. It still can't tell apart a forwarded command name
+  from an *identical-looking* value some earlier option happened to
+  take (e.g. a hypothetical `--env exec` ahead of `ship exec ...`
+  itself) — an upstream `getRawTokens()` limitation (it re-finds the
+  split point by string equality, not the position `getFirstArgument()`
+  actually used), narrow enough not to be worth working around given
+  `ship` defines no such global options today. Falls back to the old
+  `$_SERVER['argv']` search only when `$input` isn't a real `ArgvInput`
+  (`CommandTester`'s `ArrayInput` in tests, never a real invocation).
 - `ship up` verifies the stack it just started, not just that `docker
   compose up --build -d` exited 0. It checks every expected service
   against `docker compose ps --status running`, retrying once for
@@ -166,17 +185,6 @@
   they share a process with it. Still skipped on Windows, matching
   `canUseLaravelPromptsInteractiveUi()`'s own `PHP_OS_FAMILY` gate --
   CI's ubuntu-latest/macos-latest matrix legs are what actually run it.
-
-## Known gaps
-
-- **`ProxyCommand` and `ExecCommand`'s raw-argv forwarding** (both read
-  `$_SERVER['argv']` directly rather than Console's parsed arguments, so
-  a flag meant for the executed command — `-m` in `artisan make:model
-  Post -m`, `--force` in `ship exec app php artisan migrate --force` —
-  isn't swallowed as an unrecognized option on `ship` itself) assumes
-  the command name appears exactly once in `argv` and isn't itself the
-  value of an earlier option — fine today, but would need revisiting if
-  a global option is ever added before the command name.
 
 ## Not started
 
