@@ -1,5 +1,10 @@
 # ship
 
+[![CI](https://github.com/php-ship/ship/actions/workflows/ci.yml/badge.svg)](https://github.com/php-ship/ship/actions/workflows/ci.yml)
+[![Packagist Version](https://img.shields.io/packagist/v/php-ship/ship)](https://packagist.org/packages/php-ship/ship)
+[![Packagist Downloads](https://img.shields.io/packagist/dt/php-ship/ship)](https://packagist.org/packages/php-ship/ship)
+[![License](https://img.shields.io/packagist/l/php-ship/ship)](LICENSE.md)
+
 A framework-agnostic, cross-platform Docker development environment for
 PHP — inspired by Laravel Sail, but usable outside Laravel and without
 requiring Windows users to put their project inside WSL.
