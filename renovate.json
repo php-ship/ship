@@ -10,6 +10,16 @@
                 "'image' => '(?<depName>[^:']+):(?<currentValue>[^']+)'"
             ],
             "datasourceTemplate": "docker"
+        },
+        {
+            "customType": "regex",
+            "description": "Mutagen's pinned release version, used by the docker-build CI job to test the opt-in SHIP_MUTAGEN sync mode (Ship\\Sync\\MutagenSync) against a real Docker daemon.",
+            "fileMatch": ["^\\.github/workflows/ci\\.yml$"],
+            "matchStrings": [
+                "MUTAGEN_VERSION=(?<currentValue>v\\d+\\.\\d+\\.\\d+)"
+            ],
+            "depNameTemplate": "mutagen-io/mutagen",
+            "datasourceTemplate": "github-releases"
         }
     ],
     "packageRules": [

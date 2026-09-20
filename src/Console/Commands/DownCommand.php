@@ -6,6 +6,7 @@ namespace Ship\Console\Commands;
 
 use Ship\Docker\ComposeCommand;
 use Ship\Runtime\ProcessRunner;
+use Ship\Sync\MutagenSync;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -34,6 +35,11 @@ final class DownCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        // Safe unconditionally, whether or not this project ever actually used Mutagen -- see
+        // MutagenSync::stop()'s own docblock. Before, not after, tearing down the containers the
+        // sync was targeting: it's the same order `ship up` starts them in, reversed.
+        (new MutagenSync($this->runner, $this->projectRoot))->stop();
+
         $command = [...ComposeCommand::baseArgs($this->projectRoot), 'down'];
         if ((bool) $input->getOption('volumes')) {
             $command[] = '--volumes';

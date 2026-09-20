@@ -225,3 +225,104 @@ jobs:
         if: always()
         working-directory: /tmp/ci-fixture-swoole
         run: docker compose -f ship/docker-compose.generated.yml --project-directory . down -v --rmi local
+
+      # A fourth fixture (dev mode only -- see Ship\Sync\MutagenSync's own docblock for why
+      # production never needs this) for the opt-in SHIP_MUTAGEN sync mode: the one thing about it
+      # that can't be verified by a unit test alone is that a real Mutagen sync session actually
+      # moves files in both directions, and that `ship down` actually tears it down again.
+      - name: Install Mutagen
+        run: |
+          MUTAGEN_VERSION=v0.18.1
+          curl -sL -o /tmp/mutagen.tar.gz "https://github.com/mutagen-io/mutagen/releases/download/${MUTAGEN_VERSION}/mutagen_linux_amd64_${MUTAGEN_VERSION}.tar.gz"
+          mkdir -p "$HOME/.local/mutagen"
+          # Both files end up in the same directory deliberately -- Mutagen looks for
+          # mutagen-agents.tar.gz alongside wherever its own binary lives, verified directly
+          # (undocumented in --help) rather than assumed, since ship's own maintainer hit exactly
+          # this "unable to locate agent bundle" failure from an install that only had the binary.
+          tar -xzf /tmp/mutagen.tar.gz -C "$HOME/.local/mutagen"
+          echo "$HOME/.local/mutagen" >> "$GITHUB_PATH"
+
+      - name: Create a fixture Laravel app for Mutagen sync
+        run: composer create-project laravel/laravel /tmp/ci-fixture-mutagen --prefer-dist --no-interaction
+
+      - name: ship init (MySQL + Redis, default runtime)
+        working-directory: /tmp/ci-fixture-mutagen
+        run: |
+          printf 'MySQL\nRedis\nNone\nNone\nNone\nNone\nNone\nNone\nNone\n8.4\n' \
+            | php "$GITHUB_WORKSPACE/bin/ship" init
+
+      - name: Point .env at the ship-provisioned services (Mutagen fixture)
+        working-directory: /tmp/ci-fixture-mutagen
+        run: |
+          php -r '
+          $path = ".env";
+          $content = file_get_contents($path);
+          $replacements = [
+              "DB_CONNECTION" => "mysql",
+              "DB_HOST" => "mysql",
+              "DB_PORT" => "3306",
+              "DB_DATABASE" => "ship",
+              "DB_USERNAME" => "ship",
+              "DB_PASSWORD" => "ship",
+              "CACHE_STORE" => "redis",
+              "REDIS_HOST" => "redis",
+          ];
+          foreach ($replacements as $key => $value) {
+              $pattern = "/^{$key}=.*$/m";
+              $content = preg_match($pattern, $content)
+                  ? preg_replace($pattern, "{$key}={$value}", $content)
+                  : $content . "\n{$key}={$value}\n";
+          }
+          file_put_contents($path, $content);
+          '
+
+      - name: ship up with SHIP_MUTAGEN=1 builds, boots, and syncs for real
+        working-directory: /tmp/ci-fixture-mutagen
+        env:
+          SHIP_MUTAGEN: '1'
+        run: |
+          php "$GITHUB_WORKSPACE/bin/ship" up
+          php "$GITHUB_WORKSPACE/bin/ship" exec app php artisan migrate --force
+          for i in $(seq 1 10); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:80/ || true)
+            [ "$code" = "200" ] && break
+            sleep 3
+          done
+          test "$code" = "200"
+
+      # The one thing only a real round-trip proves: a file created on the host actually lands
+      # inside the container, and vice versa -- not just that `ship up` and `mutagen sync create`
+      # both exited 0.
+      - name: Mutagen actually syncs files in both directions
+        working-directory: /tmp/ci-fixture-mutagen
+        run: |
+          echo "from host" > mutagen-ci-check-host.txt
+          for i in $(seq 1 10); do
+            php "$GITHUB_WORKSPACE/bin/ship" exec app cat mutagen-ci-check-host.txt 2>/dev/null | grep -q "from host" && break
+            sleep 1
+          done
+          php "$GITHUB_WORKSPACE/bin/ship" exec app cat mutagen-ci-check-host.txt | grep -q "from host"
+
+          php "$GITHUB_WORKSPACE/bin/ship" exec app sh -c "echo 'from container' > mutagen-ci-check-container.txt"
+          for i in $(seq 1 10); do
+            [ -f mutagen-ci-check-container.txt ] && grep -q "from container" mutagen-ci-check-container.txt && break
+            sleep 1
+          done
+          grep -q "from container" mutagen-ci-check-container.txt
+
+      - name: Dump Mutagen stack state on failure
+        if: failure()
+        working-directory: /tmp/ci-fixture-mutagen
+        run: |
+          docker compose -f ship/docker-compose.generated.yml --project-directory . ps
+          docker compose -f ship/docker-compose.generated.yml --project-directory . logs
+          mutagen sync list
+
+      - name: ship down tears down the Mutagen sync session too
+        working-directory: /tmp/ci-fixture-mutagen
+        env:
+          SHIP_MUTAGEN: '1'
+        run: |
+          php "$GITHUB_WORKSPACE/bin/ship" down --volumes
+          sessions=$(mutagen sync list --template='{{len .}}')
+          test "$sessions" = "0"

@@ -23,10 +23,15 @@ final class ComposeFileBuilder
     ) {
     }
 
-    public function build(ShipConfig $config, ShipEnvironment $environment): string
+    /**
+     * $mutagenSync only ever changes anything in Development -- Production bakes the source into
+     * the image at build time (see "builder"/"prod" stages), so there's no bind mount, and nothing
+     * to sync, either way.
+     */
+    public function build(ShipConfig $config, ShipEnvironment $environment, bool $mutagenSync = false): string
     {
         $compose = [
-            'services' => $this->baseServices($config, $environment),
+            'services' => $this->baseServices($config, $environment, $mutagenSync),
             'networks' => [
                 'ship' => ['driver' => 'bridge'],
             ],
@@ -239,10 +244,19 @@ final class ComposeFileBuilder
     /**
      * @return array<string, array<string, mixed>>
      */
-    private function baseServices(ShipConfig $config, ShipEnvironment $environment): array
+    private function baseServices(ShipConfig $config, ShipEnvironment $environment, bool $mutagenSync): array
     {
         $target = $environment->isDevelopment() ? 'dev' : 'prod';
         $runtime = $config->services['runtime'] ?? null;
+
+        // Mutagen (opt-in via SHIP_MUTAGEN, see Ship\Sync\MutagenSync) syncs into a container's
+        // own filesystem directly rather than through a live bind mount, so the two can't share
+        // "/var/www/html" -- a bind mount there would fight the sync over the same path. Swapped
+        // for a named volume instead of dropping the mount entirely so "webserver" (nginx, needs
+        // the same tree for its own static-file serving) can share the identical, already-synced
+        // content with zero extra sync overhead, just by mounting the same named volume -- rather
+        // than syncing into each container separately.
+        $devVolume = $mutagenSync ? ['ship-app-sync:/var/www/html'] : ['.:/var/www/html'];
 
         $services = [
             'app' => [
@@ -256,7 +270,7 @@ final class ComposeFileBuilder
                         'OCTANE_RUNTIME' => $this->runtimeBuildArg($runtime),
                     ],
                 ],
-                'volumes' => $environment->isDevelopment() ? ['.:/var/www/html'] : [],
+                'volumes' => $environment->isDevelopment() ? $devVolume : [],
                 // Vite's dev server (`ship npm run dev`) needs its own
                 // published port -- it's a separate HTTP+WebSocket server
                 // from the app itself, not something nginx/php-fpm proxy.
@@ -292,7 +306,7 @@ final class ComposeFileBuilder
                     // cross-service build ordering.
                     'target' => $environment->isDevelopment() ? 'dev-nginx' : 'prod-nginx',
                 ],
-                'volumes' => $environment->isDevelopment() ? ['.:/var/www/html'] : [],
+                'volumes' => $environment->isDevelopment() ? $devVolume : [],
                 'ports' => ['${APP_PORT:-80}:80'],
                 'depends_on' => ['app'],
                 'networks' => ['ship'],

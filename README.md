@@ -33,6 +33,7 @@ low-severity gaps that remain.
 - [HTTPS / TLS](#https--tls)
 - [Backing up data volumes](#backing-up-data-volumes)
 - [Frontend dev server (Vite HMR)](#frontend-dev-server-vite-hmr)
+- [Faster file sync on Windows/macOS (Mutagen)](#faster-file-sync-on-windowsmacos-mutagen)
 - [Running more than one project at once](#running-more-than-one-project-at-once)
 - [Customizing the stack](#customizing-the-stack)
 - [Extending ship](#extending-ship)
@@ -386,6 +387,49 @@ patching arbitrary existing JS config isn't something worth the fragility —
 `ship init` prints this exact snippet as a reminder instead, whenever it
 detects `vite` in `package.json` and the existing config doesn't already
 look like it handles this.
+
+## Faster file sync on Windows/macOS (Mutagen)
+
+`ship up`'s default dev bind mount (the project root, live-mounted into
+`app`/`webserver`) is simple and always in sync, but Docker Desktop's
+translation layer between the host filesystem and its Linux VM makes
+filesystem-heavy work — `composer install`, `npm install`, a large test
+suite — noticeably slower on Windows and macOS than the same thing on
+native Linux, where containers talk to the filesystem directly.
+
+[Mutagen](https://mutagen.io/) syncs the project root into the container in
+the background instead, which avoids that translation-layer overhead. It's
+opt-in, off by default, and a personal machine preference rather than a
+project setting — it's pure overhead with zero benefit on Linux, so it
+isn't something to bake into `ship.json` for a whole team. Set the
+`SHIP_MUTAGEN` environment variable before running `ship up`:
+
+```bash
+SHIP_MUTAGEN=1 vendor/bin/ship up
+```
+
+`ship up` creates the sync session after the stack starts and waits for the
+initial sync to finish before reporting success; `ship down` tears the
+session down again automatically. Requires
+[Mutagen](https://mutagen.io/documentation/introduction/installation)
+itself to already be installed and on `PATH` — `ship up` fails with a clear
+error naming it if it isn't.
+
+Never applies in production: the production image bakes the source into
+itself at build time (see [Production build](#production-build)), so
+there's no bind mount there to begin with, and nothing to sync either way.
+
+`vendor/` and `node_modules/` are deliberately excluded from the sync, for
+two reasons — not just the sheer file count. Some Composer packages, and
+any npm package with a native build step (`esbuild`, `sharp`, `sass`,
+`swc`-based tooling), install platform-specific compiled binaries; syncing
+a copy installed on Windows/macOS into the Linux container would hand it
+binaries built for the wrong platform outright. The container bootstraps
+its own `vendor/` the same way it already does without Mutagen (the dev
+image runs `composer install` on boot if `vendor/autoload.php` is
+missing); `node_modules/` needs a `ship npm install` the same way a fresh
+bind-mounted project would too if you hadn't run one yet — no regression
+either way, since bind-mount mode doesn't auto-install it now either.
 
 ## Running more than one project at once
 

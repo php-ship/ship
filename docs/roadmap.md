@@ -185,11 +185,53 @@
   they share a process with it. Still skipped on Windows, matching
   `canUseLaravelPromptsInteractiveUi()`'s own `PHP_OS_FAMILY` gate --
   CI's ubuntu-latest/macos-latest matrix legs are what actually run it.
+- `Ship\Sync\MutagenSync` -- opt-in Mutagen file sync (`SHIP_MUTAGEN=1`,
+  see README's own section) as an alternative to `ship up`'s default dev
+  bind mount, for projects where Docker Desktop's host-filesystem
+  translation layer is a real bottleneck (Windows/macOS only; pure
+  overhead on Linux, so a personal environment variable, not a
+  `ship.json` setting). Orchestrated directly by `ship up`/`ship down`
+  (`mutagen sync create`/`terminate`), not the separate `mutagen-compose`
+  plugin some tutorials assume -- that's a second binary beyond core
+  Mutagen ship doesn't otherwise need. `ComposeFileBuilder` swaps
+  `app`/`webserver`'s bind mount for a shared named volume in this mode
+  (a live bind mount would fight the sync over the same path; the named
+  volume lets `webserver`, which needs the same tree for its own
+  static-file serving, share the identical already-synced content instead
+  of needing its own separate sync session). `vendor/`/`node_modules/`
+  are excluded from the sync -- both can contain platform-specific
+  compiled binaries a Windows/macOS install would hand the Linux
+  container the wrong build of. `ship up` blocks until the initial sync
+  actually reaches Mutagen's own "Watching" steady state before reporting
+  success, not just until session creation returns, since the container
+  starts out empty at that path until the sync backfills it.
+
+  That "starts out empty" fact caught a real bug during live
+  verification, not just a hypothetical: the dev entrypoint's existing
+  `composer install`-if-`vendor/`-missing fallback assumed a bind mount,
+  where the real project files (if not `vendor/`) are always already
+  there. Against the named volume this mode uses instead, `composer.json`
+  itself doesn't exist yet either at first boot -- `composer install`
+  failed outright, and `set -e` turned that into the whole entrypoint
+  script exiting, which `restart: unless-stopped` turned into an infinite
+  crash loop racing against Mutagen's own sync, which needs a *running*
+  container to inject its agent into. Fixed by also requiring
+  `composer.json` to actually exist before attempting the install --
+  letting php-fpm boot against a harmlessly empty directory instead,
+  until Mutagen catches up.
+
+  Verified live end-to-end against a real Docker daemon and the real
+  `mutagen` binary beyond just that one bug (including tracking down a
+  second real gotcha: a `mutagen` install missing its separate
+  agent-bundle archive fails sync creation outright with no indication
+  why beyond "unable to locate agent bundle") -- covered by CI's
+  `docker-build` job too, checking a real file round-trip in both
+  directions and that `ship down` actually terminates the sync session,
+  not just unit tests around the deterministic parts
+  (`ComposeFileBuilderMutagenTest`, `MutagenSyncTest`).
 
 ## Not started
 
-- Mutagen-based sync mode as an opt-in alternative to bind mounts on
-  Windows/macOS, for projects where bind-mount I/O is a bottleneck.
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
   already computes generically (`APP_URL`, `PHP_VERSION` backfill). A
   service that needs to know about *other* selected services beyond

@@ -16,6 +16,7 @@ use Ship\Frameworks\SymfonyAdapter;
 use Ship\Runtime\ProcessRunner;
 use Ship\Services\ServiceRegistry;
 use Ship\Support\ShipVersion;
+use Ship\Sync\MutagenSync;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -60,7 +61,11 @@ final class UpCommand extends Command
 
         $this->warnAboutStubVersionMismatch($output);
 
-        $compose = (new ComposeFileBuilder($registry))->build($config, $environment);
+        // Never on in production regardless of SHIP_MUTAGEN -- there's no bind mount there to
+        // begin with (source is baked into the image at build time), so nothing to sync.
+        $mutagenSync = $environment->isDevelopment() && MutagenSync::isEnabled();
+
+        $compose = (new ComposeFileBuilder($registry))->build($config, $environment, $mutagenSync);
 
         $composeDir = $this->projectRoot . '/ship';
         if (!is_dir($composeDir)) {
@@ -112,7 +117,18 @@ final class UpCommand extends Command
             return $result;
         }
 
-        return $this->ensurePublishedPortsAreBound($compose, $output);
+        $result = $this->ensurePublishedPortsAreBound($compose, $output);
+
+        if ($result !== Command::SUCCESS) {
+            return $result;
+        }
+
+        // Last, not first: needs the "app" container already running and healthy to sync into --
+        // see MutagenSync::start()'s own docblock for why this blocks until the initial sync
+        // actually finishes rather than just firing off session creation.
+        return $mutagenSync
+            ? (new MutagenSync($this->runner, $this->projectRoot))->start($output)
+            : Command::SUCCESS;
     }
 
     /**
