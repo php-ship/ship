@@ -153,15 +153,22 @@
   repository pointing at this checkout can't resolve inside an isolated
   Docker build context, which would otherwise make the production build
   half of this job untestable.
+- `InitCommand::select()`'s Laravel Prompts branch has real test coverage
+  (`InitCommandLaravelPromptsTest`), run in its own isolated process
+  (`#[RunInSeparateProcess]`) against a hand-rolled fake
+  `Laravel\Prompts\select()` (`tests/Fixtures/fake-laravel-prompts.php`)
+  rather than the real package as a dev dependency -- the real
+  `laravel/prompts` autoloads its helper functions globally for the
+  whole PHP process via Composer's "files" autoloading, which would make
+  every *other* `InitCommand` test (all of which specifically exercise
+  the `ChoiceQuestion` fallback on the assumption that `laravel/prompts`
+  isn't installed at all) also route into the Prompts branch the moment
+  they share a process with it. Still skipped on Windows, matching
+  `canUseLaravelPromptsInteractiveUi()`'s own `PHP_OS_FAMILY` gate --
+  CI's ubuntu-latest/macos-latest matrix legs are what actually run it.
 
 ## Known gaps
 
-- **The Laravel Prompts interactive-UI branch
-  (`canUseLaravelPromptsInteractiveUi()`) has zero test coverage.**
-  `laravel/prompts` isn't installed in this repo's own test suite (by
-  design -- see the method's own docblock for why it's not a hard
-  dependency), so every `InitCommand` test exercises the
-  `ChoiceQuestion` fallback path only.
 - **`ProxyCommand` and `ExecCommand`'s raw-argv forwarding** (both read
   `$_SERVER['argv']` directly rather than Console's parsed arguments, so
   a flag meant for the executed command — `-m` in `artisan make:model
