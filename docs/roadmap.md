@@ -160,7 +160,12 @@
   their own method signatures too). Verified live: a real Postgres +
   MySQL stack, both reachable from the same Laravel app through two
   separate `config/database.php` connections at once, `ship db` and
-  `ship db analytics` each opening the right one.
+  `ship db analytics` each opening the right one. The instance name
+  itself is restricted to lowercase letters, digits, and underscores,
+  starting with a letter -- it becomes both a Compose service name
+  suffix and an environment variable prefix, and confirmed live that a
+  space in it makes `docker compose config` reject the whole generated
+  file outright, with an error that never points back to this prompt.
 - CI matrix across Ubuntu/macOS/Windows x PHP 8.2/8.3/8.4, plus a
   separate `docker-build` job that actually runs `ship init`/`up`/
   `up --prod` against a real fixture Laravel app and a real Docker
@@ -229,6 +234,22 @@
   directions and that `ship down` actually terminates the sync session,
   not just unit tests around the deterministic parts
   (`ComposeFileBuilderMutagenTest`, `MutagenSyncTest`).
+- Direct test coverage for everything that previously had none:
+  `ShipConfig` (defaults, malformed-file handling, round-trip),
+  `Application` (command registration with no `ship.json` yet, a
+  malformed one, a valid extension, framework-adapter detection),
+  `ServiceRegistry` (including a check that every built-in
+  `ServiceDefinition` is actually in `defaults()`, guarding against one
+  getting written and registered nowhere), `ProcessRunner` (against real
+  processes, not mocks -- the same standard this project already holds
+  Docker-touching code to), and the eight `ServiceDefinition`s that
+  previously had none of their own (only ever exercised indirectly
+  through `ComposeFileBuilderTest`). `DownCommand`, `LogsCommand`, and
+  `ShellCommand` each gained a small `buildCommand(InputInterface)`
+  extraction so their real (if simple) conditional logic is testable
+  without spawning a real process -- the same pattern
+  `ProxyCommand`/`ExecCommand` already used for their own raw-argv
+  handling.
 
 ## Not started
 

@@ -40,11 +40,20 @@ final class DownCommand extends Command
         // sync was targeting: it's the same order `ship up` starts them in, reversed.
         (new MutagenSync($this->runner, $this->projectRoot))->stop();
 
+        return $this->runner->runInteractive($this->buildCommand($input), $this->projectRoot);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function buildCommand(InputInterface $input): array
+    {
         $command = [...ComposeCommand::baseArgs($this->projectRoot), 'down'];
+
         if ((bool) $input->getOption('volumes')) {
             $command[] = '--volumes';
         }
 
-        return $this->runner->runInteractive($command, $this->projectRoot);
+        return $command;
     }
 }

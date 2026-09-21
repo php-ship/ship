@@ -31,6 +31,14 @@ final class LogsCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        return $this->runner->runInteractive($this->buildCommand($input), $this->projectRoot);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function buildCommand(InputInterface $input): array
+    {
         $command = [...ComposeCommand::baseArgs($this->projectRoot), 'logs'];
 
         if ((bool) $input->getOption('follow')) {
@@ -42,6 +50,6 @@ final class LogsCommand extends Command
             $command[] = $service;
         }
 
-        return $this->runner->runInteractive($command, $this->projectRoot);
+        return $command;
     }
 }

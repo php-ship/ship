@@ -29,14 +29,19 @@ final class ShellCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        return $this->runner->runInteractive($this->buildCommand($input), $this->projectRoot);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function buildCommand(InputInterface $input): array
+    {
         $service = (string) $input->getArgument('service');
 
         // Alpine-based images (everything in this stack) ship `sh`, not
         // `bash`, unless something explicitly installs it — `sh` works
         // everywhere and avoids a "bash: not found" surprise on first run.
-        return $this->runner->runInteractive(
-            [...ComposeCommand::baseArgs($this->projectRoot), 'exec', $service, 'sh'],
-            $this->projectRoot,
-        );
+        return [...ComposeCommand::baseArgs($this->projectRoot), 'exec', $service, 'sh'];
     }
 }

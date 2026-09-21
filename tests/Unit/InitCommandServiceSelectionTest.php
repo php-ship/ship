@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ship\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Ship\Console\Commands\InitCommand;
 use Ship\Services\ServiceRegistry;
@@ -162,5 +163,42 @@ final class InitCommandServiceSelectionTest extends TestCase
         self::assertSame('analytics', $additional[0]['name']);
         self::assertSame('queue', $additional[1]['name']);
         self::assertStringContainsString('already used', $tester->getDisplay());
+    }
+
+    /**
+     * An instance name becomes both a Compose service name suffix and an environment variable
+     * prefix (see SupportsNamedInstances) -- confirmed live that a space in it makes `docker
+     * compose config` reject the whole generated file outright, with an error that never points
+     * back to this prompt. A hyphen is accepted by Compose but not by a `.env` file's KEY=VALUE
+     * syntax, so it's rejected here too, not just whitespace.
+     *
+     * @return iterable<string, array{string}>
+     */
+    public static function invalidInstanceNames(): iterable
+    {
+        yield 'a space' => ['my analytics'];
+        yield 'a hyphen' => ['my-analytics'];
+        yield 'starts with a digit' => ['1analytics'];
+        yield 'uppercase-only input still normalized then re-checked' => ['@nalytics'];
+    }
+
+    #[DataProvider('invalidInstanceNames')]
+    public function test_it_rejects_an_instance_name_with_invalid_characters_and_asks_again(string $invalidName): void
+    {
+        $command = new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults()));
+        $tester = new CommandTester($command);
+        $tester->setInputs([
+            'PostgreSQL', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None',
+            'yes', 'database', 'MySQL', $invalidName, 'analytics',
+            'no',
+            '8.4', '24',
+        ]);
+        $tester->execute([]);
+
+        $additional = $this->shipJson()['additionalServices'];
+
+        self::assertCount(1, $additional);
+        self::assertSame('analytics', $additional[0]['name']);
+        self::assertStringContainsString('can only contain lowercase letters', $tester->getDisplay());
     }
 }

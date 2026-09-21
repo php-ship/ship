@@ -189,8 +189,19 @@ final class InitCommand extends Command
                         . 'e.g. "analytics")',
                 ));
 
+                // Becomes both a Compose service name suffix ("pgsql-{$name}") and an environment
+                // variable prefix (strtoupper($name) . '_', see SupportsNamedInstances) -- anything
+                // outside this charset breaks one or the other. Confirmed live: a space here makes
+                // `docker compose config` reject the whole file with "services additional
+                // properties '...' not allowed", an error that never points back to this prompt.
                 if ($name === '') {
                     $io->warning('A name is required.');
+                } elseif (preg_match('/^[a-z][a-z0-9_]*$/', $name) !== 1) {
+                    $io->warning(
+                        "\"{$name}\" can only contain lowercase letters, numbers, and underscores, "
+                            . 'and must start with a letter.',
+                    );
+                    $name = '';
                 } elseif (in_array($name, $usedNames, true)) {
                     $io->warning("\"{$name}\" is already used -- pick a different name.");
                     $name = '';
