@@ -126,8 +126,17 @@ CMD ["php-fpm"]
 # see ComposeFileBuilder::baseServices() -- but lives here too so both
 # environments build through one Dockerfile instead of splitting nginx
 # into its own file for no reason other than "it's a different image".
+# Runs as root, not nginx:alpine's own default "nginx" user, for the same reason "app"'s dev
+# php-fpm pool does (see that RUN sed line's own docblock): dev bind-mounts (or, in SHIP_MUTAGEN
+# mode, syncs into a named volume) the project root from the host, so file ownership here isn't
+# baked in at a known value the way it is in "prod" -- confirmed live, not hypothetical: Mutagen's
+# own agent injection runs via `docker exec` as this container's default user, and nginx's own
+# unprivileged worker processes couldn't read what that user had just written, 403ing every
+# request with "is forbidden (13: Permission denied)". Prod keeps nginx's own default -- its files
+# are baked into the image at build time by the COPY below, at a known, consistent ownership.
 FROM nginx:alpine AS dev-nginx
 COPY ship/nginx/default.conf /etc/nginx/conf.d/default.conf
+RUN sed -i 's/^user  *nginx;/user root;/' /etc/nginx/nginx.conf
 
 FROM nginx:alpine AS prod-nginx
 COPY --from=assets /var/www/html/public /var/www/html/public

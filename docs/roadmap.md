@@ -245,9 +245,23 @@
   `vendor/` persists in the named volume like everything else written
   inside the container.
 
+  A third real bug, also caught by CI (v0.3.1 fixed the one above but
+  still shipped with this one, fixed in the next release): the
+  `vendor/` fix got `artisan migrate` working, but every actual HTTP
+  request to the app still 403'd with nginx's own "is forbidden (13:
+  Permission denied)". `webserver`'s dev-nginx stage never runs as
+  root -- unlike `app`'s dev php-fpm pool, which already does, for the
+  same underlying reason (see that `RUN sed` line's own docblock) --
+  so its unprivileged worker processes couldn't read files Mutagen had
+  just synced in, which land owned by whatever user Mutagen's own
+  agent injection runs as via `docker exec`. Fixed the same way:
+  `sed`-ing nginx's own `user nginx;` directive to `user root;`, dev
+  only -- `prod-nginx`'s files are baked into the image at build time
+  at a known, consistent ownership, so it keeps nginx's own default.
+
   Verified live end-to-end against a real Docker daemon and the real
-  `mutagen` binary beyond both bugs above (also tracking down a third
-  gotcha along the way: a `mutagen` install missing its separate
+  `mutagen` binary beyond all three bugs above (also tracking down a
+  fourth gotcha along the way: a `mutagen` install missing its separate
   agent-bundle archive fails sync creation outright with no indication
   why beyond "unable to locate agent bundle") -- covered by CI's
   `docker-build` job too, checking a real file round-trip in both
