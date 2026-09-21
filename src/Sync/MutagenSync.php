@@ -76,6 +76,13 @@ final class MutagenSync
         }
 
         if ($this->isWatching()) {
+            // Re-checked even when the sync already existed from a previous `ship up` -- cheap
+            // (a no-op the instant vendor/autoload.php exists, see installComposerDependencies()'s
+            // own docblock) and covers a first attempt that created the session successfully but
+            // was interrupted before installing, leaving a project stuck re-running `ship up` with
+            // no other way to retry just this part.
+            $this->installComposerDependencies();
+
             return Command::SUCCESS;
         }
 
@@ -115,6 +122,7 @@ final class MutagenSync
         for ($elapsed = 0; $elapsed < self::SYNC_TIMEOUT_SECONDS; $elapsed += self::POLL_INTERVAL_SECONDS) {
             if ($this->isWatching()) {
                 $output->writeln('<info>ship: Mutagen sync is up and watching for changes.</info>');
+                $this->installComposerDependencies();
 
                 return Command::SUCCESS;
             }
@@ -130,6 +138,26 @@ final class MutagenSync
         ));
 
         return Command::FAILURE;
+    }
+
+    /**
+     * vendor/ is deliberately excluded from the sync itself (see start()'s own docblock on why),
+     * which means nothing else ever populates it in this mode -- the dev entrypoint's own
+     * composer-install-if-missing fallback runs at container *boot*, before this sync session even
+     * exists yet, so composer.json isn't there for it to find either; it always skips. Found for
+     * real, not hypothesized: a live CI run's `artisan migrate` right after a successful `ship up`
+     * failed outright on a missing vendor/autoload.php. Same guard as that entrypoint fallback
+     * (composer.json present, vendor/autoload.php missing) so a second `ship up` -- vendor/ already
+     * there, persisted in the named volume same as everything else written inside the container --
+     * costs nothing beyond one quick `docker compose exec`.
+     */
+    private function installComposerDependencies(): void
+    {
+        $this->runner->runInteractive([
+            ...ComposeCommand::baseArgs($this->projectRoot),
+            'exec', '-T', 'app',
+            'sh', '-c', 'if [ -f composer.json ] && [ ! -f vendor/autoload.php ]; then composer install --no-interaction; fi',
+        ], $this->projectRoot);
     }
 
     /**

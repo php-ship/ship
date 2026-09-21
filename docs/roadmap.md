@@ -225,9 +225,29 @@
   letting php-fpm boot against a harmlessly empty directory instead,
   until Mutagen catches up.
 
+  A second real bug, this one caught by CI rather than local
+  verification (v0.3.0 shipped with it, fixed in the next release):
+  excluding `vendor/` from the sync means nothing ever installs it in
+  this mode at all -- the entrypoint's own fallback only ever runs at
+  container *boot*, before the sync session exists yet, so it always
+  finds `composer.json` missing too and skips, exactly as designed for
+  the crash-loop fix above. Nothing re-triggers it once the sync
+  actually lands. The result: `ship up` itself reported success, but
+  `ship exec app php artisan migrate` immediately after failed on a
+  missing `vendor/autoload.php` -- caught by CI's own docker-build job
+  running exactly that sequence, not by any local testing, since local
+  verification up to that point only checked raw file sync, never an
+  actual command needing Composer dependencies. Fixed by running the
+  same guarded install (`composer.json` present, `vendor/autoload.php`
+  missing) inside the container via `docker compose exec` once the sync
+  reaches "Watching," instead of relying on the entrypoint. Idempotent
+  by the same guard -- a second `ship up` costs one quick `exec` since
+  `vendor/` persists in the named volume like everything else written
+  inside the container.
+
   Verified live end-to-end against a real Docker daemon and the real
-  `mutagen` binary beyond just that one bug (including tracking down a
-  second real gotcha: a `mutagen` install missing its separate
+  `mutagen` binary beyond both bugs above (also tracking down a third
+  gotcha along the way: a `mutagen` install missing its separate
   agent-bundle archive fails sync creation outright with no indication
   why beyond "unable to locate agent bundle") -- covered by CI's
   `docker-build` job too, checking a real file round-trip in both
