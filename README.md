@@ -236,8 +236,11 @@ instance of a service, under a name of your choice:
 ```
 
 `ship init` offers to add these interactively too, right after the main
-picker ("Add a named additional service instance?"). Either way, that
-`name` becomes two things at once:
+picker ("Add a named additional service instance?"), and validates the
+name you type there. Editing `ship.json` by hand instead, that `name`
+must be lowercase letters, digits, and underscores only, starting with
+a letter (`analytics`, `queue_2` — not `Analytics`, `my analytics`, or
+`2nd-db`) — it becomes two things at once:
 
 - The env vars this instance's connection details use — instead of the
   default instance's `DB_HOST`/`DB_CONNECTION`/etc., you get
