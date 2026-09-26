@@ -549,6 +549,14 @@ the Adminer example above), mounting an extra volume, or pointing `app`'s
 entirely. Nothing here is ship-specific; it's just Compose doing what it
 already does, on top of a file ship happens to regenerate for you.
 
+If your project renamed `app`/`webserver`/etc. (`ship.json`'s
+`serviceNames`, see
+[Custom service names and an external network](#custom-service-names-and-an-external-network)),
+key your override entries under the *renamed* service, not the literal
+`app` — Compose merges override files by that top-level key, so an entry
+still keyed `app` either does nothing or creates an unrelated, empty
+service by that name instead of extending the one you actually meant.
+
 For the Dockerfile and nginx/php config `ship init` publishes into `ship/`
 itself, no override file is needed — `ship up` never rewrites those, so
 editing them directly is safe and persists across every `ship up` (until
