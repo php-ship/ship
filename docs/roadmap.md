@@ -396,6 +396,35 @@
   whatever its own `.env` already sets, untouched. Verified live: a
   fixture with a custom `.env` `APP_URL` (a non-default port and
   hostname) came through into the "app" container completely unmangled.
+- Fixed another real bug from the same report: Vite's dev server port
+  mapping only ever let the *host* side follow `${VITE_PORT:-5173}` --
+  the container side was a fixed `5173` regardless, so a project whose
+  own `vite.config.js` actually listens on a different port (reading
+  its own `VITE_PORT`) never got that port published at all, and HMR
+  never connected. Both sides now read the same `${VITE_PORT:-5173}` --
+  README's Vite HMR section and `ship init`'s own printed reminder
+  snippet updated to read `process.env.VITE_PORT` in `vite.config.js`
+  accordingly, so one `.env` value drives both the compose mapping and
+  Vite's own bind port.
+
+  Fixing this surfaced a real regression in `UpCommand`'s own port-bind
+  verification: `ensurePublishedPortsAreBound()`'s `containerPortFrom()`
+  blindly split every mapping string on `:`, which every *other* mapping
+  in this codebase tolerates fine (only ever the host side has
+  `${VAR:-default}` syntax, so the container side was always a bare
+  trailing literal) -- but Vite's new both-sides mapping has a literal
+  `:` inside `${VITE_PORT:-5173}` on the container side too, so the
+  naive split grabbed a garbled fragment instead (caught immediately by
+  an actual `ship up`, not a unit test: `docker compose port` was handed
+  literal garbage and `ship up` failed outright with a nonsense port in
+  its own error message). Fixed by reading `docker compose config`'s
+  already-fully-resolved view instead of re-parsing the raw generated
+  YAML text for this one check -- Compose resolves every
+  `${VAR:-default}` the exact same way `docker compose up` itself does
+  (env var, then `.env`, then the inline default) and hands back a real
+  numeric `target` port directly, so nothing here needs to reimplement
+  that resolution by hand. Verified live: a fixture with `VITE_PORT=5199`
+  in `.env` published as `5199:5199` and `ship up` completed successfully.
 
 ## Not started
 

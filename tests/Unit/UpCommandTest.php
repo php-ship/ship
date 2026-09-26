@@ -42,26 +42,6 @@ final class UpCommandTest extends TestCase
     }
 
     /**
-     * @return iterable<string, array{string, ?string}>
-     */
-    public static function portMappingCases(): iterable
-    {
-        yield 'plain host:container mapping' => ['80:80', '80'];
-        yield 'env-var-with-default host side' => ['${APP_PORT:-80}:80', '80'];
-    }
-
-    #[DataProvider('portMappingCases')]
-    public function test_it_extracts_the_container_side_port_from_a_compose_mapping(
-        string $mapping,
-        ?string $expected,
-    ): void {
-        $command = new UpCommand(sys_get_temp_dir(), new ProcessRunner());
-        $method = new \ReflectionMethod($command, 'containerPortFrom');
-
-        self::assertSame($expected, $method->invoke($command, $mapping));
-    }
-
-    /**
      * Never re-publishes ship/ on its own (see the method's own docblock for why -- a project may
      * have hand-edited those files), only warns -- so this checks it produces the right warning
      * text rather than any side effect.

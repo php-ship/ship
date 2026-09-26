@@ -117,7 +117,7 @@ final class UpCommand extends Command
             return $result;
         }
 
-        $result = $this->ensurePublishedPortsAreBound($compose, $output);
+        $result = $this->ensurePublishedPortsAreBound($output);
 
         if ($result !== Command::SUCCESS) {
             return $result;
@@ -305,17 +305,29 @@ final class UpCommand extends Command
      * `docker compose port` observed reporting a port as bound moments before the bind actually
      * failed, not just the reverse (slow-but-fine). portIsBound() waits out that settling window
      * instead of trusting whatever the first read says.
+     *
+     * Reads `docker compose config` (Compose's own fully-resolved view), not the raw generated
+     * YAML the other ensure*() methods parse -- found from real use: Vite's own port mapping
+     * (see ComposeFileBuilder) has "${VITE_PORT:-5173}" on *both* sides, not just the host side
+     * every other mapping here has, so the container side is no longer always a bare literal a
+     * simple string split could pull out safely. `docker compose config` already resolves every
+     * "${VAR:-default}" the same way `docker compose up` itself would (env var, then .env, then
+     * the inline default), handing back a real "target" port number directly instead of text this
+     * class would otherwise have to re-parse.
      */
-    private function ensurePublishedPortsAreBound(string $composeYaml, OutputInterface $output): int
+    private function ensurePublishedPortsAreBound(OutputInterface $output): int
     {
-        /** @var array{services?: array<string, array{ports?: list<string>}>} $parsed */
-        $parsed = Yaml::parse($composeYaml);
+        /** @var array{services?: array<string, array{ports?: list<array{target?: int}>}>} $resolved */
+        $resolved = Yaml::parse($this->runner->runQuiet(
+            [...ComposeCommand::baseArgs($this->projectRoot), 'config'],
+            $this->projectRoot,
+        ));
 
         $unbound = [];
 
-        foreach ($parsed['services'] ?? [] as $name => $service) {
+        foreach ($resolved['services'] ?? [] as $name => $service) {
             foreach ($service['ports'] ?? [] as $mapping) {
-                $containerPort = $this->containerPortFrom($mapping);
+                $containerPort = isset($mapping['target']) ? (string) $mapping['target'] : null;
 
                 if ($containerPort !== null && !$this->portIsBound($name, $containerPort)) {
                     $unbound[] = "{$name} ({$containerPort})";
@@ -378,19 +390,6 @@ final class UpCommand extends Command
         $port = substr($output, (int) strrpos($output, ':') + 1);
 
         return $port !== '' && ctype_digit($port) && $port !== '0';
-    }
-
-    /**
-     * Compose port mappings look like "80:80" or "${APP_PORT:-80}:80" -- only the container-side
-     * port (the part after the last ":") matters for `docker compose port`, so the host side's
-     * env-var syntax never needs resolving here.
-     */
-    private function containerPortFrom(string $mapping): ?string
-    {
-        $parts = explode(':', $mapping);
-        $containerPort = end($parts);
-
-        return $containerPort !== '' ? $containerPort : null;
     }
 
     /**

@@ -426,7 +426,15 @@ final class ComposeFileBuilder
                 // unused published port costs nothing. Not published in
                 // prod at all -- there is no Vite dev server in
                 // production, see the "assets" build stage instead.
-                'ports' => $environment->isDevelopment() ? ['${VITE_PORT:-5173}:5173'] : [],
+                //
+                // Both sides use the same $VITE_PORT, not just the host side -- found from real
+                // use: a project whose own vite.config.js listens on a non-default port (its own
+                // VITE_PORT, read from this exact same .env via env_file: below) had its container
+                // side permanently fixed at 5173 regardless, so HMR never connected. Since "app"'s
+                // env_file: already loads the same .env this interpolates from, one VITE_PORT value
+                // drives both the compose port mapping and whatever port a vite.config.js reading
+                // process.env.VITE_PORT actually binds to -- see README's Vite HMR section.
+                'ports' => $environment->isDevelopment() ? ['${VITE_PORT:-5173}:${VITE_PORT:-5173}'] : [],
                 'networks' => ['ship'],
                 'env_file' => self::OPTIONAL_ENV_FILE,
             ],

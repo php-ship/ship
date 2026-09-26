@@ -102,8 +102,26 @@ final class ComposeFileBuilderTest extends TestCase
         $dev = Yaml::parse($builder->build($config, ShipEnvironment::Development));
         $prod = Yaml::parse($builder->build($config, ShipEnvironment::Production));
 
-        self::assertContains('${VITE_PORT:-5173}:5173', $dev['services']['app']['ports']);
+        self::assertContains('${VITE_PORT:-5173}:${VITE_PORT:-5173}', $dev['services']['app']['ports']);
         self::assertSame([], $prod['services']['app']['ports']);
+    }
+
+    /**
+     * Regression test for a real bug found from live use: the container side used to be a fixed
+     * "5173" regardless of $VITE_PORT, so a project whose own vite.config.js listens on a
+     * different port (its own VITE_PORT) never actually got it published -- HMR just silently
+     * never connected. Both sides now follow the same variable -- asserted as an exact string, not
+     * just "the two halves match," since the halves themselves both contain a ":" as part of
+     * `${VAR:-default}` syntax, which would make a naive split on ":" pick the wrong one.
+     */
+    public function test_the_vite_dev_server_ports_container_side_follows_the_same_variable_as_the_host_side(): void
+    {
+        $builder = new ComposeFileBuilder($this->registry());
+        $config = new ShipConfig(phpVersion: '8.4', services: []);
+
+        $dev = Yaml::parse($builder->build($config, ShipEnvironment::Development));
+
+        self::assertSame('${VITE_PORT:-5173}:${VITE_PORT:-5173}', $dev['services']['app']['ports'][0]);
     }
 
     public function test_reverb_gets_its_own_service_with_the_projects_php_version_backfilled(): void

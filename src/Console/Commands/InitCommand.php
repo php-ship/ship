@@ -110,7 +110,7 @@ final class InitCommand extends Command
         $io->writeln(<<<'JS'
                 server: {
                     host: '0.0.0.0',           // bind inside the container, not just loopback
-                    port: 5173,
+                    port: Number(process.env.VITE_PORT ?? 5173),
                     strictPort: true,          // fail fast instead of silently picking another
                                                 // port -- one ship's docker-compose.yml doesn't publish
                     hmr: { host: 'localhost' }, // what the *browser* connects back to for HMR

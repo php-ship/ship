@@ -423,13 +423,25 @@ export default defineConfig({
     // ...
     server: {
         host: '0.0.0.0',        // bind inside the container, not just loopback
-        port: 5173,
+        port: Number(process.env.VITE_PORT ?? 5173),
         strictPort: true,       // fail fast instead of silently picking another
                                  // port — one the compose file doesn't publish
         hmr: { host: 'localhost' }, // what the *browser* should connect back to
     },
 });
 ```
+
+Reading `process.env.VITE_PORT` rather than hard-coding `5173` matters if
+you ever need a non-default port — e.g. two `ship`-managed projects run
+side by side (see
+[Running more than one project at once](#running-more-than-one-project-at-once)),
+or a project that already used a different port before adopting `ship`.
+Both the compose port mapping and Vite's own bind port read the exact same
+`VITE_PORT` from your project's `.env` (`app`'s `env_file:` loads the same
+file Compose interpolates `${VITE_PORT:-5173}` from) — set it once there
+and both sides follow it. Only the compose side has a built-in default;
+without `?? 5173` here, an unset `VITE_PORT` would leave Vite's own `port`
+option `undefined`.
 
 `strictPort` matters more than it looks: without it, if Vite's default port
 is already taken *inside the container* (e.g. a previous `ship npm run dev`
