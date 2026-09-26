@@ -42,6 +42,12 @@ final class OctaneFrankenPhpService implements ServiceDefinition
                 // overrides "dockerfile", context/target/args from
                 // baseServices() are preserved.
                 'build' => ['dockerfile' => 'ship/Dockerfile.frankenphp'],
+                // No --watch here, unlike Swoole/RoadRunner (see OctaneSwooleService's own
+                // comment) -- FrankenPHP has its own history of --watch hanging every request
+                // mid-flight in worker mode specifically inside Docker (php/frankenphp#1293),
+                // reportedly fixed upstream but not verified live against this project's own
+                // pinned FrankenPHP image. Revisit once that's actually confirmed working here,
+                // rather than enabling it on the strength of an upstream issue being closed.
                 'command' => ['php', 'artisan', 'octane:start', '--server=frankenphp', '--host=0.0.0.0', '--port=8000'],
                 'ports' => ['${APP_PORT:-8000}:8000', '${APP_HTTPS_PORT:-8443}:8443'],
             ],

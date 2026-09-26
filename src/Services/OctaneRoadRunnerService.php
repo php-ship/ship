@@ -29,9 +29,17 @@ final class OctaneRoadRunnerService implements ServiceDefinition
 
     public function composeFragment(ShipEnvironment $environment, ?string $instanceName = null): array
     {
+        // --watch (dev only) -- see OctaneSwooleService's own comment for why and what it needs
+        // from the project (Node, already unconditional, plus the project's own "chokidar" npm
+        // package).
+        $command = ['php', 'artisan', 'octane:start', '--server=roadrunner', '--host=0.0.0.0', '--port=8000'];
+        if ($environment->isDevelopment()) {
+            $command[] = '--watch';
+        }
+
         return [
             'app' => [
-                'command' => ['php', 'artisan', 'octane:start', '--server=roadrunner', '--host=0.0.0.0', '--port=8000'],
+                'command' => $command,
                 'ports' => ['${APP_PORT:-8000}:8000'],
             ],
         ];

@@ -26,9 +26,10 @@ final class OctaneRuntimeMergeTest extends TestCase
         $yaml = $builder->build($config, ShipEnvironment::Development);
         $parsed = Yaml::parse($yaml);
 
-        // Overridden by the service (scalar key: replaced outright).
+        // Overridden by the service (scalar key: replaced outright). --watch is appended in
+        // development -- see OctaneSwooleServiceTest for dedicated coverage of that.
         self::assertSame(
-            ['php', 'artisan', 'octane:start', '--server=swoole', '--host=0.0.0.0', '--port=8000'],
+            ['php', 'artisan', 'octane:start', '--server=swoole', '--host=0.0.0.0', '--port=8000', '--watch'],
             $parsed['services']['app']['command'],
         );
 

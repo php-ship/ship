@@ -15,10 +15,20 @@ final class OctaneRoadRunnerServiceTest extends TestCase
         $fragment = (new OctaneRoadRunnerService())->composeFragment(ShipEnvironment::Development);
 
         self::assertSame(
-            ['php', 'artisan', 'octane:start', '--server=roadrunner', '--host=0.0.0.0', '--port=8000'],
+            ['php', 'artisan', 'octane:start', '--server=roadrunner', '--host=0.0.0.0', '--port=8000', '--watch'],
             $fragment['app']['command'],
         );
         self::assertSame(['${APP_PORT:-8000}:8000'], $fragment['app']['ports']);
+    }
+
+    /**
+     * Dev only -- see OctaneSwooleServiceTest's own equivalent for why.
+     */
+    public function test_watch_is_only_added_in_development(): void
+    {
+        $fragment = (new OctaneRoadRunnerService())->composeFragment(ShipEnvironment::Production);
+
+        self::assertNotContains('--watch', $fragment['app']['command']);
     }
 
     public function test_octane_server_env_var_matches_the_server_flag(): void

@@ -456,6 +456,24 @@
   fixture with `phpExtensions: ["gd", "zip", "bcmath"]` built
   successfully and the resulting image's own `php -m` listed all three.
 
+- Octane's own `--watch` flag, dev only, for Swoole and RoadRunner --
+  requested from real use, comparing against Laravel Sail's own Octane
+  setup, which already passes it. Without it, Octane keeps serving a
+  worker process's already-booted code, so a PHP change silently needs
+  a manual `php artisan octane:reload` first — surprising for anyone
+  used to plain php-fpm, where every request reloads from disk.
+  Requires Node (already unconditional in the base image) and the
+  project's own "chokidar" npm package — an app-level dependency, not
+  something `ship` installs.
+
+  Deliberately *not* added to FrankenPHP: that runtime has its own
+  history of `--watch` hanging every request mid-flight in worker mode
+  specifically inside Docker (php/frankenphp#1293) — reportedly fixed
+  upstream, but not verified live against this project's own pinned
+  FrankenPHP image, and enabling it on the strength of a closed
+  upstream issue alone isn't the same as confirming it actually works
+  here.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
