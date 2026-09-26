@@ -83,9 +83,14 @@ final class DbCommand extends Command
         }
 
         $shell = $service->databaseShellCommand($instanceName);
+        // The generated compose file may have renamed this service (ship.json's serviceNames --
+        // see ShipConfig's own docblock); $shell['service'] is always the *original* compose name,
+        // since databaseShellCommand() computes it the same way composeFragment() did, with no way
+        // to know about a rename that only ever happens downstream, in ComposeFileBuilder.
+        $serviceName = $config->serviceNames[$shell['service']] ?? $shell['service'];
 
         return $this->runner->runInteractive(
-            [...ComposeCommand::baseArgs($this->projectRoot), 'exec', $shell['service'], ...$shell['command']],
+            [...ComposeCommand::baseArgs($this->projectRoot), 'exec', $serviceName, ...$shell['command']],
             $this->projectRoot,
         );
     }

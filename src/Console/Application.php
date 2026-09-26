@@ -38,7 +38,7 @@ final class Application extends SymfonyApplication
         // this has to degrade gracefully rather than require the file.
         $config = $this->readConfigIfPresent();
         $this->extensionClasses = $config === null ? [] : $config->extensions;
-        $appServiceName = $config === null ? 'app' : $config->appName;
+        $appServiceName = $config === null ? 'app' : ($config->serviceNames['app'] ?? 'app');
         $warnings = (new ExtensionLoader())->load($this->extensionClasses, $registry);
 
         $this->registerCommand(new InitCommand($this->projectRoot, $registry));

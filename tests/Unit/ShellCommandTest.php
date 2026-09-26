@@ -28,9 +28,9 @@ final class ShellCommandTest extends TestCase
     }
 
     /**
-     * A project that renamed its own app service (ship.json's appName -- see ShipConfig) needs
-     * `ship shell` with no argument to still target the right container, not the literal "app"
-     * that no longer exists in its generated compose file.
+     * A project that renamed its own app service (ship.json's serviceNames -- see ShipConfig)
+     * needs `ship shell` with no argument to still target the right container, not the literal
+     * "app" that no longer exists in its generated compose file.
      */
     public function test_it_defaults_to_ship_jsons_configured_app_name(): void
     {
@@ -38,7 +38,7 @@ final class ShellCommandTest extends TestCase
         mkdir($projectRoot, recursive: true);
 
         try {
-            (new ShipConfig(phpVersion: '8.4', services: [], appName: 'client-app'))
+            (new ShipConfig(phpVersion: '8.4', services: [], serviceNames: ['app' => 'client-app']))
                 ->toFile($projectRoot . '/ship.json');
 
             $command = new ShellCommand($projectRoot, new ProcessRunner());

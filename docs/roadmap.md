@@ -284,26 +284,58 @@
   without spawning a real process -- the same pattern
   `ProxyCommand`/`ExecCommand` already used for their own raw-argv
   handling.
-- Configurable app/webserver compose service names (`ship.json`'s
-  `appName`/`webserverName`) and an opt-in attachment to a pre-existing,
-  externally-managed Docker network (`externalNetwork`) -- lets several
-  `ship`-managed projects share one Docker network (each reaching common
-  infrastructure another compose project already runs there) without
-  colliding on the identical `app`/`webserver` network alias every
-  project gets by default. Hand-edited, not prompted by `ship init`, the
-  same as `extensions` -- almost no project needs this. Implemented as a
-  single rename pass in `ComposeFileBuilder::build()`, applied after
-  every `ServiceDefinition` (Octane runtimes merging into "app",
-  `webserver`'s own `depends_on`, ...) has already run against the fixed
-  `app`/`webserver` keys those classes still use internally, so none of
-  them need to know a project renamed its own services at all. Verified
-  live against a real Docker daemon: a fixture project renamed to
-  `client-app`/`client-web`, attached to a real external network holding
-  a separate MySQL container, actually reached it by hostname (a real
-  TCP connection all the way to MySQL's own auth/TLS negotiation, not
-  just DNS resolving), while the webserver container stayed off that
-  network entirely; `ship shell`/`ship exec`/`ship composer` all
-  resolved to the renamed container correctly.
+- Configurable compose service names (`ship.json`'s `serviceNames`, a
+  default-name => custom-name map covering "app"/"webserver" and any
+  selected database/cache/etc.) and an opt-in attachment to a
+  pre-existing, externally-managed Docker network (`externalNetwork`) --
+  lets several `ship`-managed projects share one Docker network (each
+  reaching common infrastructure another compose project already runs
+  there) without colliding on whichever service's default network alias
+  another project on that network already uses. Hand-edited, not
+  prompted by `ship init`, the same as `extensions` -- almost no project
+  needs this.
+
+  Implemented as a rename applied to each service's own fragment as it's
+  built (`ComposeFileBuilder::applyService()`/`renameFragmentKeys()`),
+  not a global find-and-replace afterwards, plus a narrower final pass
+  fixing up `depends_on` references elsewhere (currently only
+  `webserver`'s own `depends_on: ["app"]`). No `ServiceDefinition` (Octane
+  runtimes merging into "app", `webserver`'s `depends_on`, ...) needs to
+  know a project renamed its own services -- they still work against the
+  fixed `app`/`webserver`/`mysql`/... keys they've always used, unaware
+  anything downstream renames the result.
+
+  A real bug surfaced building this, not caught until an actual test
+  asserted the *right* thing rather than just the renamed thing: a
+  service's own hostname env var (`DB_HOST` => "mysql") has to follow a
+  rename or the app can no longer reach it, but some services also set an
+  unrelated driver identifier that happens to be spelled exactly like
+  their own compose name by coincidence (`RedisService`'s own
+  `CACHE_STORE`/`SESSION_DRIVER` => "redis", `MySqlService`'s own
+  `DB_CONNECTION` => "mysql") -- a first pass keyed only on *value*
+  equality renamed those right along with the real hostname, which would
+  have silently changed the app's own cache driver to a name Laravel
+  doesn't recognize the moment anyone renamed their "redis" service.
+  Fixed by also requiring the *key* to actually look like a hostname
+  (ends in `_HOST` or `_ENDPOINT`) before touching a value at all --
+  caught by a unit test asserting `CACHE_STORE` survives a Redis rename
+  unchanged, not by any live Docker check, since nothing about it
+  actually depends on a real daemon. `DbCommand` (`ship db`) needed its
+  own fix too -- it independently recomputes a service's compose name at
+  command-execution time, so it has to resolve that same name through
+  `serviceNames` itself rather than reusing whatever `ComposeFileBuilder`
+  decided when the compose file was generated.
+
+  Verified live against a real Docker daemon, both scenarios: a fixture
+  project renamed to `client-app`/`client-web`, attached to a real
+  external network holding a separate MySQL container, actually reached
+  it by hostname (a real TCP connection all the way to MySQL's own
+  auth/TLS negotiation, not just DNS resolving), while the webserver
+  container stayed off that network entirely; a second fixture selecting
+  `ship`'s own MySQL renamed to "client-db" came up correctly, `DB_HOST`
+  resolved to "client-db" while `DB_CONNECTION` correctly stayed "mysql",
+  and `ship db` (no instance argument) resolved through the rename and
+  ran a real query against it.
 
 ## Not started
 

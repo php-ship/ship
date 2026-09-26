@@ -127,7 +127,7 @@ final class UpCommand extends Command
         // see MutagenSync::start()'s own docblock for why this blocks until the initial sync
         // actually finishes rather than just firing off session creation.
         return $mutagenSync
-            ? (new MutagenSync($this->runner, $this->projectRoot, $config->appName))->start($output)
+            ? (new MutagenSync($this->runner, $this->projectRoot, $config->serviceNames['app'] ?? 'app'))->start($output)
             : Command::SUCCESS;
     }
 

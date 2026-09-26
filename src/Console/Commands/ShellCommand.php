@@ -61,7 +61,7 @@ final class ShellCommand extends Command
     private function defaultAppServiceName(): string
     {
         try {
-            return ShipConfig::fromFile($this->projectRoot . '/ship.json')->appName;
+            return ShipConfig::fromFile($this->projectRoot . '/ship.json')->serviceNames['app'] ?? 'app';
         } catch (\Throwable) {
             return 'app';
         }

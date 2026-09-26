@@ -22,13 +22,14 @@ final class ShipConfig
      *        service in the same group -- a second database of a different engine, a second Redis
      *        for a different purpose, etc. `name` becomes both the compose service suffix and the
      *        env var prefix (see SupportsNamedInstances), so it has to be unique across this list.
-     * @param string $appName compose service name (and Docker network hostname) for the PHP
-     *        container -- hand-edited, not prompted by `ship init`, same as $extensions. Only
-     *        matters when several ship-managed projects share one Docker network (see
-     *        $externalNetwork): Compose defaults every project's "app" to the identical network
-     *        alias, which collides the moment two of them join the same external network.
-     * @param string $webserverName same reasoning as $appName, for the nginx container --
-     *        independent of it since a project can rename one without the other.
+     * @param array<string, string> $serviceNames a compose service's default name (e.g. "app",
+     *        "webserver", "mysql", "redis" -- whatever key() or composeServiceName(null) would
+     *        otherwise produce) mapped to a custom one. Hand-edited, not prompted by `ship init`,
+     *        same as $extensions. Only matters when several ship-managed projects share one Docker
+     *        network (see $externalNetwork): Compose defaults every container to a network alias
+     *        matching its own compose service name, which collides the moment two projects on that
+     *        network both run, say, an "app" or a "mysql". Doesn't apply to `additionalServices`
+     *        entries -- those already get their own distinct compose name via their own `name`.
      * @param ?string $externalNetwork name of a pre-existing Docker network (created outside
      *        ship, e.g. by another compose project of shared infrastructure) to attach the app
      *        service to, in addition to ship's own internal "ship" network -- lets the app reach a
@@ -41,8 +42,7 @@ final class ShipConfig
         public readonly array $extensions = [],
         public readonly string $nodeVersion = '24',
         public readonly array $additionalServices = [],
-        public readonly string $appName = 'app',
-        public readonly string $webserverName = 'webserver',
+        public readonly array $serviceNames = [],
         public readonly ?string $externalNetwork = null,
     ) {
     }
@@ -62,8 +62,7 @@ final class ShipConfig
          *     services?: array<string,string>,
          *     extensions?: list<string>,
          *     additionalServices?: list<array{group: string, service: string, name: string}>,
-         *     appName?: string,
-         *     webserverName?: string,
+         *     serviceNames?: array<string,string>,
          *     externalNetwork?: ?string,
          * } $data
          */
@@ -75,8 +74,7 @@ final class ShipConfig
             extensions: $data['extensions'] ?? [],
             nodeVersion: $data['node'] ?? '24',
             additionalServices: $data['additionalServices'] ?? [],
-            appName: $data['appName'] ?? 'app',
-            webserverName: $data['webserverName'] ?? 'webserver',
+            serviceNames: $data['serviceNames'] ?? [],
             externalNetwork: $data['externalNetwork'] ?? null,
         );
     }
@@ -91,14 +89,11 @@ final class ShipConfig
             'extensions' => $this->extensions,
         ];
 
-        // Only written when they diverge from the default -- keeps a plain `ship init` project's
-        // ship.json exactly as before for everyone who never needs this (see this class's own
-        // constructor docblock), instead of every project growing 3 new lines nobody asked for.
-        if ($this->appName !== 'app') {
-            $payload['appName'] = $this->appName;
-        }
-        if ($this->webserverName !== 'webserver') {
-            $payload['webserverName'] = $this->webserverName;
+        // Only written when set -- keeps a plain `ship init` project's ship.json exactly as before
+        // for everyone who never needs this (see this class's own constructor docblock), instead of
+        // every project growing 2 new lines nobody asked for.
+        if ($this->serviceNames !== []) {
+            $payload['serviceNames'] = $this->serviceNames;
         }
         if ($this->externalNetwork !== null) {
             $payload['externalNetwork'] = $this->externalNetwork;

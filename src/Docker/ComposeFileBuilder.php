@@ -30,8 +30,13 @@ final class ComposeFileBuilder
      */
     public function build(ShipConfig $config, ShipEnvironment $environment, bool $mutagenSync = false): string
     {
+        $serviceNames = $config->serviceNames;
+
         $compose = [
-            'services' => $this->baseServices($config, $environment, $mutagenSync),
+            'services' => $this->renameFragmentKeys(
+                $this->baseServices($config, $environment, $mutagenSync),
+                $serviceNames,
+            ),
             'networks' => [
                 'ship' => ['driver' => 'bridge'],
             ],
@@ -41,7 +46,7 @@ final class ComposeFileBuilder
         $removed = [];
 
         foreach ($config->services as $key) {
-            [$compose, $appEnv, $removed] = $this->applyService($compose, $appEnv, $removed, $key, null, $environment);
+            [$compose, $appEnv, $removed] = $this->applyService($compose, $appEnv, $removed, $key, null, $environment, $serviceNames);
         }
 
         foreach ($config->additionalServices as $additional) {
@@ -52,11 +57,12 @@ final class ComposeFileBuilder
                 $additional['service'],
                 $additional['name'],
                 $environment,
+                $serviceNames,
             );
         }
 
         foreach ($removed as $name) {
-            unset($compose['services'][$name]);
+            unset($compose['services'][$serviceNames[$name] ?? $name]);
         }
 
         $compose['services'] = $this->backfillVersionBuildArgs(
@@ -66,15 +72,19 @@ final class ComposeFileBuilder
         );
         $compose['services'] = $this->backfillRestartPolicy($compose['services']);
 
-        // Every ServiceDefinition (Octane*, Reverb, Dusk, Garage, ...) merges into -- or reasons
-        // about -- "app"/"webserver" as fixed literals; renaming here, once, after all of them have
-        // already run, means none of those classes need to know a project renamed its own services
-        // at all. Only actually touches anything when $config->appName/webserverName diverge from
-        // their defaults -- see ShipConfig's own docblock for why that's opt-in and hand-edited.
-        $compose['services'] = $this->renameCoreServices($compose['services'], $config->appName, $config->webserverName);
+        // Every service fragment's own compose key was already renamed as it was built (see
+        // applyService()/renameFragmentKeys()) -- the only thing left is a *reference* to an old
+        // name from a fragment that isn't itself the one being renamed, e.g. "webserver"'s own
+        // depends_on: ["app"]. Written generically against the whole $serviceNames map (not
+        // special-cased to app/webserver) so a future fragment adding its own depends_on doesn't
+        // silently break the moment a project renames whatever it's depending on.
+        $compose['services'] = $this->renameDependsOnReferences($compose['services'], $serviceNames);
 
-        $compose['services'][$config->appName]['environment'] = [
-            ...$compose['services'][$config->appName]['environment'] ?? [],
+        $appServiceName = $serviceNames['app'] ?? 'app';
+        $webserverServiceName = $serviceNames['webserver'] ?? 'webserver';
+
+        $compose['services'][$appServiceName]['environment'] = [
+            ...$compose['services'][$appServiceName]['environment'] ?? [],
             ...$appEnv,
             // Always computed here, always wins over anything a
             // ServiceDefinition set — see DuskService for why per-service
@@ -86,7 +96,7 @@ final class ComposeFileBuilder
             // makes (drop "webserver" because Octane serves HTTP itself).
             'APP_URL' => sprintf(
                 'http://%s',
-                isset($compose['services'][$config->webserverName]) ? $config->webserverName : $config->appName,
+                isset($compose['services'][$webserverServiceName]) ? $webserverServiceName : $appServiceName,
             ),
         ];
 
@@ -96,7 +106,7 @@ final class ComposeFileBuilder
         // "webserver" (or Reverb, ...) to reach it.
         if ($config->externalNetwork !== null) {
             $compose['networks']['external'] = ['name' => $config->externalNetwork, 'external' => true];
-            $compose['services'][$config->appName]['networks'][] = 'external';
+            $compose['services'][$appServiceName]['networks'][] = 'external';
         }
 
         $namedVolumes = $this->namedVolumesUsedBy($compose['services']);
@@ -125,6 +135,7 @@ final class ComposeFileBuilder
      * @param array<string, mixed> $compose
      * @param array<string, string> $appEnv
      * @param list<string> $removed
+     * @param array<string, string> $serviceNames
      * @return array{0: array<string, mixed>, 1: array<string, string>, 2: list<string>}
      */
     private function applyService(
@@ -134,23 +145,74 @@ final class ComposeFileBuilder
         string $key,
         ?string $instanceName,
         ShipEnvironment $environment,
+        array $serviceNames,
     ): array {
         $service = $this->registry->get($key);
+        $env = $service->environmentVariables($instanceName);
 
+        // Renamed together, not separately -- environmentVariables() bakes this same service's own
+        // *unrenamed* compose name into a handful of its values (DB_HOST => "mysql", or embedded in
+        // a URL, e.g. MEILISEARCH_HOST => "http://meilisearch:7700"), computed independently of
+        // composeFragment() with no shared state tying the two together, so nothing else already
+        // knows to keep them in sync once a name changes.
         foreach ($service->composeFragment($environment, $instanceName) as $name => $fragment) {
+            $newName = $serviceNames[$name] ?? $name;
+
+            if ($newName !== $name) {
+                $env = $this->renameHostnameReferences($env, $name, $newName);
+            }
+
             $fragment['networks'] ??= ['ship'];
-            $compose['services'][$name] = isset($compose['services'][$name])
-                ? $this->mergeServiceFragment($compose['services'][$name], $fragment)
+            $compose['services'][$newName] = isset($compose['services'][$newName])
+                ? $this->mergeServiceFragment($compose['services'][$newName], $fragment)
                 : $fragment;
         }
 
         // A later, same-name env var wins -- lets additionalServices override a key the default
         // instance already set, the same "last one wins" rule PHP's own array union would give if
         // this were still a single flat loop instead of two.
-        $appEnv = [...$appEnv, ...$service->environmentVariables($instanceName)];
+        $appEnv = [...$appEnv, ...$env];
         $removed = [...$removed, ...$service->removes()];
 
         return [$compose, $appEnv, $removed];
+    }
+
+    /**
+     * Only ever touches a key that actually carries a hostname by its own naming convention --
+     * ends in "_HOST" (DB_HOST, REDIS_HOST, MAIL_HOST, MEILISEARCH_HOST, ANALYTICS_DB_HOST, ...) or
+     * "_ENDPOINT" (AWS_ENDPOINT) -- deliberately not every env value a service happens to produce.
+     * Found for real, not hypothesized: MySqlService's own DB_CONNECTION and RedisService's own
+     * CACHE_STORE/SESSION_DRIVER are Laravel driver identifiers that happen to be spelled exactly
+     * like the *compose service's own name* ("mysql", "redis") purely by coincidence -- a value-only
+     * check with no key filter renamed them right along with the real hostname, which would have
+     * quietly changed the app's own cache driver to a name that means nothing to Laravel the moment
+     * anyone renamed their "redis" service. Within a matching key, only two value shapes are ever
+     * touched -- the bare compose name itself, or that same name embedded in a URL immediately
+     * between "://" and the next ":" (MEILISEARCH_HOST, AWS_ENDPOINT) -- rather than a blind
+     * str_replace() across the whole value, which would risk mangling something that merely
+     * contains the old name as an unrelated substring.
+     *
+     * @param array<string, string> $env
+     * @return array<string, string>
+     */
+    private function renameHostnameReferences(array $env, string $oldName, string $newName): array
+    {
+        $needle = "://{$oldName}:";
+        $replacement = "://{$newName}:";
+
+        foreach ($env as $key => $value) {
+            if (!str_ends_with($key, '_HOST') && !str_ends_with($key, '_ENDPOINT')) {
+                continue;
+            }
+
+            if ($value === $oldName) {
+                $env[$key] = $newName;
+            } elseif (str_contains($value, $needle)) {
+                $env[$key] = str_replace($needle, $replacement, $value);
+            }
+        }
+
+        return $env;
     }
 
     /**
@@ -190,52 +252,68 @@ final class ComposeFileBuilder
     }
 
     /**
-     * Renames the "app"/"webserver" keys themselves (a no-op for either one still at its default)
-     * and rewrites any other service's depends_on entries pointing at the old name -- currently
-     * only "webserver"'s own depends_on: ["app"], but written generically rather than special-cased
-     * to that one spot, so a future fragment adding its own depends_on: ["app"] doesn't silently
-     * break the moment a project renames it.
+     * Renames whichever of a fragment's own keys ship.json's serviceNames map mentions -- a no-op
+     * for any key the map doesn't touch. Used both for baseServices()'s "app"/"webserver" fragment
+     * and (via applyService()) every other selected service's own fragment, so there's exactly one
+     * place that decides what a compose key becomes.
      *
-     * @param array<string, array<string, mixed>> $services
+     * @param array<string, array<string, mixed>> $fragment
+     * @param array<string, string> $serviceNames
      * @return array<string, array<string, mixed>>
      */
-    private function renameCoreServices(array $services, string $appName, string $webserverName): array
+    private function renameFragmentKeys(array $fragment, array $serviceNames): array
     {
-        $renames = [];
-
-        if ($appName !== 'app' && isset($services['app'])) {
-            $renames['app'] = $appName;
-        }
-        if ($webserverName !== 'webserver' && isset($services['webserver'])) {
-            $renames['webserver'] = $webserverName;
-        }
-
-        if ($renames === []) {
-            return $services;
-        }
-
         $renamed = [];
 
-        foreach ($services as $name => $service) {
-            if (isset($service['depends_on'])) {
-                /** @var list<string> $dependsOn */
-                $dependsOn = $service['depends_on'];
-                $service['depends_on'] = array_map(
-                    static fn (string $dependency): string => $renames[$dependency] ?? $dependency,
-                    $dependsOn,
-                );
-            }
-
-            $renamed[$renames[$name] ?? $name] = $service;
+        foreach ($fragment as $name => $definition) {
+            $renamed[$serviceNames[$name] ?? $name] = $definition;
         }
 
         return $renamed;
     }
 
     /**
+     * Rewrites a depends_on entry pointing at a name ship.json's serviceNames map renamed --
+     * currently only "webserver"'s own depends_on: ["app"], but written generically against the
+     * whole map rather than special-cased to that one spot, so a future fragment adding its own
+     * depends_on doesn't silently break the moment a project renames whatever it names there.
+     *
+     * @param array<string, array<string, mixed>> $services
+     * @param array<string, string> $serviceNames
+     * @return array<string, array<string, mixed>>
+     */
+    private function renameDependsOnReferences(array $services, array $serviceNames): array
+    {
+        if ($serviceNames === []) {
+            return $services;
+        }
+
+        foreach ($services as $name => $service) {
+            if (!isset($service['depends_on'])) {
+                continue;
+            }
+
+            /** @var list<string> $dependsOn */
+            $dependsOn = $service['depends_on'];
+            $services[$name]['depends_on'] = array_map(
+                static fn (string $dependency): string => $serviceNames[$dependency] ?? $dependency,
+                $dependsOn,
+            );
+        }
+
+        return $services;
+    }
+
+    /**
      * Scans every merged service's volumes: entries for ones referencing a named volume (e.g. "pgs:/data")
      * rather than a bind mount (e.g. ".:/var/www/html"). Needs one matching entry under this file's own
      * top-level, volumes: key -- omitting one is a validation error, any unused entry is dead config.
+     *
+     * A renamed service's own volume name (e.g. MySqlService's "ship-mysql-data") still reflects
+     * its *original* key(), not whatever serviceNames renamed the service itself to -- baked into
+     * the mount string at composeFragment() build time, before any rename happens, and Compose
+     * doesn't require the two to match. Cosmetic only: the data persists under that name across
+     * `ship up`/`ship down` regardless of what the service is currently called.
      *
      * @param array<string, array<string, mixed>> $services
      * @return list<string>

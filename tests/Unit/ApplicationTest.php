@@ -86,15 +86,16 @@ final class ApplicationTest extends TestCase
 
     /**
      * `ship composer`/`ship npm` (and any framework-adapter proxy, e.g. `artisan`) must target
-     * ship.json's configured appName, not a literal "app" -- a project that renamed its own app
-     * service (see ShipConfig::$appName's own docblock) would otherwise have every one of these
-     * shortcuts fail with "service \"app\" is not defined" even though `ship up` itself works fine.
+     * ship.json's configured app service name, not a literal "app" -- a project that renamed its
+     * own app service (see ShipConfig::$serviceNames's own docblock) would otherwise have every
+     * one of these shortcuts fail with "service \"app\" is not defined" even though `ship up`
+     * itself works fine.
      */
     public function test_proxy_commands_target_ship_jsons_configured_app_name(): void
     {
         touch($this->projectRoot . '/artisan');
         touch($this->projectRoot . '/composer.json');
-        (new ShipConfig(phpVersion: '8.4', services: [], appName: 'client-app'))
+        (new ShipConfig(phpVersion: '8.4', services: [], serviceNames: ['app' => 'client-app']))
             ->toFile($this->projectRoot . '/ship.json');
 
         $application = new Application($this->projectRoot);
