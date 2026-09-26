@@ -84,6 +84,26 @@ final class ApplicationTest extends TestCase
         self::assertSame(DatabaseServiceWithoutShell::class, $registry->get('no-shell-db')::class);
     }
 
+    /**
+     * `ship composer`/`ship npm` (and any framework-adapter proxy, e.g. `artisan`) must target
+     * ship.json's configured appName, not a literal "app" -- a project that renamed its own app
+     * service (see ShipConfig::$appName's own docblock) would otherwise have every one of these
+     * shortcuts fail with "service \"app\" is not defined" even though `ship up` itself works fine.
+     */
+    public function test_proxy_commands_target_ship_jsons_configured_app_name(): void
+    {
+        touch($this->projectRoot . '/artisan');
+        touch($this->projectRoot . '/composer.json');
+        (new ShipConfig(phpVersion: '8.4', services: [], appName: 'client-app'))
+            ->toFile($this->projectRoot . '/ship.json');
+
+        $application = new Application($this->projectRoot);
+
+        self::assertStringContainsString('"client-app"', $application->find('composer')->getDescription());
+        self::assertStringContainsString('"client-app"', $application->find('npm')->getDescription());
+        self::assertStringContainsString('"client-app"', $application->find('artisan')->getDescription());
+    }
+
     public function test_no_framework_specific_commands_are_registered_for_a_plain_non_framework_project(): void
     {
         $application = new Application($this->projectRoot);

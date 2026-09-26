@@ -22,6 +22,18 @@ final class ShipConfig
      *        service in the same group -- a second database of a different engine, a second Redis
      *        for a different purpose, etc. `name` becomes both the compose service suffix and the
      *        env var prefix (see SupportsNamedInstances), so it has to be unique across this list.
+     * @param string $appName compose service name (and Docker network hostname) for the PHP
+     *        container -- hand-edited, not prompted by `ship init`, same as $extensions. Only
+     *        matters when several ship-managed projects share one Docker network (see
+     *        $externalNetwork): Compose defaults every project's "app" to the identical network
+     *        alias, which collides the moment two of them join the same external network.
+     * @param string $webserverName same reasoning as $appName, for the nginx container --
+     *        independent of it since a project can rename one without the other.
+     * @param ?string $externalNetwork name of a pre-existing Docker network (created outside
+     *        ship, e.g. by another compose project of shared infrastructure) to attach the app
+     *        service to, in addition to ship's own internal "ship" network -- lets the app reach a
+     *        database/cache/etc. that ship itself never provisioned. Null (the default) attaches
+     *        nothing extra.
      */
     public function __construct(
         public readonly string $phpVersion,
@@ -29,6 +41,9 @@ final class ShipConfig
         public readonly array $extensions = [],
         public readonly string $nodeVersion = '24',
         public readonly array $additionalServices = [],
+        public readonly string $appName = 'app',
+        public readonly string $webserverName = 'webserver',
+        public readonly ?string $externalNetwork = null,
     ) {
     }
 
@@ -47,6 +62,9 @@ final class ShipConfig
          *     services?: array<string,string>,
          *     extensions?: list<string>,
          *     additionalServices?: list<array{group: string, service: string, name: string}>,
+         *     appName?: string,
+         *     webserverName?: string,
+         *     externalNetwork?: ?string,
          * } $data
          */
         $data = json_decode((string) file_get_contents($path), associative: true, flags: JSON_THROW_ON_ERROR);
@@ -57,6 +75,9 @@ final class ShipConfig
             extensions: $data['extensions'] ?? [],
             nodeVersion: $data['node'] ?? '24',
             additionalServices: $data['additionalServices'] ?? [],
+            appName: $data['appName'] ?? 'app',
+            webserverName: $data['webserverName'] ?? 'webserver',
+            externalNetwork: $data['externalNetwork'] ?? null,
         );
     }
 
@@ -69,6 +90,19 @@ final class ShipConfig
             'additionalServices' => $this->additionalServices,
             'extensions' => $this->extensions,
         ];
+
+        // Only written when they diverge from the default -- keeps a plain `ship init` project's
+        // ship.json exactly as before for everyone who never needs this (see this class's own
+        // constructor docblock), instead of every project growing 3 new lines nobody asked for.
+        if ($this->appName !== 'app') {
+            $payload['appName'] = $this->appName;
+        }
+        if ($this->webserverName !== 'webserver') {
+            $payload['webserverName'] = $this->webserverName;
+        }
+        if ($this->externalNetwork !== null) {
+            $payload['externalNetwork'] = $this->externalNetwork;
+        }
 
         file_put_contents(
             $path,

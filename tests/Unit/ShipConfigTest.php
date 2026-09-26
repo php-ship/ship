@@ -57,6 +57,9 @@ final class ShipConfigTest extends TestCase
         self::assertSame(['database' => 'pgsql'], $config->services);
         self::assertSame([], $config->extensions);
         self::assertSame([], $config->additionalServices);
+        self::assertSame('app', $config->appName);
+        self::assertSame('webserver', $config->webserverName);
+        self::assertNull($config->externalNetwork);
     }
 
     public function test_to_file_and_from_file_round_trip_every_field_unchanged(): void
@@ -67,6 +70,9 @@ final class ShipConfigTest extends TestCase
             extensions: ['Acme\\Ship\\CustomService'],
             nodeVersion: '22',
             additionalServices: [['group' => 'database', 'service' => 'pgsql', 'name' => 'analytics']],
+            appName: 'client-app',
+            webserverName: 'client-app-webserver',
+            externalNetwork: 'shared_infra',
         );
 
         $path = $this->projectRoot . '/ship.json';
@@ -74,6 +80,23 @@ final class ShipConfigTest extends TestCase
         $roundTripped = ShipConfig::fromFile($path);
 
         self::assertEquals($original, $roundTripped);
+    }
+
+    /**
+     * A plain `ship init` project (the overwhelming majority) never touches appName/webserverName
+     * /externalNetwork -- their ship.json should read exactly as it did before this feature
+     * existed, not grow 3 new lines nobody asked for. See ShipConfig::toFile()'s own comment.
+     */
+    public function test_to_file_omits_app_name_webserver_name_and_external_network_when_left_at_default(): void
+    {
+        $path = $this->projectRoot . '/ship.json';
+        (new ShipConfig(phpVersion: '8.4', services: ['database' => 'pgsql']))->toFile($path);
+
+        $written = (string) file_get_contents($path);
+
+        self::assertStringNotContainsString('appName', $written);
+        self::assertStringNotContainsString('webserverName', $written);
+        self::assertStringNotContainsString('externalNetwork', $written);
     }
 
     public function test_to_file_writes_pretty_printed_json_ending_in_a_newline(): void

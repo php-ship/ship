@@ -66,8 +66,15 @@ final class ComposeFileBuilder
         );
         $compose['services'] = $this->backfillRestartPolicy($compose['services']);
 
-        $compose['services']['app']['environment'] = [
-            ...$compose['services']['app']['environment'] ?? [],
+        // Every ServiceDefinition (Octane*, Reverb, Dusk, Garage, ...) merges into -- or reasons
+        // about -- "app"/"webserver" as fixed literals; renaming here, once, after all of them have
+        // already run, means none of those classes need to know a project renamed its own services
+        // at all. Only actually touches anything when $config->appName/webserverName diverge from
+        // their defaults -- see ShipConfig's own docblock for why that's opt-in and hand-edited.
+        $compose['services'] = $this->renameCoreServices($compose['services'], $config->appName, $config->webserverName);
+
+        $compose['services'][$config->appName]['environment'] = [
+            ...$compose['services'][$config->appName]['environment'] ?? [],
             ...$appEnv,
             // Always computed here, always wins over anything a
             // ServiceDefinition set — see DuskService for why per-service
@@ -77,8 +84,20 @@ final class ComposeFileBuilder
             // see. This is the one place that actually knows, since it's
             // the same check every Octane*Service::removes() already
             // makes (drop "webserver" because Octane serves HTTP itself).
-            'APP_URL' => sprintf('http://%s', isset($compose['services']['webserver']) ? 'webserver' : 'app'),
+            'APP_URL' => sprintf(
+                'http://%s',
+                isset($compose['services'][$config->webserverName]) ? $config->webserverName : $config->appName,
+            ),
         ];
+
+        // Lets the app reach infrastructure ship itself never provisioned (a shared MySQL/Redis/...
+        // some other compose project already runs) -- see ShipConfig::$externalNetwork's own
+        // docblock. Additive, not a replacement for "ship": the app still needs that one for
+        // "webserver" (or Reverb, ...) to reach it.
+        if ($config->externalNetwork !== null) {
+            $compose['networks']['external'] = ['name' => $config->externalNetwork, 'external' => true];
+            $compose['services'][$config->appName]['networks'][] = 'external';
+        }
 
         $namedVolumes = $this->namedVolumesUsedBy($compose['services']);
         if ($namedVolumes !== []) {
@@ -168,6 +187,49 @@ final class ComposeFileBuilder
         }
 
         return $base;
+    }
+
+    /**
+     * Renames the "app"/"webserver" keys themselves (a no-op for either one still at its default)
+     * and rewrites any other service's depends_on entries pointing at the old name -- currently
+     * only "webserver"'s own depends_on: ["app"], but written generically rather than special-cased
+     * to that one spot, so a future fragment adding its own depends_on: ["app"] doesn't silently
+     * break the moment a project renames it.
+     *
+     * @param array<string, array<string, mixed>> $services
+     * @return array<string, array<string, mixed>>
+     */
+    private function renameCoreServices(array $services, string $appName, string $webserverName): array
+    {
+        $renames = [];
+
+        if ($appName !== 'app' && isset($services['app'])) {
+            $renames['app'] = $appName;
+        }
+        if ($webserverName !== 'webserver' && isset($services['webserver'])) {
+            $renames['webserver'] = $webserverName;
+        }
+
+        if ($renames === []) {
+            return $services;
+        }
+
+        $renamed = [];
+
+        foreach ($services as $name => $service) {
+            if (isset($service['depends_on'])) {
+                /** @var list<string> $dependsOn */
+                $dependsOn = $service['depends_on'];
+                $service['depends_on'] = array_map(
+                    static fn (string $dependency): string => $renames[$dependency] ?? $dependency,
+                    $dependsOn,
+                );
+            }
+
+            $renamed[$renames[$name] ?? $name] = $service;
+        }
+
+        return $renamed;
     }
 
     /**

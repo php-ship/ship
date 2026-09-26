@@ -284,6 +284,26 @@
   without spawning a real process -- the same pattern
   `ProxyCommand`/`ExecCommand` already used for their own raw-argv
   handling.
+- Configurable app/webserver compose service names (`ship.json`'s
+  `appName`/`webserverName`) and an opt-in attachment to a pre-existing,
+  externally-managed Docker network (`externalNetwork`) -- lets several
+  `ship`-managed projects share one Docker network (each reaching common
+  infrastructure another compose project already runs there) without
+  colliding on the identical `app`/`webserver` network alias every
+  project gets by default. Hand-edited, not prompted by `ship init`, the
+  same as `extensions` -- almost no project needs this. Implemented as a
+  single rename pass in `ComposeFileBuilder::build()`, applied after
+  every `ServiceDefinition` (Octane runtimes merging into "app",
+  `webserver`'s own `depends_on`, ...) has already run against the fixed
+  `app`/`webserver` keys those classes still use internally, so none of
+  them need to know a project renamed its own services at all. Verified
+  live against a real Docker daemon: a fixture project renamed to
+  `client-app`/`client-web`, attached to a real external network holding
+  a separate MySQL container, actually reached it by hostname (a real
+  TCP connection all the way to MySQL's own auth/TLS negotiation, not
+  just DNS resolving), while the webserver container stayed off that
+  network entirely; `ship shell`/`ship exec`/`ship composer` all
+  resolved to the renamed container correctly.
 
 ## Not started
 

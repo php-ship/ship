@@ -195,6 +195,10 @@ plain, readable JSON document:
 - `extensions` — fully-qualified class names of third-party
   `ServiceDefinition`/`FrameworkAdapter` implementations to load. See
   [Extending ship](#extending-ship).
+- `appName` / `webserverName` / `externalNetwork` — rename the app/nginx
+  compose services and/or attach the app to a pre-existing Docker
+  network. Omitted here since almost no project needs them — see
+  [Custom app/webserver names and an external network](#custom-appwebserver-names-and-an-external-network).
 
 Host-side port collisions (running more than one `ship` project, or
 another tool already using a default port) are handled with environment
@@ -259,6 +263,44 @@ actually means something: `database`, `cache`, `storage`, `search`, and
 `mail`. A second application runtime, frontend toolchain, testing
 driver, or broadcasting server isn't a coherent idea, so those stay
 single-select only.
+
+### Custom app/webserver names and an external network
+
+By default the PHP container is the compose service `app` and its nginx
+container is `webserver` — fine for one project on its own, but not once
+several `ship`-managed projects need to sit on the same Docker network:
+Compose gives every container a network alias matching its service name,
+so two projects both called `app` collide the instant they join that
+network together.
+
+Not prompted by `ship init` — hand-edit `ship.json` when you actually
+need it:
+
+```json
+{
+    "appName": "client-app",
+    "webserverName": "client-web",
+    "externalNetwork": "shared_infra"
+}
+```
+
+- `appName` / `webserverName` — rename the compose services (and every
+  `ship` command that targets one — `ship shell`, `ship exec`, `ship
+  composer`/`ship npm`/`ship artisan`, Mutagen sync) away from their
+  `app`/`webserver` defaults. Independent of each other; rename one, both,
+  or neither.
+- `externalNetwork` — the name of a Docker network created outside
+  `ship` (by another compose project, e.g. one running your shared
+  MySQL/Redis/etc.), attached to the app service in addition to `ship`'s
+  own internal network. This is what actually lets the app reach that
+  shared infrastructure — point your own `.env` (`DB_HOST`, `REDIS_HOST`,
+  ...) at whatever hostname that other project's containers are reachable
+  as, the same way you would without `ship` involved at all.
+
+A project that doesn't select any of `ship`'s own database/cache/storage
+services (an empty, or mostly empty, `services` object) is exactly the
+shape this is for: infrastructure lives in another compose project
+entirely, and this project's app container just needs a way in.
 
 ## Production build
 

@@ -36,7 +36,9 @@ final class Application extends SymfonyApplication
 
         // ship.json won't exist yet on a first-ever `ship init` run, so
         // this has to degrade gracefully rather than require the file.
-        $this->extensionClasses = $this->readExtensionClassesIfConfigured();
+        $config = $this->readConfigIfPresent();
+        $this->extensionClasses = $config === null ? [] : $config->extensions;
+        $appServiceName = $config === null ? 'app' : $config->appName;
         $warnings = (new ExtensionLoader())->load($this->extensionClasses, $registry);
 
         $this->registerCommand(new InitCommand($this->projectRoot, $registry));
@@ -50,14 +52,14 @@ final class Application extends SymfonyApplication
         // Package-manager commands are framework-agnostic, so they're
         // always available regardless of what FrameworkAdapter matches.
         // Node is installed unconditionally in the base image (see
-        // NodeService's docblock), so `ship npm` always targets "app"
-        // too — there's no separate node container to route to.
-        $this->registerCommand(new ProxyCommand('composer', 'app', 'composer', $this->projectRoot, $runner));
-        $this->registerCommand(new ProxyCommand('npm', 'app', 'npm', $this->projectRoot, $runner));
+        // NodeService's docblock), so `ship npm` always targets the app
+        // service too — there's no separate node container to route to.
+        $this->registerCommand(new ProxyCommand('composer', $appServiceName, 'composer', $this->projectRoot, $runner));
+        $this->registerCommand(new ProxyCommand('npm', $appServiceName, 'npm', $this->projectRoot, $runner));
 
         foreach ($this->detectFrameworkAdapters() as $adapter) {
             foreach ($adapter->consoleCommands() as $commandName => $binary) {
-                $this->registerCommand(new ProxyCommand($commandName, 'app', $binary, $this->projectRoot, $runner));
+                $this->registerCommand(new ProxyCommand($commandName, $appServiceName, $binary, $this->projectRoot, $runner));
             }
         }
 
@@ -98,24 +100,21 @@ final class Application extends SymfonyApplication
         ));
     }
 
-    /**
-     * @return list<string>
-     */
-    private function readExtensionClassesIfConfigured(): array
+    private function readConfigIfPresent(): ?ShipConfig
     {
         $path = $this->projectRoot . '/ship.json';
 
         if (!is_file($path)) {
-            return [];
+            return null;
         }
 
         try {
-            return ShipConfig::fromFile($path)->extensions;
+            return ShipConfig::fromFile($path);
         } catch (\Throwable) {
             // A malformed ship.json shouldn't block `ship init` from being
             // able to fix it — commands that actually need the config
             // (UpCommand etc.) will surface the real parse error themselves.
-            return [];
+            return null;
         }
     }
 }

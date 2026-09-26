@@ -32,6 +32,7 @@ final class MutagenSync
     public function __construct(
         private readonly ProcessRunner $runner,
         private readonly string $projectRoot,
+        private readonly string $appServiceName = 'app',
     ) {
     }
 
@@ -87,12 +88,15 @@ final class MutagenSync
         }
 
         $containerName = trim($this->runner->runQuiet(
-            [...ComposeCommand::baseArgs($this->projectRoot), 'ps', 'app', '--format', '{{.Name}}'],
+            [...ComposeCommand::baseArgs($this->projectRoot), 'ps', $this->appServiceName, '--format', '{{.Name}}'],
             $this->projectRoot,
         ));
 
         if ($containerName === '') {
-            $output->writeln('<error>ship: could not resolve the "app" container to sync into.</error>');
+            $output->writeln(sprintf(
+                '<error>ship: could not resolve the "%s" container to sync into.</error>',
+                $this->appServiceName,
+            ));
 
             return Command::FAILURE;
         }
@@ -155,7 +159,7 @@ final class MutagenSync
     {
         $this->runner->runInteractive([
             ...ComposeCommand::baseArgs($this->projectRoot),
-            'exec', '-T', 'app',
+            'exec', '-T', $this->appServiceName,
             'sh', '-c', 'if [ -f composer.json ] && [ ! -f vendor/autoload.php ]; then composer install --no-interaction; fi',
         ], $this->projectRoot);
     }
