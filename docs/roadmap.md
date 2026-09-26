@@ -498,6 +498,24 @@
   code change needed — just a README section pointing at it, since the
   gap was that this wasn't documented anywhere, not that it didn't
   work.
+- Documented why dev containers run as root and the resulting
+  root-owned-files-on-the-host tradeoff, raised from real use on WSL2.
+  A deliberate decision, not an oversight — matching a fixed
+  unprivileged UID against a bind mount's own host UID (Sail's own
+  approach) only works when they happen to coincide, and running as
+  root instead works unconditionally, on every host, without ever
+  touching host file ownership to force a match. Chose to document the
+  tradeoff (and a `chown`-from-inside-the-container workaround) rather
+  than switch the default: switching would fix root-owned files on
+  hosts where it happens to match, while reintroducing the harder
+  permission-denied failure this project already fixed once (see the
+  "Fix dev containers 500ing on any real Linux host" entry above) on
+  every host where it doesn't.
+
+  Verified live in WSL2, not just described: a fresh `vendor/` written
+  by the container really does show up owned by root from the WSL
+  user's own `ls -la`, and `ship exec app chown -R $(id -u):$(id -g)
+  vendor` really does flip it back to the WSL user afterward.
 
 ## Not started
 

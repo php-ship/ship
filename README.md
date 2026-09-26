@@ -29,10 +29,12 @@ low-severity gaps that remain.
 - [Configuration (`ship.json`)](#configuration-shipjson)
   - [Adding a service later](#adding-a-service-later)
   - [Multiple instances of a service](#multiple-instances-of-a-service)
+  - [Custom service names and an external network](#custom-service-names-and-an-external-network)
 - [Production build](#production-build)
 - [HTTPS / TLS](#https--tls)
 - [Backing up data volumes](#backing-up-data-volumes)
 - [Frontend dev server (Vite HMR)](#frontend-dev-server-vite-hmr)
+- [File ownership in dev (why containers run as root)](#file-ownership-in-dev-why-containers-run-as-root)
 - [Faster file sync on Windows/macOS (Mutagen)](#faster-file-sync-on-windowsmacos-mutagen)
 - [Running more than one project at once](#running-more-than-one-project-at-once)
 - [Customizing the stack](#customizing-the-stack)
@@ -468,6 +470,38 @@ patching arbitrary existing JS config isn't something worth the fragility —
 `ship init` prints this exact snippet as a reminder instead, whenever it
 detects `vite` in `package.json` and the existing config doesn't already
 look like it handles this.
+
+## File ownership in dev (why containers run as root)
+
+Dev's `app`/`webserver` containers run every process as root — deliberate,
+not an oversight. The project root is bind-mounted straight from the host,
+so it keeps whatever host UID/GID created it; on a real Linux host (native
+Linux, WSL2, this project's own CI) that's essentially never the fixed UID
+a container's own unprivileged user would run as (`www-data`, Laravel
+Sail's `sail`, ...). Matching that fixed UID against the *bind mount's*
+UID (Sail's own approach, via `WWWUSER`/`WWWGROUP`) only works when they
+happen to coincide — otherwise every write (a compiled view, `storage/`,
+`bootstrap/cache/`) hits a hard permission-denied. Running as root instead
+works unconditionally, on every host, without ever touching host file
+ownership to force a match.
+
+The tradeoff: anything the container writes — `vendor/`, `public/build`,
+`storage/` — ends up **owned by root on the host** too, on hosts where
+your own user isn't root (native Linux, WSL2). Harmless for `ship` itself
+(nothing here needs to read those files as a specific non-root user), but
+occasionally annoying outside it — e.g. your editor or a host-side shell
+command refusing to touch a root-owned file. Fix it after the fact, for
+just the paths that bother you, by chowning them back from *inside* the
+container (root there can chown to any UID, including your own host
+one):
+
+```sh
+ship exec app chown -R $(id -u):$(id -g) storage bootstrap/cache vendor public/build
+```
+
+Production is unaffected either way — those files are baked into the
+image at build time, at a known ownership, not written by a running
+container into a bind mount at all.
 
 ## Faster file sync on Windows/macOS (Mutagen)
 
