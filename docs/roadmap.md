@@ -486,6 +486,18 @@
   nothing there needs it. Verified live: `getent hosts
   host.docker.internal` inside a real "app" container resolved to a
   real address, not just present in the generated compose file.
+- Documented running a command on every container boot (dev), e.g.
+  `telescope:setup-database` needing to run against a real, reachable
+  database on every start, not just once when dependencies are first
+  installed. Requested as a `startupCommands`-style `ship.json` hook,
+  but that would just be a second, redundant way to do something
+  `ship/dev/entrypoint.sh` already supports today: it's a one-time-
+  published, hand-editable file `ship up` never regenerates (same as
+  the Dockerfile and nginx config), so a project can already add its
+  own command there directly, right before the final `exec "$@"`. No
+  code change needed — just a README section pointing at it, since the
+  gap was that this wasn't documented anywhere, not that it didn't
+  work.
 
 ## Not started
 

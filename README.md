@@ -573,6 +573,29 @@ editing them directly is safe and persists across every `ship up` (until
 you re-run `ship init`, which does overwrite them — see the `ship init`
 row in [Commands](#commands)).
 
+### Running a command on every container boot
+
+`ship/dev/entrypoint.sh` is one of those publish-once, hand-editable files
+— add your own command there, right before the final `exec "$@"`, and it
+runs every time the `app` container starts, not just the first time (the
+file's existing `composer install` step only runs once, guarded on
+`vendor/autoload.php` being missing):
+
+```sh
+# ship/dev/entrypoint.sh
+if [ -f artisan ]; then
+    php artisan telescope:setup-database --no-interaction || true
+fi
+
+exec "$@"
+```
+
+This is the dev equivalent of what `EntrypointScriptBuilder` already
+generates for `ship up --prod` (see `FrameworkAdapter::releaseCommands()`)
+— useful for anything that needs to run against a real, reachable database
+on every boot (creating a package's own tables if they're missing, warming
+a cache, ...), not just once when dependencies are first installed.
+
 ## Extending ship
 
 Third-party packages can contribute their own services or framework
