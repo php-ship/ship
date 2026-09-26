@@ -473,6 +473,19 @@
   FrankenPHP image, and enabling it on the strength of a closed
   upstream issue alone isn't the same as confirming it actually works
   here.
+- `extra_hosts: [host.docker.internal:host-gateway]` on the dev "app"
+  service — requested from real use: Xdebug (installed unconditionally
+  in dev, see `stubs/docker/php/Dockerfile`) needs a route back to
+  whatever's listening on the host for its own debug connection (the
+  IDE), and `host.docker.internal` isn't a real DNS name Docker
+  resolves without this. `host-gateway` is the special value Docker
+  itself resolves to the actual host gateway IP, on Docker Desktop
+  (Mac/Windows) and native Linux alike (Engine 20.10+, added
+  specifically for this), so one line covers every platform this
+  project targets. Dev only — Xdebug isn't installed in production, so
+  nothing there needs it. Verified live: `getent hosts
+  host.docker.internal` inside a real "app" container resolved to a
+  real address, not just present in the generated compose file.
 
 ## Not started
 

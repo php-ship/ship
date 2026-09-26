@@ -442,6 +442,14 @@ final class ComposeFileBuilder
                 'ports' => $environment->isDevelopment() ? ['${VITE_PORT:-5173}:${VITE_PORT:-5173}'] : [],
                 'networks' => ['ship'],
                 'env_file' => self::OPTIONAL_ENV_FILE,
+                // Xdebug (installed unconditionally in "dev", see stubs/docker/php/Dockerfile)
+                // needs a route back to whatever's listening on the host for its own debug
+                // connection (the IDE) -- "host.docker.internal" isn't a real DNS name Docker
+                // resolves on its own; "host-gateway" is the special value Docker itself resolves
+                // to the actual host gateway IP, on Docker Desktop (Mac/Windows) and native Linux
+                // alike (Engine 20.10+, added specifically for this). Not set in production --
+                // Xdebug isn't installed there, so nothing needs it.
+                'extra_hosts' => $environment->isDevelopment() ? ['host.docker.internal:host-gateway'] : [],
             ],
         ];
 

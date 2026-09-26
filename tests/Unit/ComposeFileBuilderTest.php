@@ -107,6 +107,24 @@ final class ComposeFileBuilderTest extends TestCase
     }
 
     /**
+     * Requested from real use: Xdebug (installed unconditionally in dev, see
+     * stubs/docker/php/Dockerfile) needs a route back to the IDE listening on the host, and
+     * "host.docker.internal" isn't a real DNS name Docker resolves without this. Dev only --
+     * Xdebug isn't installed in production, so nothing there needs it.
+     */
+    public function test_app_gets_a_host_docker_internal_route_only_in_development(): void
+    {
+        $builder = new ComposeFileBuilder($this->registry());
+        $config = new ShipConfig(phpVersion: '8.4', services: []);
+
+        $dev = Yaml::parse($builder->build($config, ShipEnvironment::Development));
+        $prod = Yaml::parse($builder->build($config, ShipEnvironment::Production));
+
+        self::assertContains('host.docker.internal:host-gateway', $dev['services']['app']['extra_hosts']);
+        self::assertSame([], $prod['services']['app']['extra_hosts']);
+    }
+
+    /**
      * Regression test for a real bug found from live use: the container side used to be a fixed
      * "5173" regardless of $VITE_PORT, so a project whose own vite.config.js listens on a
      * different port (its own VITE_PORT) never actually got it published -- HMR just silently
