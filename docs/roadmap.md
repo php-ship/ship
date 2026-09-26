@@ -336,6 +336,46 @@
   resolved to "client-db" while `DB_CONNECTION` correctly stayed "mysql",
   and `ship db` (no instance argument) resolved through the rename and
   ran a real query against it.
+- Two more `storage` group alternatives, `rustfs`/`RustFsService` and
+  `silo`/`SiloService`, alongside the existing SeaweedFS/Garage --
+  MinIO was deliberately never one of the four: its own community
+  edition abandoned prebuilt binaries and gutted its web console, which
+  is exactly what motivated looking at alternatives instead of just
+  adding it directly. Silo (pgsty/silo) is a community-maintained fork
+  of MinIO's actual server codebase restoring both; RustFS is an
+  independent, from-scratch Rust rewrite.
+
+  Verified live against a real Docker daemon before committing to
+  either, not just from documentation, which is exactly what caught two
+  real gaps: (1) neither has a Garage-style `--default-bucket` flag --
+  confirmed directly that a write to a bucket that was never created
+  fails outright with "NoSuchBucket," so unlike Garage, the app's own
+  bucket needs creating by hand once, via a console or any S3 client;
+  (2) RustFS's own web console -- the actual reason to reach for either
+  of these over SeaweedFS/Garage -- currently just returns the S3 API's
+  own "AccessDenied" response instead of rendering, on both
+  `--console-enable` and an explicit `--console-address` flag, which
+  turned out to match a currently-open upstream bug
+  (rustfs/rustfs#8013), not a misconfiguration on this end. `RustFsService`
+  is deliberately positioned the same as SeaweedFS/Garage (no published
+  console port) until that's fixed upstream, while `SiloService` publishes
+  one -- verified live to be a real, working HTML/JS console, not just a
+  200 status.
+
+  Also confirmed live: RustFS's container runs as a non-root user
+  (10001:10001) baked into the image with `/data` already chowned to
+  match, so ship's own named-volume pattern (not a bind mount) for its
+  dev data Just Works without needing any of the manual host-side
+  `chown` the image's own docs otherwise call for -- Silo runs as root,
+  so this never came up for it at all. Both storage services support
+  `additionalServices` (a second, differently-purposed instance) like
+  SeaweedFS/Garage already do; since both host-publish a console port
+  (Silo always, RustFS once its bug is fixed), that port's own env var
+  name is instance-scoped (e.g. `ARCHIVE_SILO_CONSOLE_PORT`) so a second
+  named instance can't silently collide with the default one on the same
+  host port -- a class of collision no existing storage service had to
+  consider before, since neither SeaweedFS nor Garage publishes anything
+  to the host at all.
 
 ## Not started
 

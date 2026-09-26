@@ -64,6 +64,8 @@ final class ServiceRegistry
             new RedisService(),
             new SeaweedFsService(),
             new GarageService(),
+            new RustFsService(),
+            new SiloService(),
             new OctaneSwooleService(),
             new OctaneRoadRunnerService(),
             new OctaneFrankenPhpService(),

@@ -18,8 +18,10 @@ use Ship\Services\OctaneSwooleService;
 use Ship\Services\PostgresService;
 use Ship\Services\RedisService;
 use Ship\Services\ReverbService;
+use Ship\Services\RustFsService;
 use Ship\Services\SeaweedFsService;
 use Ship\Services\ServiceRegistry;
+use Ship\Services\SiloService;
 
 final class ServiceRegistryTest extends TestCase
 {
@@ -81,6 +83,8 @@ final class ServiceRegistryTest extends TestCase
         yield 'RedisService' => [RedisService::class];
         yield 'SeaweedFsService' => [SeaweedFsService::class];
         yield 'GarageService' => [GarageService::class];
+        yield 'RustFsService' => [RustFsService::class];
+        yield 'SiloService' => [SiloService::class];
         yield 'OctaneSwooleService' => [OctaneSwooleService::class];
         yield 'OctaneRoadRunnerService' => [OctaneRoadRunnerService::class];
         yield 'OctaneFrankenPhpService' => [OctaneFrankenPhpService::class];
@@ -107,6 +111,6 @@ final class ServiceRegistryTest extends TestCase
         // A deliberately redundant count alongside the per-class check above: that one only ever
         // proves nothing was *removed*, not that this list matches the intended set exactly --
         // catches an extra/duplicate registration the same way.
-        self::assertCount(13, ServiceRegistry::defaults());
+        self::assertCount(15, ServiceRegistry::defaults());
     }
 }

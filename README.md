@@ -148,7 +148,7 @@ doesn't make for you.
 | Redis | `CACHE_STORE`/`SESSION_DRIVER`/`REDIS_*`, `redis` PHP extension | Nothing — works out of the box |
 | Mailpit | `MAIL_HOST`/`MAIL_PORT` | Nothing (fresh Laravel already defaults `MAIL_MAILER=smtp`) |
 | Meilisearch | `SCOUT_DRIVER`/`MEILISEARCH_*` | `composer require laravel/scout meilisearch/meilisearch-php` |
-| Garage / SeaweedFS | `AWS_*` env vars (S3-compatible) | `composer require league/flysystem-aws-s3-v3`, and set `FILESYSTEM_DISK=s3` yourself |
+| Garage / SeaweedFS / RustFS / Silo | `AWS_*` env vars (S3-compatible) | `composer require league/flysystem-aws-s3-v3`, and set `FILESYSTEM_DISK=s3` yourself. Garage auto-provisions its own default bucket; RustFS/SeaweedFS/Silo don't — create it yourself once (Silo has a web console for this at `${SILO_CONSOLE_PORT:-9001}`; RustFS's own console doesn't currently work, see that class's own docblock) |
 | Octane (Swoole/RoadRunner/FrankenPHP) | `swoole` PHP extension (Swoole only), `OCTANE_SERVER` | `composer require laravel/octane`, then `php artisan octane:install` inside the container once (downloads the RoadRunner binary if that's the one picked) |
 | Dusk | Selenium container, `DUSK_DRIVER_URL` | `composer require --dev laravel/dusk` |
 | Node.js / npm | Installed unconditionally in the base image, at the version `ship init`'s "Node.js version" prompt sets (`ship.json`'s `node` field, default 24); `ship npm run dev` works regardless of whether this group is selected | See [Frontend dev server](#frontend-dev-server-vite-hmr) below for HMR |
