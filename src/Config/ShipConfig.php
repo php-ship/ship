@@ -35,6 +35,16 @@ final class ShipConfig
      *        service to, in addition to ship's own internal "ship" network -- lets the app reach a
      *        database/cache/etc. that ship itself never provisioned. Null (the default) attaches
      *        nothing extra.
+     * @param list<string> $phpExtensions extra PHP extensions (e.g. "gd", "zip", "bcmath") to
+     *        install into the image beyond the fixed set every project already gets
+     *        unconditionally (pdo_pgsql, pdo_mysql, intl, mbstring, opcache, pcntl, redis -- see
+     *        stubs/docker/php/Dockerfile). Hand-edited, not prompted by `ship init`, same as
+     *        $extensions -- a Composer package's own platform requirements (gd for
+     *        maatwebsite/excel, bcmath for a money library, ...) aren't something `ship` can infer
+     *        from ship.json's service selections alone. Fed straight to
+     *        mlocati/docker-php-extension-installer (see the Dockerfile's own ARG), which already
+     *        handles the apk build-dependency dance every hand-written extension install in that
+     *        file does manually.
      */
     public function __construct(
         public readonly string $phpVersion,
@@ -44,6 +54,7 @@ final class ShipConfig
         public readonly array $additionalServices = [],
         public readonly array $serviceNames = [],
         public readonly ?string $externalNetwork = null,
+        public readonly array $phpExtensions = [],
     ) {
     }
 
@@ -64,6 +75,7 @@ final class ShipConfig
          *     additionalServices?: list<array{group: string, service: string, name: string}>,
          *     serviceNames?: array<string,string>,
          *     externalNetwork?: ?string,
+         *     phpExtensions?: list<string>,
          * } $data
          */
         $data = json_decode((string) file_get_contents($path), associative: true, flags: JSON_THROW_ON_ERROR);
@@ -76,6 +88,7 @@ final class ShipConfig
             additionalServices: $data['additionalServices'] ?? [],
             serviceNames: $data['serviceNames'] ?? [],
             externalNetwork: $data['externalNetwork'] ?? null,
+            phpExtensions: $data['phpExtensions'] ?? [],
         );
     }
 
@@ -91,12 +104,15 @@ final class ShipConfig
 
         // Only written when set -- keeps a plain `ship init` project's ship.json exactly as before
         // for everyone who never needs this (see this class's own constructor docblock), instead of
-        // every project growing 2 new lines nobody asked for.
+        // every project growing extra lines nobody asked for.
         if ($this->serviceNames !== []) {
             $payload['serviceNames'] = $this->serviceNames;
         }
         if ($this->externalNetwork !== null) {
             $payload['externalNetwork'] = $this->externalNetwork;
+        }
+        if ($this->phpExtensions !== []) {
+            $payload['phpExtensions'] = $this->phpExtensions;
         }
 
         file_put_contents(

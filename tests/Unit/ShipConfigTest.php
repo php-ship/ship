@@ -59,6 +59,7 @@ final class ShipConfigTest extends TestCase
         self::assertSame([], $config->additionalServices);
         self::assertSame([], $config->serviceNames);
         self::assertNull($config->externalNetwork);
+        self::assertSame([], $config->phpExtensions);
     }
 
     public function test_to_file_and_from_file_round_trip_every_field_unchanged(): void
@@ -71,6 +72,7 @@ final class ShipConfigTest extends TestCase
             additionalServices: [['group' => 'database', 'service' => 'pgsql', 'name' => 'analytics']],
             serviceNames: ['app' => 'client-app', 'webserver' => 'client-web', 'mysql' => 'client-db'],
             externalNetwork: 'shared_infra',
+            phpExtensions: ['gd', 'zip', 'bcmath'],
         );
 
         $path = $this->projectRoot . '/ship.json';
@@ -82,10 +84,11 @@ final class ShipConfigTest extends TestCase
 
     /**
      * A plain `ship init` project (the overwhelming majority) never touches serviceNames/
-     * externalNetwork -- their ship.json should read exactly as it did before this feature
-     * existed, not grow 2 new lines nobody asked for. See ShipConfig::toFile()'s own comment.
+     * externalNetwork/phpExtensions -- their ship.json should read exactly as it did before these
+     * features existed, not grow new lines nobody asked for. See ShipConfig::toFile()'s own
+     * comment.
      */
-    public function test_to_file_omits_service_names_and_external_network_when_left_at_default(): void
+    public function test_to_file_omits_service_names_external_network_and_php_extensions_when_left_at_default(): void
     {
         $path = $this->projectRoot . '/ship.json';
         (new ShipConfig(phpVersion: '8.4', services: ['database' => 'pgsql']))->toFile($path);
@@ -94,6 +97,7 @@ final class ShipConfigTest extends TestCase
 
         self::assertStringNotContainsString('serviceNames', $written);
         self::assertStringNotContainsString('externalNetwork', $written);
+        self::assertStringNotContainsString('phpExtensions', $written);
     }
 
     public function test_to_file_writes_pretty_printed_json_ending_in_a_newline(): void

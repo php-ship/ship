@@ -16,6 +16,24 @@ ARG OCTANE_RUNTIME
 RUN apk add --no-cache libpq-dev icu-dev oniguruma-dev \
     && docker-php-ext-install pdo_pgsql pdo_mysql intl mbstring opcache pcntl
 
+# Anything beyond the fixed set above -- a Composer package's own platform requirement (gd for
+# maatwebsite/excel, bcmath for a money library, ...) that ship.json's own service selections give
+# no way to infer. Fed from ship.json's phpExtensions (see ShipConfig's own docblock), empty by
+# default so a project that never needs this pays no cost at all -- no network call, no extra
+# build time. mlocati/docker-php-extension-installer over hand-writing each one the way redis
+# above does: it already knows every extension's own build dependencies and PECL-vs-bundled
+# quirks, which is exactly the apk-install/pecl-install/enable dance this file would otherwise
+# have to duplicate per extension, for an open-ended, project-chosen list. The GitHub Releases
+# URL, not the raw.githubusercontent.com one some older guides use -- verified live: fetching from
+# raw master prints its own "unsupported method" warning (and a deliberate sleep) instead of just
+# working, so this uses the URL the tool's own docs actually ask for.
+ARG PHP_EXTENSIONS=""
+RUN if [ -n "$PHP_EXTENSIONS" ]; then \
+        curl -sSLf https://github.com/mlocati/docker-php-extension-installer/releases/latest/download/install-php-extensions -o /usr/local/bin/install-php-extensions \
+        && chmod +x /usr/local/bin/install-php-extensions \
+        && install-php-extensions $PHP_EXTENSIONS; \
+    fi
+
 # Copied from the official node image at the pinned NODE_VERSION -- musl-built (matches this
 # Alpine base), not installed via `apk add nodejs npm`, since Alpine's own package repo only ever
 # carries whatever single Node version happens to ship with that Alpine release, independent of

@@ -156,6 +156,32 @@ final class ComposeFileBuilderTest extends TestCase
         self::assertSame('20', $parsed['services']['reverb']['build']['args']['NODE_VERSION']);
     }
 
+    public function test_php_extensions_are_space_joined_into_a_single_build_arg_and_backfilled_onto_reverb(): void
+    {
+        $registry = new ServiceRegistry([new ReverbService()]);
+        $builder = new ComposeFileBuilder($registry);
+
+        $config = new ShipConfig(
+            phpVersion: '8.4',
+            services: ['broadcasting' => 'reverb'],
+            phpExtensions: ['gd', 'zip', 'bcmath'],
+        );
+        $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Development));
+
+        self::assertSame('gd zip bcmath', $parsed['services']['app']['build']['args']['PHP_EXTENSIONS']);
+        self::assertSame('gd zip bcmath', $parsed['services']['reverb']['build']['args']['PHP_EXTENSIONS']);
+    }
+
+    public function test_php_extensions_defaults_to_an_empty_build_arg_when_not_specified(): void
+    {
+        $builder = new ComposeFileBuilder($this->registry());
+        $config = new ShipConfig(phpVersion: '8.4', services: []);
+
+        $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Development));
+
+        self::assertSame('', $parsed['services']['app']['build']['args']['PHP_EXTENSIONS']);
+    }
+
     public function test_node_version_defaults_to_24_when_not_specified(): void
     {
         $builder = new ComposeFileBuilder($this->registry());

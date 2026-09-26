@@ -69,6 +69,7 @@ final class ComposeFileBuilder
             $compose['services'],
             $config->phpVersion,
             $config->nodeVersion,
+            implode(' ', $config->phpExtensions),
         );
         $compose['services'] = $this->backfillRestartPolicy($compose['services']);
 
@@ -344,15 +345,17 @@ final class ComposeFileBuilder
     }
 
     /**
-     * "app" sets build.args.PHP_VERSION/NODE_VERSION explicitly, but any other service building a
-     * ship/Dockerfile's PHP stage (reverb so far) needs the same versions, not the Dockerfile's ARG
-     * defaults. Applies solely to dev/prod targets; dev-nginx/prod-nginx don't consume either. `??=`
+     * "app" sets build.args.PHP_VERSION/NODE_VERSION/PHP_EXTENSIONS explicitly, but any other
+     * service building a ship/Dockerfile's PHP stage (reverb so far) needs the same, not the
+     * Dockerfile's ARG defaults -- Reverb runs the exact same Laravel app, so a Composer package's
+     * platform requirement (see ShipConfig::$phpExtensions) applies to it too, not just "app".
+     * Applies solely to dev/prod targets; dev-nginx/prod-nginx don't consume any of these. `??=`
      * lets one already set win.
      *
      * @param array<string, array<string, mixed>> $services
      * @return array<string, array<string, mixed>>
      */
-    private function backfillVersionBuildArgs(array $services, string $phpVersion, string $nodeVersion): array
+    private function backfillVersionBuildArgs(array $services, string $phpVersion, string $nodeVersion, string $phpExtensions): array
     {
         foreach ($services as $name => $service) {
             $target = $service['build']['target'] ?? null;
@@ -364,6 +367,7 @@ final class ComposeFileBuilder
             $services[$name]['build']['args'] ??= [];
             $services[$name]['build']['args']['PHP_VERSION'] ??= $phpVersion;
             $services[$name]['build']['args']['NODE_VERSION'] ??= $nodeVersion;
+            $services[$name]['build']['args']['PHP_EXTENSIONS'] ??= $phpExtensions;
         }
 
         return $services;
@@ -413,6 +417,7 @@ final class ComposeFileBuilder
                         'PHP_VERSION' => $config->phpVersion,
                         'NODE_VERSION' => $config->nodeVersion,
                         'OCTANE_RUNTIME' => $this->runtimeBuildArg($runtime),
+                        'PHP_EXTENSIONS' => implode(' ', $config->phpExtensions),
                     ],
                 ],
                 'volumes' => $environment->isDevelopment() ? $devVolume : [],

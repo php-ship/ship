@@ -425,6 +425,36 @@
   numeric `target` port directly, so nothing here needs to reimplement
   that resolution by hand. Verified live: a fixture with `VITE_PORT=5199`
   in `.env` published as `5199:5199` and `ship up` completed successfully.
+- Configurable PHP extensions (`ship.json`'s `phpExtensions`, a plain
+  list of extension names) beyond the fixed set every project already
+  gets unconditionally (pdo_pgsql, pdo_mysql, intl, mbstring, opcache,
+  pcntl, redis). Requested from real use: a Composer package's own
+  platform requirement (gd for maatwebsite/excel, bcmath for a money
+  library) that `ship.json`'s service selections give no way to infer,
+  which otherwise makes `composer install` fail outright on unmet
+  platform requirements. Hand-edited, not prompted by `ship init`, same
+  as `extensions`/`serviceNames`.
+
+  Fed to `mlocati/docker-php-extension-installer` (a new
+  `ARG PHP_EXTENSIONS=""` in `stubs/docker/php/Dockerfile`, gated so a
+  project that never sets this pays no cost -- no network call, no
+  extra build time) rather than hand-writing each one's own
+  apk-install/pecl-install/enable dance the way the redis extension
+  above it already does: that tool already knows every extension's own
+  build dependencies, which is exactly what would otherwise need
+  duplicating per extension for an open-ended, project-chosen list.
+  Fetched from the tool's GitHub Releases URL, not the
+  raw.githubusercontent.com one some older guides use -- verified live
+  that the raw master URL still works but prints its own "unsupported
+  method" warning (and a deliberate sleep) first, so this uses the URL
+  the tool's own docs actually ask for. Backfilled onto Reverb's own
+  build args the same way `PHP_VERSION`/`NODE_VERSION` already are,
+  since Reverb runs the exact same Laravel app and needs the same
+  extensions.
+
+  Verified live against a real Docker daemon, not just unit tests: a
+  fixture with `phpExtensions: ["gd", "zip", "bcmath"]` built
+  successfully and the resulting image's own `php -m` listed all three.
 
 ## Not started
 

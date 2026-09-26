@@ -200,6 +200,16 @@ plain, readable JSON document:
   pre-existing Docker network. Omitted here since almost no project
   needs them — see
   [Custom service names and an external network](#custom-service-names-and-an-external-network).
+- `phpExtensions` — extra PHP extensions to install beyond the fixed set
+  every project already gets (`pdo_pgsql`, `pdo_mysql`, `intl`,
+  `mbstring`, `opcache`, `pcntl`, `redis`). Omitted here since most
+  projects don't need any — hand-edit it in when a Composer package's
+  own platform requirement isn't already covered, e.g.:
+  ```json
+  "phpExtensions": ["gd", "zip", "bcmath"]
+  ```
+  Fed to [`mlocati/docker-php-extension-installer`](https://github.com/mlocati/docker-php-extension-installer),
+  which handles each extension's own build dependencies for you.
 
 Host-side port collisions (running more than one `ship` project, or
 another tool already using a default port) are handled with environment
