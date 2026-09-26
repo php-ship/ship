@@ -86,18 +86,23 @@ final class ComposeFileBuilder
         $compose['services'][$appServiceName]['environment'] = [
             ...$compose['services'][$appServiceName]['environment'] ?? [],
             ...$appEnv,
-            // Always computed here, always wins over anything a
-            // ServiceDefinition set — see DuskService for why per-service
-            // guessing doesn't work: whether "app" or "webserver" is the
-            // real HTTP entrypoint depends on whether an Octane runtime
-            // was *also* selected, which no single ServiceDefinition can
-            // see. This is the one place that actually knows, since it's
-            // the same check every Octane*Service::removes() already
-            // makes (drop "webserver" because Octane serves HTTP itself).
-            'APP_URL' => sprintf(
-                'http://%s',
-                isset($compose['services'][$webserverServiceName]) ? $webserverServiceName : $appServiceName,
-            ),
+            // Only set at all when Dusk is selected -- Selenium (a separate container) reaches the
+            // app over the "ship" network, not via whatever host-reachable URL a real browser or
+            // artisan command would use, and DuskService itself has no visibility into which
+            // service ("app" or "webserver") is the real HTTP entrypoint (depends on whether an
+            // Octane runtime was *also* selected -- the same check every Octane*Service::removes()
+            // already makes). Everywhere else, this used to unconditionally overwrite whatever
+            // real, host-reachable APP_URL the project's own .env already set (environment: always
+            // wins over env_file:, see OPTIONAL_ENV_FILE's own docblock) -- found from real use:
+            // a project with a genuine APP_URL (a custom port, a real domain, ...) had every
+            // user-facing link (queued emails, signed URLs, artisan output) silently rewritten to
+            // an internal Docker hostname no browser outside the container can resolve.
+            ...(($config->services['testing'] ?? null) === 'dusk' ? [
+                'APP_URL' => sprintf(
+                    'http://%s',
+                    isset($compose['services'][$webserverServiceName]) ? $webserverServiceName : $appServiceName,
+                ),
+            ] : []),
         ];
 
         // Lets the app reach infrastructure ship itself never provisioned (a shared MySQL/Redis/...

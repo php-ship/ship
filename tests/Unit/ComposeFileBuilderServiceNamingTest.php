@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use Ship\Config\ShipConfig;
 use Ship\Contracts\ShipEnvironment;
 use Ship\Docker\ComposeFileBuilder;
+use Ship\Services\DuskService;
 use Ship\Services\MeilisearchService;
 use Ship\Services\MySqlService;
 use Ship\Services\OctaneSwooleService;
@@ -32,6 +33,7 @@ final class ComposeFileBuilderServiceNamingTest extends TestCase
             new RedisService(),
             new MeilisearchService(),
             new OctaneSwooleService(),
+            new DuskService(),
         ]);
     }
 
@@ -50,9 +52,12 @@ final class ComposeFileBuilderServiceNamingTest extends TestCase
     public function test_a_custom_app_name_renames_the_service_and_every_reference_to_it(): void
     {
         $builder = new ComposeFileBuilder($this->registry());
+        // 'testing' => 'dusk': APP_URL is only ever injected when Dusk is selected (see
+        // ComposeFileBuilder's own comment) -- needed here purely to exercise that APP_URL follows
+        // the rename, not to test Dusk itself.
         $config = new ShipConfig(
             phpVersion: '8.4',
-            services: ['database' => 'pgsql'],
+            services: ['database' => 'pgsql', 'testing' => 'dusk'],
             serviceNames: ['app' => 'client-app'],
         );
 
@@ -69,7 +74,7 @@ final class ComposeFileBuilderServiceNamingTest extends TestCase
         $builder = new ComposeFileBuilder($this->registry());
         $config = new ShipConfig(
             phpVersion: '8.4',
-            services: ['database' => 'pgsql'],
+            services: ['database' => 'pgsql', 'testing' => 'dusk'],
             serviceNames: ['webserver' => 'client-web'],
         );
 
@@ -91,7 +96,7 @@ final class ComposeFileBuilderServiceNamingTest extends TestCase
         $builder = new ComposeFileBuilder($this->registry());
         $config = new ShipConfig(
             phpVersion: '8.4',
-            services: ['database' => 'pgsql', 'runtime' => 'octane-swoole'],
+            services: ['database' => 'pgsql', 'runtime' => 'octane-swoole', 'testing' => 'dusk'],
             serviceNames: ['app' => 'client-app', 'webserver' => 'client-web'],
         );
 

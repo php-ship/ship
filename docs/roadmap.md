@@ -376,6 +376,26 @@
   host port -- a class of collision no existing storage service had to
   consider before, since neither SeaweedFS nor Garage publishes anything
   to the host at all.
+- Fixed a real bug reported from live use of a project actually built on
+  `ship` (two real Laravel apps sharing infrastructure via
+  `serviceNames`/`externalNetwork`): `APP_URL` was unconditionally
+  injected into the compose `environment:` block for every project,
+  which always wins over whatever real, host-reachable `APP_URL` the
+  project's own `.env` already set (`environment:` always beats
+  `env_file:`, see `ComposeFileBuilder::OPTIONAL_ENV_FILE`'s own
+  docblock). That silently rewrote every user-facing absolute URL
+  (queued emails, signed URLs, artisan command output) to an internal
+  Docker hostname (`http://app`/`http://webserver`) no browser outside
+  the container can resolve — invisible in the common case of hitting
+  `http://localhost` directly in a browser, but broken for anything
+  generated outside that one request. The only genuine consumer of that
+  internal hostname is Dusk's own Selenium container, which really does
+  need it (a separate container reaching "app"/"webserver" over the
+  `ship` network, not any host-reachable URL) — fixed by only injecting
+  `APP_URL` at all when Dusk is selected; every other project now keeps
+  whatever its own `.env` already sets, untouched. Verified live: a
+  fixture with a custom `.env` `APP_URL` (a non-default port and
+  hostname) came through into the "app" container completely unmangled.
 
 ## Not started
 

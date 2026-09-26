@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use Ship\Config\ShipConfig;
 use Ship\Contracts\ShipEnvironment;
 use Ship\Docker\ComposeFileBuilder;
+use Ship\Services\DuskService;
 use Ship\Services\OctaneFrankenPhpService;
 use Ship\Services\OctaneSwooleService;
 use Ship\Services\ServiceRegistry;
@@ -52,25 +53,47 @@ final class OctaneRuntimeMergeTest extends TestCase
         self::assertArrayHasKey('webserver', $withoutRuntime['services']);
     }
 
+    /**
+     * APP_URL is only ever injected when Dusk is selected -- Selenium is the one consumer that
+     * genuinely needs the internal Docker hostname (see ComposeFileBuilder's own comment on why).
+     */
     public function test_app_url_points_at_webserver_when_no_octane_runtime_is_selected(): void
     {
-        $registry = new ServiceRegistry();
+        $registry = new ServiceRegistry([new DuskService()]);
         $builder = new ComposeFileBuilder($registry);
 
-        $parsed = Yaml::parse($builder->build(new ShipConfig(phpVersion: '8.4', services: []), ShipEnvironment::Development));
+        $config = new ShipConfig(phpVersion: '8.4', services: ['testing' => 'dusk']);
+        $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Development));
 
         self::assertSame('http://webserver', $parsed['services']['app']['environment']['APP_URL']);
     }
 
     public function test_app_url_points_at_app_itself_when_an_octane_runtime_is_selected(): void
     {
-        $registry = new ServiceRegistry([new OctaneSwooleService()]);
+        $registry = new ServiceRegistry([new OctaneSwooleService(), new DuskService()]);
         $builder = new ComposeFileBuilder($registry);
 
-        $config = new ShipConfig(phpVersion: '8.4', services: ['runtime' => 'octane-swoole']);
+        $config = new ShipConfig(phpVersion: '8.4', services: ['runtime' => 'octane-swoole', 'testing' => 'dusk']);
         $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Development));
 
         self::assertSame('http://app', $parsed['services']['app']['environment']['APP_URL']);
+    }
+
+    /**
+     * Regression test for a real bug found from live use: this used to be set unconditionally,
+     * which always overwrote a project's own real, host-reachable APP_URL (environment: always
+     * wins over env_file: -- see OPTIONAL_ENV_FILE's own docblock) with an internal Docker
+     * hostname no browser outside the container can resolve, breaking queued emails, signed URLs,
+     * and any artisan command that generates an absolute URL.
+     */
+    public function test_app_url_is_not_injected_when_dusk_is_not_selected(): void
+    {
+        $registry = new ServiceRegistry();
+        $builder = new ComposeFileBuilder($registry);
+
+        $parsed = Yaml::parse($builder->build(new ShipConfig(phpVersion: '8.4', services: []), ShipEnvironment::Development));
+
+        self::assertArrayNotHasKey('APP_URL', $parsed['services']['app']['environment']);
     }
 
     /**
