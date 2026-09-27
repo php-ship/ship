@@ -26,10 +26,11 @@ final class OctaneRuntimeMergeTest extends TestCase
         $yaml = $builder->build($config, ShipEnvironment::Development);
         $parsed = Yaml::parse($yaml);
 
-        // Overridden by the service (scalar key: replaced outright). --watch is appended in
-        // development -- see OctaneSwooleServiceTest for dedicated coverage of that.
+        // Overridden by the service (scalar key: replaced outright). A shell wrapper in
+        // development conditionally appends --watch -- see OctaneSwooleServiceTest for dedicated
+        // coverage of that.
         self::assertSame(
-            ['php', 'artisan', 'octane:start', '--server=swoole', '--host=0.0.0.0', '--port=8000', '--watch'],
+            ['sh', '-c', 'if [ -d node_modules/chokidar ]; then php artisan octane:start --server=swoole --host=0.0.0.0 --port=8000 --watch; else php artisan octane:start --server=swoole --host=0.0.0.0 --port=8000; fi'],
             $parsed['services']['app']['command'],
         );
 

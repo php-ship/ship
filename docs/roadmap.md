@@ -517,6 +517,29 @@
   user's own `ls -la`, and `ship exec app chown -R $(id -u):$(id -g)
   vendor` really does flip it back to the WSL user afterward.
 
+- A real bug CI caught immediately after the `--watch` addition above
+  went public (not caught locally first, unlike most bugs documented in
+  this file): unconditionally passing `--watch` crash-loops Octane's
+  own watcher subprocess with "Cannot find module 'chokidar'" the
+  instant it's missing -- which is most fresh Laravel installs, not a
+  rare case, including CI's own plain `laravel/laravel` + `laravel/octane`
+  Swoole fixture. Fixed by moving the decision from a static PHP-side
+  flag to a shell conditional resolved at container *boot*
+  (`if [ -d node_modules/chokidar ]; then ... --watch; else ...; fi`),
+  checking the actual mounted project for chokidar's real presence
+  instead of assuming it's always there -- the only place that question
+  can be answered correctly, and it also means a project adding
+  chokidar later just gets `--watch` on its next `ship up`, no
+  ship-side change needed.
+
+  Verified live both ways against a real `laravel/laravel` +
+  `laravel/octane` Swoole fixture, not just unit tests: without
+  chokidar installed, `ship up` now boots cleanly and serves real HTTP
+  200s (confirmed `ps aux` inside the container shows `octane:start`
+  running *without* `--watch`, no crash-loop); after `npm install
+  --save-dev chokidar` and a restart, the same container's `octane:start`
+  process picks up `--watch` on its own.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`

@@ -12,23 +12,31 @@ final class OctaneRoadRunnerServiceTest extends TestCase
 {
     public function test_it_starts_octane_with_the_roadrunner_server(): void
     {
-        $fragment = (new OctaneRoadRunnerService())->composeFragment(ShipEnvironment::Development);
+        $fragment = (new OctaneRoadRunnerService())->composeFragment(ShipEnvironment::Production);
 
         self::assertSame(
-            ['php', 'artisan', 'octane:start', '--server=roadrunner', '--host=0.0.0.0', '--port=8000', '--watch'],
+            ['sh', '-c', 'php artisan octane:start --server=roadrunner --host=0.0.0.0 --port=8000'],
             $fragment['app']['command'],
         );
         self::assertSame(['${APP_PORT:-8000}:8000'], $fragment['app']['ports']);
     }
 
     /**
-     * Dev only -- see OctaneSwooleServiceTest's own equivalent for why.
+     * Dev only, and gated on node_modules/chokidar actually existing, checked at container boot
+     * -- see OctaneSwooleServiceTest's own equivalent for why (a real CI failure, not
+     * hypothesized).
      */
-    public function test_watch_is_only_added_in_development(): void
+    public function test_watch_is_conditional_on_chokidar_and_only_checked_in_development(): void
     {
-        $fragment = (new OctaneRoadRunnerService())->composeFragment(ShipEnvironment::Production);
+        $dev = (new OctaneRoadRunnerService())->composeFragment(ShipEnvironment::Development);
+        $prod = (new OctaneRoadRunnerService())->composeFragment(ShipEnvironment::Production);
 
-        self::assertNotContains('--watch', $fragment['app']['command']);
+        self::assertSame(
+            ['sh', '-c', 'if [ -d node_modules/chokidar ]; then php artisan octane:start --server=roadrunner --host=0.0.0.0 --port=8000 --watch; else php artisan octane:start --server=roadrunner --host=0.0.0.0 --port=8000; fi'],
+            $dev['app']['command'],
+        );
+        self::assertStringNotContainsString('chokidar', $prod['app']['command'][2]);
+        self::assertStringNotContainsString('--watch', $prod['app']['command'][2]);
     }
 
     public function test_octane_server_env_var_matches_the_server_flag(): void

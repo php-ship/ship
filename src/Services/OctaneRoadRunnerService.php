@@ -29,20 +29,28 @@ final class OctaneRoadRunnerService implements ServiceDefinition
 
     public function composeFragment(ShipEnvironment $environment, ?string $instanceName = null): array
     {
-        // --watch (dev only) -- see OctaneSwooleService's own comment for why and what it needs
-        // from the project (Node, already unconditional, plus the project's own "chokidar" npm
-        // package).
-        $command = ['php', 'artisan', 'octane:start', '--server=roadrunner', '--host=0.0.0.0', '--port=8000'];
-        if ($environment->isDevelopment()) {
-            $command[] = '--watch';
-        }
-
         return [
             'app' => [
-                'command' => $command,
+                'command' => ['sh', '-c', $this->command($environment)],
                 'ports' => ['${APP_PORT:-8000}:8000'],
             ],
         ];
+    }
+
+    /**
+     * --watch (dev only, checked at container boot, not decided once at compose-generation time)
+     * -- see OctaneSwooleService's own equivalent for the full reasoning, including the real CI
+     * failure that ruled out just always passing it.
+     */
+    private function command(ShipEnvironment $environment): string
+    {
+        $start = 'php artisan octane:start --server=roadrunner --host=0.0.0.0 --port=8000';
+
+        if (!$environment->isDevelopment()) {
+            return $start;
+        }
+
+        return "if [ -d node_modules/chokidar ]; then {$start} --watch; else {$start}; fi";
     }
 
     public function environmentVariables(?string $instanceName = null): array
