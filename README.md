@@ -35,6 +35,7 @@ low-severity gaps that remain.
 - [Backing up data volumes](#backing-up-data-volumes)
 - [Frontend dev server (Vite HMR)](#frontend-dev-server-vite-hmr)
 - [File ownership in dev (why containers run as root)](#file-ownership-in-dev-why-containers-run-as-root)
+- [Xdebug (off by default)](#xdebug-off-by-default)
 - [Faster file sync on Windows/macOS (Mutagen)](#faster-file-sync-on-windowsmacos-mutagen)
 - [Running more than one project at once](#running-more-than-one-project-at-once)
 - [Customizing the stack](#customizing-the-stack)
@@ -510,6 +511,23 @@ the rename on their own.)
 Production is unaffected either way — those files are baked into the
 image at build time, at a known ownership, not written by a running
 container into a bind mount at all.
+
+## Xdebug (off by default)
+
+The dev image always has Xdebug installed, but `xdebug.mode` defaults to
+`off` — a loaded-and-active Xdebug slows every request (`develop` mode
+especially) and is documented as unsafe inside Swoole coroutines. Turn it on
+per project with Xdebug's own env var in your `.env`:
+
+```sh
+XDEBUG_MODE=debug          # or develop,debug
+```
+
+`app` loads `.env` (`env_file:`), and Xdebug's `XDEBUG_MODE` overrides the
+ini setting, so it takes effect on the next `ship up` with no rebuild — for
+php-fpm requests and CLI commands alike. `host.docker.internal` is already
+routed to your host, and `xdebug.start_with_request=trigger` means it only
+connects when your IDE or browser extension asks it to.
 
 ## Faster file sync on Windows/macOS (Mutagen)
 

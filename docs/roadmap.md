@@ -540,6 +540,21 @@
   --save-dev chokidar` and a restart, the same container's `octane:start`
   process picks up `--watch` on its own.
 
+- Xdebug now defaults to `xdebug.mode=off` in the dev image, switched on
+  per project with Xdebug's own `XDEBUG_MODE` env var in `.env`. It was
+  `develop,debug` unconditionally: a loaded-and-active Xdebug slows every
+  request and is documented as unsafe inside Swoole coroutines, and it was
+  active for every project whether or not anyone was debugging. Raised
+  from a real project's evaluation, comparing against Sail, which also
+  installs Xdebug but defaults `XDEBUG_MODE` to `off`.
+
+  Verified live, including the case that could have gone wrong -- php-fpm
+  clears the environment for its workers, so it wasn't obvious an env var
+  would reach them: with nothing set, `xdebug_info('mode')` was empty both
+  from the CLI and from a request served through nginx + php-fpm; with
+  `XDEBUG_MODE=debug` in `.env`, both reported `["debug"]` after a plain
+  `ship up`, no rebuild.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
