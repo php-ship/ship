@@ -48,7 +48,16 @@ final class MySqlService implements ServiceDefinition, ProvidesDatabaseShell
                     ? ["ship-{$name}-data:/var/lib/mysql"]
                     : [],
                 'healthcheck' => [
-                    'test' => ['CMD', 'mysqladmin', 'ping', '-h', 'localhost'],
+                    // 127.0.0.1, not "localhost" -- found the hard way: "localhost" makes mysqladmin
+                    // use the unix socket, and on a fresh volume the image first starts a
+                    // *temporary* server that listens on that socket only (port 0, no TCP), then
+                    // stops it and starts the real one. Measured: the socket ping succeeded from
+                    // ~9s to ~13s while TCP was still refusing connections, so the container went
+                    // "healthy" a few seconds before anything could actually connect to it -- and
+                    // whatever ran right after (`ship up`'s own wait, a deploy command's
+                    // migration) hit "connection refused". A TCP ping only succeeds once the real
+                    // server is up.
+                    'test' => ['CMD', 'mysqladmin', 'ping', '-h', '127.0.0.1'],
                     'interval' => '5s',
                     'timeout' => '5s',
                     'retries' => 5,

@@ -577,6 +577,23 @@
   completed successfully, both containers showed only internal ports
   (no host mapping), and a request to the host's port 80 got no response.
 
+- Fixed a real race in MySQL's healthcheck, found while live-testing
+  `deployCommands`: `mysqladmin ping -h localhost` makes `mysqladmin` use
+  the unix socket, and on a fresh volume the image first starts a
+  *temporary* server that listens on that socket only (`port: 0`, no
+  TCP), stops it, then starts the real one. Measured directly: the socket
+  ping succeeded from ~9s to ~13s while TCP was still refusing
+  connections, so the container went "healthy" a few seconds before
+  anything could connect to it -- and whatever ran right after (a deploy
+  command's migration here; `ship up`'s own healthcheck wait, or a
+  `ship artisan migrate` typed right after it, for any project) hit
+  "connection refused". Now pings `127.0.0.1`, which only succeeds once
+  the real server is up. Measured both ways on a fresh container: at the
+  instant the old check first reported healthy a TCP login was refused;
+  at the instant the new one did, it succeeded. Checked Postgres for the
+  same pattern rather than assuming: `pg_isready` over the socket never
+  succeeded before TCP did, so it's left alone.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
