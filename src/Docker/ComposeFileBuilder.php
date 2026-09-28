@@ -125,6 +125,11 @@ final class ComposeFileBuilder
             $compose['services'][$appServiceName]['networks'][] = 'external';
         }
 
+        // After the app's own environment and networks are final -- these copy them.
+        if (!$environment->isDevelopment()) {
+            $compose['services'] = $this->addProcessServices($compose['services'], $config->processes, $appServiceName);
+        }
+
         $namedVolumes = $this->namedVolumesUsedBy($compose['services']);
         if ($namedVolumes !== []) {
             $compose['volumes'] = array_fill_keys($namedVolumes, null);
@@ -315,6 +320,53 @@ final class ComposeFileBuilder
                 static fn (string $dependency): string => $serviceNames[$dependency] ?? $dependency,
                 $dependsOn,
             );
+        }
+
+        return $services;
+    }
+
+    /**
+     * ship.json's processes (see ShipConfig::$processes): each becomes a service built from the
+     * app's own build config -- same Dockerfile, target and args, so the same image content (Docker's
+     * build cache makes the second and third identical builds near-instant, and `docker save` shares
+     * the layers) -- with the app's environment and networks, so it reaches the same database and
+     * the external network. No ports: nothing reaches these from outside. SHIP_RUN_AS so the
+     * entrypoint drops each to www-data even when the app itself is php-fpm and has to start as
+     * root. stop_grace_period because Compose's default 10s SIGKILLs Horizon or a queue worker
+     * mid-job; a long grace period costs nothing when the process exits promptly.
+     *
+     * @param array<string, array<string, mixed>> $services
+     * @param array<string, string> $processes
+     * @return array<string, array<string, mixed>>
+     */
+    private function addProcessServices(array $services, array $processes, string $appServiceName): array
+    {
+        $app = $services[$appServiceName];
+
+        foreach ($processes as $name => $command) {
+            if (preg_match('/^[a-z][a-z0-9_-]*$/', $name) !== 1) {
+                throw new \InvalidArgumentException(
+                    "ship.json processes: \"{$name}\" is not a valid name -- it becomes a compose service "
+                        . 'name, so lowercase letters, digits, "-" and "_" only, starting with a letter.',
+                );
+            }
+
+            if (isset($services[$name])) {
+                throw new \InvalidArgumentException(
+                    "ship.json processes: \"{$name}\" collides with a service ship already generates. "
+                        . 'Pick another name.',
+                );
+            }
+
+            $services[$name] = [
+                'build' => $app['build'],
+                'command' => ['sh', '-c', $command],
+                'env_file' => $app['env_file'],
+                'environment' => [...($app['environment'] ?? []), 'SHIP_RUN_AS' => 'www-data'],
+                'networks' => $app['networks'],
+                'restart' => 'unless-stopped',
+                'stop_grace_period' => '60s',
+            ];
         }
 
         return $services;

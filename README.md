@@ -235,6 +235,24 @@ plain, readable JSON document:
   [Production build](#production-build)), which is exactly wrong for a
   migration — with more than one container from the same image, each would
   run it at once. Ignored in development.
+- `processes` — extra long-running processes that run your app from the same
+  image: a queue worker, Laravel Horizon, the scheduler. Name → shell command:
+  ```json
+  "processes": {
+      "horizon": "php artisan horizon",
+      "scheduler": "php artisan schedule:work"
+  }
+  ```
+  Each becomes its own compose service (the name is the service name) built
+  from the app's own build config, with the app's environment and networks —
+  so it reaches the same database and any `externalNetwork` — and no
+  published ports. Separate containers rather than a second process
+  supervised inside the app container: independently restartable, visible in
+  `docker compose ps`, and each gets its own SIGTERM. They run as `www-data`,
+  and get a 60s stop grace period so Horizon or a worker can finish its job
+  instead of being SIGKILLed after Compose's default 10s. Production only —
+  in development you run these yourself (`ship artisan horizon`) against the
+  bind-mounted code.
 
 Host-side port collisions (running more than one `ship` project, or
 another tool already using a default port) are handled with environment

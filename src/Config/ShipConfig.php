@@ -60,6 +60,13 @@ final class ShipConfig
      *        migration once more than one container shares the image (each would run it, at once).
      *        Run inside a one-off container of the app service, against whatever database the
      *        stack -- or the external network -- provides. Production only; ignored in dev.
+     * @param array<string, string> $processes name => shell command for extra long-running
+     *        processes that run the same app from the same image -- a queue worker, Laravel
+     *        Horizon, the scheduler (`php artisan schedule:work`). Each becomes its own service
+     *        (the name is the compose service name) instead of a second process supervised inside
+     *        the app container: independently restartable, visible in `docker compose ps`, and
+     *        stopped on its own SIGTERM. Production only -- in dev these are `ship artisan ...`
+     *        commands you run yourself, against the bind-mounted code.
      */
     public function __construct(
         public readonly string $phpVersion,
@@ -72,6 +79,7 @@ final class ShipConfig
         public readonly array $phpExtensions = [],
         public readonly bool $publishPorts = true,
         public readonly array $deployCommands = [],
+        public readonly array $processes = [],
     ) {
     }
 
@@ -95,6 +103,7 @@ final class ShipConfig
          *     phpExtensions?: list<string>,
          *     publishPorts?: bool,
          *     deployCommands?: list<string>,
+         *     processes?: array<string,string>,
          * } $data
          */
         $data = json_decode((string) file_get_contents($path), associative: true, flags: JSON_THROW_ON_ERROR);
@@ -110,6 +119,7 @@ final class ShipConfig
             phpExtensions: $data['phpExtensions'] ?? [],
             publishPorts: $data['publishPorts'] ?? true,
             deployCommands: $data['deployCommands'] ?? [],
+            processes: $data['processes'] ?? [],
         );
     }
 
@@ -140,6 +150,9 @@ final class ShipConfig
         }
         if ($this->deployCommands !== []) {
             $payload['deployCommands'] = $this->deployCommands;
+        }
+        if ($this->processes !== []) {
+            $payload['processes'] = $this->processes;
         }
 
         file_put_contents(

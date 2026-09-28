@@ -664,6 +664,40 @@
   workers as `www-data`, while a second container from the same image
   with `SHIP_RUN_AS` set ran as `www-data`.
 
+- `ship.json`'s `processes`: a name => shell command map of extra
+  long-running processes that run the app from the same image -- a queue
+  worker, Horizon, the scheduler. Raised from a real project's
+  evaluation: production ran only the Octane process, with nothing in
+  the package mentioning queues or the scheduler, while the project ran
+  Octane, Horizon and `schedule:run` under Supervisor inside one
+  container. Each becomes its own compose service instead: independently
+  restartable, visible in `docker compose ps`, each with its own SIGTERM,
+  which a Supervisor-in-the-image setup can't give.
+
+  Built from a copy of the app's own build config (same Dockerfile,
+  target and args, so identical image content -- Docker's cache makes the
+  repeat builds near-instant and `docker save` shares the layers) rather
+  than a shared `image:` tag: an image-only service would try to pull a
+  tag that only exists once the app has built, a race Compose doesn't
+  order for you. They get the app's environment and networks (so the same
+  database, and `externalNetwork`), no ports, `SHIP_RUN_AS=www-data`, and a
+  60s `stop_grace_period` because Compose's default 10s SIGKILLs Horizon
+  or a queue worker mid-job. A name that isn't a valid service name, or
+  collides with one ship already generates, is rejected with a clear
+  message instead of producing a broken compose file. Production only --
+  in dev these are `ship artisan ...` commands you run yourself against the
+  bind-mounted code.
+
+  Verified live in two real production builds. Swoole: with a scheduler
+  (`schedule:work`) and a queue worker (`queue:work`) configured, all three
+  services ran as `www-data`, only the app published a port, and PID 1 in
+  each process container was `php` itself -- `sh -c` exec'd the command
+  rather than wrapping it, so SIGTERM reaches it -- and both stopped in
+  about 0.4s with exit code 0. php-fpm, the case that needed
+  `SHIP_RUN_AS` to be per-container: the app's master stayed root, its
+  pool workers were `www-data`, and a `worker` process from the same image
+  ran as `www-data`.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`

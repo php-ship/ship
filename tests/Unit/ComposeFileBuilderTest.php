@@ -181,6 +181,80 @@ final class ComposeFileBuilderTest extends TestCase
         self::assertSame(['${APP_PORT:-80}:80'], $prod['services']['webserver']['ports']);
     }
 
+    /**
+     * Requested from real use: a project runs Horizon and the scheduler alongside the app. Separate
+     * services from the same build config (not a second process supervised inside the app
+     * container): independently restartable, visible in `docker compose ps`, and stopped by their own
+     * SIGTERM. They need the app's environment and networks to reach the same database.
+     */
+    public function test_a_process_becomes_a_service_built_like_the_app_with_its_environment_and_networks(): void
+    {
+        $builder = new ComposeFileBuilder($this->registry());
+        $config = new ShipConfig(
+            phpVersion: '8.4',
+            services: ['database' => 'pgsql'],
+            externalNetwork: 'shared_infra',
+            processes: ['horizon' => 'php artisan horizon', 'scheduler' => 'php artisan schedule:work'],
+        );
+
+        $prod = Yaml::parse($builder->build($config, ShipEnvironment::Production));
+
+        self::assertSame(['sh', '-c', 'php artisan horizon'], $prod['services']['horizon']['command']);
+        self::assertSame(['sh', '-c', 'php artisan schedule:work'], $prod['services']['scheduler']['command']);
+        self::assertSame($prod['services']['app']['build'], $prod['services']['horizon']['build']);
+        self::assertSame($prod['services']['app']['networks'], $prod['services']['horizon']['networks']);
+        self::assertContains('external', $prod['services']['horizon']['networks']);
+        self::assertSame('pgsql', $prod['services']['horizon']['environment']['DB_HOST']);
+        self::assertSame('unless-stopped', $prod['services']['horizon']['restart']);
+        self::assertArrayNotHasKey('ports', $prod['services']['horizon']);
+    }
+
+    /**
+     * Compose's default 10s grace period SIGKILLs Horizon or a queue worker mid-job.
+     */
+    public function test_a_process_gets_a_long_stop_grace_period_and_runs_as_www_data(): void
+    {
+        $builder = new ComposeFileBuilder($this->registry());
+        $config = new ShipConfig(phpVersion: '8.4', services: [], processes: ['horizon' => 'php artisan horizon']);
+
+        $prod = Yaml::parse($builder->build($config, ShipEnvironment::Production));
+
+        self::assertSame('60s', $prod['services']['horizon']['stop_grace_period']);
+        self::assertSame('www-data', $prod['services']['horizon']['environment']['SHIP_RUN_AS']);
+    }
+
+    public function test_processes_are_production_only(): void
+    {
+        $builder = new ComposeFileBuilder($this->registry());
+        $config = new ShipConfig(phpVersion: '8.4', services: [], processes: ['horizon' => 'php artisan horizon']);
+
+        $dev = Yaml::parse($builder->build($config, ShipEnvironment::Development));
+
+        self::assertArrayNotHasKey('horizon', $dev['services']);
+    }
+
+    public function test_a_process_named_like_an_existing_service_is_rejected(): void
+    {
+        $builder = new ComposeFileBuilder($this->registry());
+        $config = new ShipConfig(phpVersion: '8.4', services: [], processes: ['webserver' => 'php artisan horizon']);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('collides with a service ship already generates');
+
+        $builder->build($config, ShipEnvironment::Production);
+    }
+
+    public function test_a_process_name_that_is_not_a_valid_service_name_is_rejected(): void
+    {
+        $builder = new ComposeFileBuilder($this->registry());
+        $config = new ShipConfig(phpVersion: '8.4', services: [], processes: ['My Worker' => 'php artisan queue:work']);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('is not a valid name');
+
+        $builder->build($config, ShipEnvironment::Production);
+    }
+
     public function test_reverb_gets_its_own_service_with_the_projects_php_version_backfilled(): void
     {
         $registry = new ServiceRegistry([new ReverbService()]);
