@@ -94,16 +94,7 @@ final class UpCommand extends Command
             mkdir($entrypointDir, recursive: true);
         }
         $entrypointPath = $entrypointDir . '/entrypoint.sh';
-        // Octane on the Alpine image (Swoole, RoadRunner) is its own long-lived server, with no
-        // master-drops-workers split the way php-fpm has, so it has to be dropped to www-data
-        // explicitly or every request runs as root. FrankenPHP is left out on purpose: its Debian
-        // base needs its own non-root setup (Caddy's data directories, low-port capabilities), not
-        // just a user switch -- see docs/roadmap.md.
-        $runAsUser = in_array($config->services['runtime'] ?? null, ['octane-swoole', 'octane-roadrunner'], true)
-            ? 'www-data'
-            : null;
-
-        file_put_contents($entrypointPath, (new EntrypointScriptBuilder())->build($releaseCommands, $runAsUser));
+        file_put_contents($entrypointPath, (new EntrypointScriptBuilder())->build($releaseCommands));
         chmod($entrypointPath, 0o755);
 
         if (!$environment->isDevelopment() && $config->deployCommands !== []) {

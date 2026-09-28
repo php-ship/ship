@@ -33,6 +33,11 @@ final class OctaneRoadRunnerService implements ServiceDefinition
             'app' => [
                 'command' => ['sh', '-c', $this->command($environment)],
                 'ports' => ['${APP_PORT:-8000}:8000'],
+                // Production only (dev's own entrypoint is a different, static file that never
+                // reads this): an Octane server is its own long-lived program with no
+                // master-drops-workers split the way php-fpm has, so without this it -- every
+                // request handler included -- runs as root. See EntrypointScriptBuilder.
+                'environment' => $environment->isDevelopment() ? [] : ['SHIP_RUN_AS' => 'www-data'],
             ],
         ];
     }

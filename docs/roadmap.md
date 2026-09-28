@@ -628,10 +628,16 @@
   starts as root purely to drop each worker to `www-data` itself --
   Octane is its own long-lived server with no such split, so the whole
   process, every request handler included, ran as root. The generated
-  entrypoint now takes an optional `$runAsUser` and ends in `exec su-exec
-  www-data "$@"` instead of a plain `exec "$@"`, after the root-only
-  steps (release commands, the chown of `storage/`, `bootstrap/cache/`,
-  ...). `su-exec` (unlike `su`/`sudo`) `exec()`s the target directly, so
+  entrypoint now drops to the user named by a `SHIP_RUN_AS` env var, when
+  one is set, via `exec su-exec "$SHIP_RUN_AS" "$@"` before its plain
+  `exec "$@"` fallback -- after the root-only steps (release commands, the
+  chown of `storage/`, `bootstrap/cache/`, ...). Decided per container at
+  runtime rather than baked into the script (an earlier version took it as
+  a build-time parameter): the same image, and so the same script, backs
+  containers that need opposite things -- a php-fpm `app` has to start as
+  root, while a Horizon process running the same image must not. The
+  generated compose file sets `SHIP_RUN_AS` on exactly the services that
+  should drop. `su-exec` (unlike `su`/`sudo`) `exec()`s the target directly, so
   the server is still PID 1 and `docker stop`'s SIGTERM still reaches it.
   php-fpm keeps the plain `exec`: dropping its master would break the
   very drop-the-workers behavior it relies on.
@@ -649,6 +655,14 @@
   as `www-data`), and `docker stop` took 3.7s -- graceful shutdown, not
   the 10s SIGKILL fallback a wrapper process swallowing SIGTERM would
   have produced.
+
+  Re-verified after moving from a build-time parameter to the
+  `SHIP_RUN_AS` runtime env var, in a real Swoole production build: the
+  app's `octane:start` was still PID 1 owned by `www-data` and `GET /`
+  returned 200. And the case the change exists for, in a php-fpm build:
+  the `app`'s php-fpm master is still root (it has to be) with its pool
+  workers as `www-data`, while a second container from the same image
+  with `SHIP_RUN_AS` set ran as `www-data`.
 
 ## Not started
 

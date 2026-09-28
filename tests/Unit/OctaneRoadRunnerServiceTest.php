@@ -53,4 +53,19 @@ final class OctaneRoadRunnerServiceTest extends TestCase
     {
         self::assertSame(['webserver'], (new OctaneRoadRunnerService())->removes());
     }
+
+    /**
+     * An Octane server has no master-drops-workers split the way php-fpm does, so in production the
+     * generated entrypoint has to be told to drop it to www-data (see EntrypointScriptBuilder) --
+     * otherwise every request handler runs as root. Dev never reads it (its own entrypoint is a
+     * different, static file), so it isn't set there.
+     */
+    public function test_it_asks_the_entrypoint_to_drop_to_www_data_in_production_only(): void
+    {
+        $dev = (new OctaneRoadRunnerService())->composeFragment(ShipEnvironment::Development);
+        $prod = (new OctaneRoadRunnerService())->composeFragment(ShipEnvironment::Production);
+
+        self::assertSame(['SHIP_RUN_AS' => 'www-data'], $prod['app']['environment']);
+        self::assertSame([], $dev['app']['environment']);
+    }
 }

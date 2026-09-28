@@ -75,34 +75,35 @@ final class EntrypointScriptBuilderTest extends TestCase
     }
 
     /**
-     * php-fpm's master has to start as root to drop its own workers, so the default stays a plain
-     * exec -- dropping the whole process would break that.
+     * Decided per container at runtime (SHIP_RUN_AS), not baked in: the same image and this one
+     * script back containers that need opposite things -- php-fpm's master has to start as root to
+     * drop its own workers, while an Octane server or a Horizon process must not run as root at all.
      */
-    public function test_it_stays_root_by_default(): void
+    public function test_it_drops_to_the_user_named_by_ship_run_as_when_it_is_set(): void
     {
         $script = (new EntrypointScriptBuilder())->build([]);
 
-        self::assertStringContainsString('exec "$@"', $script);
-        self::assertStringNotContainsString('su-exec', $script);
+        self::assertStringContainsString('if [ -n "$SHIP_RUN_AS" ] && command -v su-exec', $script);
+        self::assertStringContainsString('exec su-exec "$SHIP_RUN_AS" "$@"', $script);
     }
 
     /**
-     * An Octane server (Swoole, RoadRunner) has no master-drops-workers split, so without this
-     * every request handler runs as root in production. The drop has to come after the chown (the
-     * user needs to be able to write what was just handed to it) and has to exec, not fork --
-     * otherwise `docker stop`'s SIGTERM hits a wrapper instead of the server.
+     * With SHIP_RUN_AS unset (php-fpm) the plain exec has to still be there and come last -- and
+     * after the chown, so the dropped-to user can write what was just handed to it. exec, not a
+     * fork, either way: otherwise `docker stop`'s SIGTERM hits a wrapper instead of the server.
      */
-    public function test_it_drops_the_real_process_to_the_given_user_after_the_chown(): void
+    public function test_the_drop_comes_after_the_chown_and_a_plain_exec_remains_as_the_fallback(): void
     {
-        $script = (new EntrypointScriptBuilder())->build(['php artisan optimize'], 'www-data');
+        $script = (new EntrypointScriptBuilder())->build(['php artisan optimize']);
 
         $chownPos = strpos($script, 'chown -R www-data:www-data');
-        $dropPos = strpos($script, 'exec su-exec www-data "$@"');
+        $dropPos = strpos($script, 'exec su-exec "$SHIP_RUN_AS" "$@"');
+        $plainPos = strrpos($script, 'exec "$@"');
 
         self::assertNotFalse($chownPos);
         self::assertNotFalse($dropPos);
+        self::assertNotFalse($plainPos);
         self::assertTrue($chownPos < $dropPos);
-        self::assertStringNotContainsString('
-exec "$@"', $script);
+        self::assertTrue($dropPos < $plainPos);
     }
 }

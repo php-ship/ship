@@ -14,14 +14,8 @@ final class EntrypointScriptBuilder
     /**
      * @param list<string> $releaseCommands framework adapters'
      *        FrameworkAdapter::releaseCommands(), already flattened
-     * @param ?string $runAsUser the user the real process drops to after the root-only steps above.
-     *        Null keeps it as root -- what php-fpm needs, since its master process has to start as
-     *        root to then drop each *worker* to www-data itself. Anything that is its own long-lived
-     *        server (Octane: Swoole, RoadRunner) has no such split, so without this the whole
-     *        server, every request handler included, runs as root in production. Needs `su-exec`
-     *        in the image (the Alpine one has it; see stubs/docker/php/Dockerfile).
      */
-    public function build(array $releaseCommands, ?string $runAsUser = null): string
+    public function build(array $releaseCommands): string
     {
         $lines = [
             '#!/bin/sh',
@@ -61,6 +55,16 @@ final class EntrypointScriptBuilder
         $lines[] = '    [ -d "$dir" ] && chown -R www-data:www-data "$dir"';
         $lines[] = 'done';
         $lines[] = '';
+        // Decided per container at runtime, not baked into this file: the same image (and so this
+        // one script) backs containers that need opposite things. php-fpm's master has to start as
+        // root to then drop each *worker* to www-data itself, but an Octane server, or a process
+        // like Horizon or the scheduler, is its own long-lived program with no such split -- left
+        // alone it runs as root, every request handler included. The generated compose file sets
+        // SHIP_RUN_AS on exactly those services. Skipped (stays root) where su-exec doesn't exist,
+        // i.e. FrankenPHP's Debian image -- see docs/roadmap.md.
+        $lines[] = 'if [ -n "$SHIP_RUN_AS" ] && command -v su-exec >/dev/null 2>&1; then';
+        $lines[] = '    exec su-exec "$SHIP_RUN_AS" "$@"';
+        $lines[] = 'fi';
         // exec (not a plain call) replaces this script's process rather
         // than spawning a child of it, so the real server ends up as
         // PID 1 -- otherwise `docker stop`'s SIGTERM hits this shell
@@ -68,7 +72,7 @@ final class EntrypointScriptBuilder
         // slower SIGKILL timeout. su-exec (unlike su or sudo) exec()s the
         // target directly rather than forking a child under itself, so this
         // holds when dropping privileges too.
-        $lines[] = $runAsUser === null ? 'exec "$@"' : "exec su-exec {$runAsUser} \"\$@\"";
+        $lines[] = 'exec "$@"';
         $lines[] = '';
 
         return implode("\n", $lines);
