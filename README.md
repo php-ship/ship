@@ -392,6 +392,15 @@ with a flag flipped:
   during the build. `Ship\Contracts\FrameworkAdapter::releaseCommands()`
   is the extension point for this — a third-party adapter for another
   framework returns its own list of boot-time commands the same way.
+- **An Octane server runs as `www-data`, not root.** php-fpm's master
+  starts as root only to drop each *worker* to `www-data` itself, so plain
+  php-fpm is fine. Octane (Swoole, RoadRunner) is its own long-lived server
+  with no such split — left alone, every request handler would run as root —
+  so the generated entrypoint runs its root-only steps (`artisan optimize`,
+  fixing ownership of `storage/` and friends) and then drops to `www-data`
+  before starting the server. FrankenPHP is the exception and still runs as
+  root: its Debian-based image needs its own non-root setup (Caddy's data
+  directories, low-port capabilities), not just a user switch.
 - **nginx can now actually serve static assets.** `webserver` builds from
   the same `ship/Dockerfile` as `app` (a `prod-nginx` target that copies
   from the `assets` stage), so it has access to `public/`'s built CSS/JS

@@ -14,8 +14,14 @@ final class EntrypointScriptBuilder
     /**
      * @param list<string> $releaseCommands framework adapters'
      *        FrameworkAdapter::releaseCommands(), already flattened
+     * @param ?string $runAsUser the user the real process drops to after the root-only steps above.
+     *        Null keeps it as root -- what php-fpm needs, since its master process has to start as
+     *        root to then drop each *worker* to www-data itself. Anything that is its own long-lived
+     *        server (Octane: Swoole, RoadRunner) has no such split, so without this the whole
+     *        server, every request handler included, runs as root in production. Needs `su-exec`
+     *        in the image (the Alpine one has it; see stubs/docker/php/Dockerfile).
      */
-    public function build(array $releaseCommands): string
+    public function build(array $releaseCommands, ?string $runAsUser = null): string
     {
         $lines = [
             '#!/bin/sh',
@@ -59,8 +65,10 @@ final class EntrypointScriptBuilder
         // than spawning a child of it, so the real server ends up as
         // PID 1 -- otherwise `docker stop`'s SIGTERM hits this shell
         // instead of php-fpm/octane, and the container only dies on the
-        // slower SIGKILL timeout.
-        $lines[] = 'exec "$@"';
+        // slower SIGKILL timeout. su-exec (unlike su or sudo) exec()s the
+        // target directly rather than forking a child under itself, so this
+        // holds when dropping privileges too.
+        $lines[] = $runAsUser === null ? 'exec "$@"' : "exec su-exec {$runAsUser} \"\$@\"";
         $lines[] = '';
 
         return implode("\n", $lines);

@@ -73,4 +73,36 @@ final class EntrypointScriptBuilderTest extends TestCase
         self::assertStringNotContainsString('chown -R www-data:www-data /var/www/html', $script);
         self::assertStringContainsString('for dir in storage bootstrap/cache database var', $script);
     }
+
+    /**
+     * php-fpm's master has to start as root to drop its own workers, so the default stays a plain
+     * exec -- dropping the whole process would break that.
+     */
+    public function test_it_stays_root_by_default(): void
+    {
+        $script = (new EntrypointScriptBuilder())->build([]);
+
+        self::assertStringContainsString('exec "$@"', $script);
+        self::assertStringNotContainsString('su-exec', $script);
+    }
+
+    /**
+     * An Octane server (Swoole, RoadRunner) has no master-drops-workers split, so without this
+     * every request handler runs as root in production. The drop has to come after the chown (the
+     * user needs to be able to write what was just handed to it) and has to exec, not fork --
+     * otherwise `docker stop`'s SIGTERM hits a wrapper instead of the server.
+     */
+    public function test_it_drops_the_real_process_to_the_given_user_after_the_chown(): void
+    {
+        $script = (new EntrypointScriptBuilder())->build(['php artisan optimize'], 'www-data');
+
+        $chownPos = strpos($script, 'chown -R www-data:www-data');
+        $dropPos = strpos($script, 'exec su-exec www-data "$@"');
+
+        self::assertNotFalse($chownPos);
+        self::assertNotFalse($dropPos);
+        self::assertTrue($chownPos < $dropPos);
+        self::assertStringNotContainsString('
+exec "$@"', $script);
+    }
 }

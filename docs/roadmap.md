@@ -622,6 +622,34 @@
   surfaced the MySQL healthcheck race above), and a stack whose middle
   command fails stopped there without starting the app or webserver.
 
+- Octane runs as `www-data` in production (Swoole and RoadRunner),
+  instead of root. Raised from a real project's evaluation: the prod
+  entrypoint's `chown www-data` step only helped php-fpm, whose *master*
+  starts as root purely to drop each worker to `www-data` itself --
+  Octane is its own long-lived server with no such split, so the whole
+  process, every request handler included, ran as root. The generated
+  entrypoint now takes an optional `$runAsUser` and ends in `exec su-exec
+  www-data "$@"` instead of a plain `exec "$@"`, after the root-only
+  steps (release commands, the chown of `storage/`, `bootstrap/cache/`,
+  ...). `su-exec` (unlike `su`/`sudo`) `exec()`s the target directly, so
+  the server is still PID 1 and `docker stop`'s SIGTERM still reaches it.
+  php-fpm keeps the plain `exec`: dropping its master would break the
+  very drop-the-workers behavior it relies on.
+
+  Deliberately *not* applied to FrankenPHP: its Debian base needs its own
+  non-root setup -- Caddy writes to `/data` and `/config` (root-owned in
+  that image) and needs a capability to bind low ports -- not just a user
+  switch, and getting that wrong would break a runtime that works today.
+  Revisit as its own change.
+
+  Verified live against a real `laravel/laravel` + `laravel/octane`
+  Swoole production build: `octane:start` was PID 1 owned by `www-data`
+  along with the whole Swoole master/manager/worker tree, `GET /` returned
+  200 (so the SQLite session write into the chowned `database/` worked
+  as `www-data`), and `docker stop` took 3.7s -- graceful shutdown, not
+  the 10s SIGKILL fallback a wrapper process swallowing SIGTERM would
+  have produced.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
