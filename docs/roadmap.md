@@ -555,6 +555,28 @@
   `XDEBUG_MODE=debug` in `.env`, both reported `["debug"]` after a plain
   `ship up`, no rebuild.
 
+- `ship.json`'s `publishPorts` (default `true`): `false` makes
+  production publish nothing to the host. Raised from a real project's
+  evaluation: it fronts its apps with a reverse proxy over a shared
+  Docker network, but production still mapped `${APP_PORT:-8000}:8000`,
+  and a Docker-published port bypasses host firewalls like `ufw` -- the
+  app would have answered directly on the server's public IP, skipping
+  the proxy's TLS and headers. A `docker-compose.override.yml` can't
+  remove it cleanly either, since Compose merges `ports` lists rather
+  than replacing them. An explicit option rather than implied by
+  `externalNetwork` being set: the two are independent decisions (a
+  shared network for reaching a database says nothing about whether
+  the app itself should be reachable from outside), and an implicit
+  coupling would be a surprise either way. Production only --
+  development always publishes what it needs. `ship up`'s own
+  "did the port actually bind" check needs no change: it reads
+  `docker compose config`, so a service with no ports simply isn't
+  checked.
+
+  Verified live with `ship up --prod`: with `publishPorts: false` it
+  completed successfully, both containers showed only internal ports
+  (no host mapping), and a request to the host's port 80 got no response.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`

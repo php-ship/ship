@@ -45,6 +45,13 @@ final class ShipConfig
      *        mlocati/docker-php-extension-installer (see the Dockerfile's own ARG), which already
      *        handles the apk build-dependency dance every hand-written extension install in that
      *        file does manually.
+     * @param bool $publishPorts false stops production from publishing any port to the host --
+     *        for a deployment where a reverse proxy (Caddy, Traefik, ...) reaches the containers
+     *        over a shared Docker network instead. Docker-published ports bypass host firewalls
+     *        like ufw, so leaving them published there exposes the app directly on the server's
+     *        public IP, skipping the proxy's TLS and headers entirely. Production only --
+     *        development always publishes what it needs (the app, Vite, ...). True (the default)
+     *        keeps today's behavior.
      */
     public function __construct(
         public readonly string $phpVersion,
@@ -55,6 +62,7 @@ final class ShipConfig
         public readonly array $serviceNames = [],
         public readonly ?string $externalNetwork = null,
         public readonly array $phpExtensions = [],
+        public readonly bool $publishPorts = true,
     ) {
     }
 
@@ -76,6 +84,7 @@ final class ShipConfig
          *     serviceNames?: array<string,string>,
          *     externalNetwork?: ?string,
          *     phpExtensions?: list<string>,
+         *     publishPorts?: bool,
          * } $data
          */
         $data = json_decode((string) file_get_contents($path), associative: true, flags: JSON_THROW_ON_ERROR);
@@ -89,6 +98,7 @@ final class ShipConfig
             serviceNames: $data['serviceNames'] ?? [],
             externalNetwork: $data['externalNetwork'] ?? null,
             phpExtensions: $data['phpExtensions'] ?? [],
+            publishPorts: $data['publishPorts'] ?? true,
         );
     }
 
@@ -113,6 +123,9 @@ final class ShipConfig
         }
         if ($this->phpExtensions !== []) {
             $payload['phpExtensions'] = $this->phpExtensions;
+        }
+        if (!$this->publishPorts) {
+            $payload['publishPorts'] = false;
         }
 
         file_put_contents(

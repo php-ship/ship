@@ -142,6 +142,45 @@ final class ComposeFileBuilderTest extends TestCase
         self::assertSame('${VITE_PORT:-5173}:${VITE_PORT:-5173}', $dev['services']['app']['ports'][0]);
     }
 
+    /**
+     * Requested from real use: a deployment with a reverse proxy (Caddy, Traefik, ...) reaching the
+     * containers over a shared network doesn't want anything published to the host at all -- a
+     * Docker-published port bypasses host firewalls like ufw, exposing the app directly on the
+     * server's public IP and skipping the proxy's TLS and headers entirely.
+     */
+    public function test_publish_ports_false_strips_every_published_port_in_production(): void
+    {
+        $builder = new ComposeFileBuilder(new ServiceRegistry([new ReverbService()]));
+        $config = new ShipConfig(phpVersion: '8.4', services: ['broadcasting' => 'reverb'], publishPorts: false);
+
+        $prod = Yaml::parse($builder->build($config, ShipEnvironment::Production));
+
+        foreach ($prod['services'] as $name => $service) {
+            self::assertSame([], $service['ports'], "\"{$name}\" still publishes a port.");
+        }
+    }
+
+    public function test_publish_ports_false_never_touches_development(): void
+    {
+        $builder = new ComposeFileBuilder($this->registry());
+        $config = new ShipConfig(phpVersion: '8.4', services: [], publishPorts: false);
+
+        $dev = Yaml::parse($builder->build($config, ShipEnvironment::Development));
+
+        self::assertNotSame([], $dev['services']['app']['ports']);
+        self::assertNotSame([], $dev['services']['webserver']['ports']);
+    }
+
+    public function test_production_publishes_the_webserver_port_by_default(): void
+    {
+        $builder = new ComposeFileBuilder($this->registry());
+        $config = new ShipConfig(phpVersion: '8.4', services: []);
+
+        $prod = Yaml::parse($builder->build($config, ShipEnvironment::Production));
+
+        self::assertSame(['${APP_PORT:-80}:80'], $prod['services']['webserver']['ports']);
+    }
+
     public function test_reverb_gets_its_own_service_with_the_projects_php_version_backfilled(): void
     {
         $registry = new ServiceRegistry([new ReverbService()]);

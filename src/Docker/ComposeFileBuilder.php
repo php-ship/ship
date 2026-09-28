@@ -81,6 +81,16 @@ final class ComposeFileBuilder
         // silently break the moment a project renames whatever it's depending on.
         $compose['services'] = $this->renameDependsOnReferences($compose['services'], $serviceNames);
 
+        // Stripped from every service, not just "app"/"webserver" -- everything production
+        // publishes (the app itself, an Octane runtime's own port, Reverb, ...) is HTTP-facing, and
+        // the whole point is a reverse proxy being the only thing reachable from outside. See
+        // ShipConfig::$publishPorts for why a published port is worse than it looks here.
+        if (!$config->publishPorts && !$environment->isDevelopment()) {
+            foreach ($compose['services'] as $name => $service) {
+                $compose['services'][$name]['ports'] = [];
+            }
+        }
+
         $appServiceName = $serviceNames['app'] ?? 'app';
         $webserverServiceName = $serviceNames['webserver'] ?? 'webserver';
 

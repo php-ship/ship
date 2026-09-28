@@ -60,6 +60,7 @@ final class ShipConfigTest extends TestCase
         self::assertSame([], $config->serviceNames);
         self::assertNull($config->externalNetwork);
         self::assertSame([], $config->phpExtensions);
+        self::assertTrue($config->publishPorts);
     }
 
     public function test_to_file_and_from_file_round_trip_every_field_unchanged(): void
@@ -73,6 +74,7 @@ final class ShipConfigTest extends TestCase
             serviceNames: ['app' => 'client-app', 'webserver' => 'client-web', 'mysql' => 'client-db'],
             externalNetwork: 'shared_infra',
             phpExtensions: ['gd', 'zip', 'bcmath'],
+            publishPorts: false,
         );
 
         $path = $this->projectRoot . '/ship.json';
@@ -98,6 +100,7 @@ final class ShipConfigTest extends TestCase
         self::assertStringNotContainsString('serviceNames', $written);
         self::assertStringNotContainsString('externalNetwork', $written);
         self::assertStringNotContainsString('phpExtensions', $written);
+        self::assertStringNotContainsString('publishPorts', $written);
     }
 
     public function test_to_file_writes_pretty_printed_json_ending_in_a_newline(): void

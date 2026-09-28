@@ -213,6 +213,13 @@ plain, readable JSON document:
   ```
   Fed to [`mlocati/docker-php-extension-installer`](https://github.com/mlocati/docker-php-extension-installer),
   which handles each extension's own build dependencies for you.
+- `publishPorts` — set to `false` and `ship up --prod` publishes nothing to
+  the host, for a deployment where a reverse proxy (Caddy, Traefik, ...)
+  reaches the containers over a shared Docker network (see `externalNetwork`
+  below). Worth knowing why it matters: a Docker-published port bypasses host
+  firewalls like `ufw`, so with the default (`true`) the app answers directly
+  on the server's public IP, skipping the proxy's TLS and headers entirely.
+  Production only — development always publishes what it needs.
 
 Host-side port collisions (running more than one `ship` project, or
 another tool already using a default port) are handled with environment
