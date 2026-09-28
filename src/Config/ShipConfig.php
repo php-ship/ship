@@ -67,6 +67,14 @@ final class ShipConfig
      *        the app container: independently restartable, visible in `docker compose ps`, and
      *        stopped on its own SIGTERM. Production only -- in dev these are `ship artisan ...`
      *        commands you run yourself, against the bind-mounted code.
+     * @param bool $hostUser opt in to running the dev app as your own host UID/GID instead of root.
+     *        Dev containers run as root on purpose (see docs/roadmap.md: a fixed container UID only
+     *        works when it happens to match the bind mount's), which leaves anything the container
+     *        writes -- vendor/, public/build, storage/ -- root-owned on hosts where you aren't root
+     *        (native Linux, WSL2). The objection to a fixed UID doesn't apply when the UID comes from
+     *        the host, so this builds the dev image with yours. Dev only; POSIX hosts only (Windows has
+     *        no UID to match, and Docker Desktop's bind mounts don't have the problem); not combined
+     *        with SHIP_MUTAGEN or FrankenPHP -- `ship up` says so when it skips it.
      */
     public function __construct(
         public readonly string $phpVersion,
@@ -80,6 +88,7 @@ final class ShipConfig
         public readonly bool $publishPorts = true,
         public readonly array $deployCommands = [],
         public readonly array $processes = [],
+        public readonly bool $hostUser = false,
     ) {
     }
 
@@ -104,6 +113,7 @@ final class ShipConfig
          *     publishPorts?: bool,
          *     deployCommands?: list<string>,
          *     processes?: array<string,string>,
+         *     hostUser?: bool,
          * } $data
          */
         $data = json_decode((string) file_get_contents($path), associative: true, flags: JSON_THROW_ON_ERROR);
@@ -120,6 +130,7 @@ final class ShipConfig
             publishPorts: $data['publishPorts'] ?? true,
             deployCommands: $data['deployCommands'] ?? [],
             processes: $data['processes'] ?? [],
+            hostUser: $data['hostUser'] ?? false,
         );
     }
 
@@ -153,6 +164,9 @@ final class ShipConfig
         }
         if ($this->processes !== []) {
             $payload['processes'] = $this->processes;
+        }
+        if ($this->hostUser) {
+            $payload['hostUser'] = true;
         }
 
         file_put_contents(

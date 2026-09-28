@@ -48,7 +48,7 @@ final class ExecCommand extends Command
         }
 
         return $this->runner->runInteractive(
-            [...ComposeCommand::baseArgs($this->projectRoot), 'exec', $service, ...$command],
+            [...ComposeCommand::execPrefix($this->projectRoot, $service), $service, ...$command],
             $this->projectRoot,
         );
     }

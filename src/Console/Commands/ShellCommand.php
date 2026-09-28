@@ -49,7 +49,7 @@ final class ShellCommand extends Command
         // Alpine-based images (everything in this stack) ship `sh`, not
         // `bash`, unless something explicitly installs it — `sh` works
         // everywhere and avoids a "bash: not found" surprise on first run.
-        return [...ComposeCommand::baseArgs($this->projectRoot), 'exec', $service, 'sh'];
+        return [...ComposeCommand::execPrefix($this->projectRoot, $service), $service, 'sh'];
     }
 
     /**

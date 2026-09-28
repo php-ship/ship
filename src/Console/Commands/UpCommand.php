@@ -11,6 +11,7 @@ use Ship\Docker\ComposeCommand;
 use Ship\Docker\ComposeFileBuilder;
 use Ship\Docker\DeployPlan;
 use Ship\Docker\EntrypointScriptBuilder;
+use Ship\Docker\HostUser;
 use Ship\Extensions\ExtensionLoader;
 use Ship\Frameworks\LaravelAdapter;
 use Ship\Frameworks\SymfonyAdapter;
@@ -66,7 +67,9 @@ final class UpCommand extends Command
         // begin with (source is baked into the image at build time), so nothing to sync.
         $mutagenSync = $environment->isDevelopment() && MutagenSync::isEnabled();
 
-        $compose = (new ComposeFileBuilder($registry))->build($config, $environment, $mutagenSync);
+        $hostUser = $this->resolveHostUser($config, $environment, $mutagenSync, $output);
+
+        $compose = (new ComposeFileBuilder($registry))->build($config, $environment, $mutagenSync, $hostUser);
 
         $composeDir = $this->projectRoot . '/ship';
         if (!is_dir($composeDir)) {
@@ -138,6 +141,35 @@ final class UpCommand extends Command
         return $mutagenSync
             ? (new MutagenSync($this->runner, $this->projectRoot, $config->serviceNames['app'] ?? 'app'))->start($output)
             : Command::SUCCESS;
+    }
+
+    /**
+     * ship.json's hostUser (see ShipConfig::$hostUser), or null -- and when the user asked for it but
+     * it can't apply, says why instead of quietly doing nothing, since the visible result of that
+     * (a root-owned vendor/ they turned the option on to avoid) would otherwise be a mystery.
+     *
+     * @return array{uid: int, gid: int}|null
+     */
+    private function resolveHostUser(ShipConfig $config, ShipEnvironment $environment, bool $mutagenSync, OutputInterface $output): ?array
+    {
+        if (!$config->hostUser || !$environment->isDevelopment()) {
+            return null;
+        }
+
+        $reason = match (true) {
+            $mutagenSync => 'SHIP_MUTAGEN syncs into a volume as root, so the two cannot be combined',
+            ($config->services['runtime'] ?? null) === 'octane-frankenphp' => 'the FrankenPHP image is not supported yet',
+            HostUser::detect() === null => 'there is no non-root POSIX user to match here (native Windows, or already root)',
+            default => null,
+        };
+
+        if ($reason !== null) {
+            $output->writeln("<comment>ship: hostUser is set in ship.json but was not applied -- {$reason}. Running as root.</comment>");
+
+            return null;
+        }
+
+        return HostUser::detect();
     }
 
     /**

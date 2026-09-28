@@ -543,10 +543,32 @@ The tradeoff: anything the container writes — `vendor/`, `public/build`,
 your own user isn't root (native Linux, WSL2). Harmless for `ship` itself
 (nothing here needs to read those files as a specific non-root user), but
 occasionally annoying outside it — e.g. your editor or a host-side shell
-command refusing to touch a root-owned file. Fix it after the fact, for
-just the paths that bother you, by chowning them back from *inside* the
-container (root there can chown to any UID, including your own host
-one):
+command refusing to touch a root-owned file.
+
+**If it bothers you, opt in to running as your own user.** The objection
+above — a *fixed* container UID only works when it matches the bind mount's —
+doesn't apply when the UID comes *from* the host, so `ship.json` can ask for
+exactly that:
+
+```json
+"hostUser": true
+```
+
+`ship up` reads your UID/GID and builds the dev image with them; php-fpm's
+workers, the boot-time `composer install`, and an Octane server then run as
+you (php-fpm's master stays root — it has to, to drop its workers), and `ship
+exec`/`ship shell`/`ship composer`/`ship npm`/`ship artisan` pass `--user` for
+the app service, so `vendor/`, `public/build` and `storage/` come out owned by
+you. Development only, and only where there's a non-root POSIX user to match:
+on native Windows (no UIDs; Docker Desktop's bind mounts don't have this
+problem) it does nothing, and it isn't combined with `SHIP_MUTAGEN` or
+FrankenPHP — in each case `ship up` prints why it was skipped rather than
+silently running as root. Re-run `ship up` after changing it; it's a build
+argument, so the image is rebuilt.
+
+**Or fix it after the fact**, for just the paths that bother you, by chowning
+them back from *inside* the container (root there can chown to any UID,
+including your own host one):
 
 ```sh
 ship exec app chown -R $(id -u):$(id -g) storage bootstrap/cache vendor public/build

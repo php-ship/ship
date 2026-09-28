@@ -20,8 +20,27 @@ set -e
 # Skipping straight to exec instead lets php-fpm come up against an empty
 # directory (harmless -- it just 404s until Mutagen catches up) rather
 # than crash-looping while it waits.
+#
+# SHIP_HOST_USER ("uid:gid", set from ship.json's hostUser -- see ShipConfig) runs it as the host's
+# own user instead of root, so vendor/ isn't left root-owned on the host. HOME points at the home
+# directory the image created for that user, since su-exec keeps root's, which it can't write.
+if [ -n "$SHIP_HOST_USER" ]; then
+    export HOME=/home/ship
+fi
+
 if [ -f composer.json ] && [ ! -f vendor/autoload.php ]; then
-    composer install --no-interaction
+    if [ -n "$SHIP_HOST_USER" ]; then
+        su-exec "$SHIP_HOST_USER" composer install --no-interaction
+    else
+        composer install --no-interaction
+    fi
+fi
+
+# php-fpm's master has to stay root to drop its own workers (the image's pool config does that);
+# anything else that is its own long-lived program -- an Octane server -- would run as root,
+# writing root-owned files into storage/, so it drops to the host user here.
+if [ -n "$SHIP_HOST_USER" ] && [ "$1" != "php-fpm" ]; then
+    exec su-exec "$SHIP_HOST_USER" "$@"
 fi
 
 exec "$@"

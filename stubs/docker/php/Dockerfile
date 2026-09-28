@@ -90,11 +90,23 @@ RUN chmod +x /usr/local/bin/ship-entrypoint
 # atomic config/view cache writes) the moment it needs to write anything under the project root.
 # Chowning the bind mount to match isn't an option either -- that changes the *host's* files,
 # surprising whoever owns them. Running the pool as root instead sidesteps host permissions
-# entirely without ever touching them; dev already trades hardening for convenience (xdebug is
-# always on, and the entrypoint above already runs `composer install` as root when it falls
-# back), so this doesn't lower the bar dev was already set at. Never done in prod -- see that
-# stage below -- where the files are baked into the image at a known ownership instead.
-RUN sed -i 's/^user = .*/user = root/; s/^group = .*/group = root/' /usr/local/etc/php-fpm.d/www.conf
+# entirely without ever touching them; dev already trades hardening for convenience (the entrypoint
+# above already runs `composer install` as root when it falls back), so this doesn't lower the bar
+# dev was already set at. Never done in prod -- see that stage below -- where the files are baked
+# into the image at a known ownership instead.
+#
+# The trade is that everything the container writes is root-owned on a host where you aren't root.
+# ship.json's hostUser (opt-in) builds this stage with the host's own UID/GID instead: the objection
+# above -- a fixed UID only works when it matches the bind mount's -- can't apply when the UID *comes
+# from* the host. HOST_UID stays 0 (root, exactly as before) unless it's set. The user/group are
+# looked up first, not assumed free: a host GID like macOS's 20 already exists in Alpine as
+# "dialout", and reusing it is right -- only the numeric ids matter for file ownership. php-fpm's
+# master still starts as root (see CMD) and drops its *workers* to this user; the entrypoint drops
+# everything else (composer install, an Octane server).
+ARG HOST_UID=0
+ARG HOST_GID=0
+RUN apk add --no-cache su-exec
+RUN if [ "$HOST_UID" = "0" ]; then         sed -i 's/^user = .*/user = root/; s/^group = .*/group = root/' /usr/local/etc/php-fpm.d/www.conf;     else         group=$(getent group "$HOST_GID" | cut -d: -f1);         [ -n "$group" ] || { addgroup -g "$HOST_GID" ship && group=ship; };         user=$(getent passwd "$HOST_UID" | cut -d: -f1);         [ -n "$user" ] || { adduser -D -u "$HOST_UID" -G "$group" ship && user=ship; };         mkdir -p /home/ship && chown "$HOST_UID:$HOST_GID" /home/ship;         sed -i "s/^user = .*/user = $user/; s/^group = .*/group = $group/" /usr/local/etc/php-fpm.d/www.conf;     fi
 ENTRYPOINT ["/usr/local/bin/ship-entrypoint"]
 CMD ["php-fpm", "--allow-to-run-as-root"]
 

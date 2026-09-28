@@ -255,6 +255,37 @@ final class ComposeFileBuilderTest extends TestCase
         $builder->build($config, ShipEnvironment::Production);
     }
 
+    /**
+     * Requested from real use on WSL2: everything the dev container writes (vendor/, public/build,
+     * storage/) ends up root-owned on the host. hostUser builds the dev image with the host's own
+     * UID/GID instead -- the entrypoint reads SHIP_HOST_USER, and the `ship exec`-family commands
+     * read the x-ship marker to add --user, so both halves have to come out of the same generation.
+     */
+    public function test_a_host_user_becomes_build_args_an_env_var_and_a_marker(): void
+    {
+        $builder = new ComposeFileBuilder($this->registry());
+        $config = new ShipConfig(phpVersion: '8.4', services: [], serviceNames: ['app' => 'admin-app']);
+
+        $dev = Yaml::parse($builder->build($config, ShipEnvironment::Development, false, ['uid' => 1000, 'gid' => 1001]));
+
+        self::assertSame('1000', $dev['services']['admin-app']['build']['args']['HOST_UID']);
+        self::assertSame('1001', $dev['services']['admin-app']['build']['args']['HOST_GID']);
+        self::assertSame('1000:1001', $dev['services']['admin-app']['environment']['SHIP_HOST_USER']);
+        self::assertSame(['hostUser' => '1000:1001', 'appService' => 'admin-app'], $dev['x-ship']);
+    }
+
+    public function test_without_a_host_user_nothing_about_it_is_generated(): void
+    {
+        $builder = new ComposeFileBuilder($this->registry());
+        $config = new ShipConfig(phpVersion: '8.4', services: []);
+
+        $dev = Yaml::parse($builder->build($config, ShipEnvironment::Development));
+
+        self::assertArrayNotHasKey('HOST_UID', $dev['services']['app']['build']['args']);
+        self::assertArrayNotHasKey('SHIP_HOST_USER', $dev['services']['app']['environment']);
+        self::assertArrayNotHasKey('x-ship', $dev);
+    }
+
     public function test_reverb_gets_its_own_service_with_the_projects_php_version_backfilled(): void
     {
         $registry = new ServiceRegistry([new ReverbService()]);

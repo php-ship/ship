@@ -50,7 +50,7 @@ final class ProxyCommand extends Command
         $binaryParts = explode(' ', $this->binary);
 
         return $this->runner->runInteractive(
-            [...ComposeCommand::baseArgs($this->projectRoot), 'exec', $this->service, ...$binaryParts, ...$forwarded],
+            [...ComposeCommand::execPrefix($this->projectRoot, $this->service), $this->service, ...$binaryParts, ...$forwarded],
             $this->projectRoot,
         );
     }

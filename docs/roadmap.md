@@ -698,6 +698,47 @@
   pool workers were `www-data`, and a `worker` process from the same image
   ran as `www-data`.
 
+- `ship.json`'s `hostUser` (opt-in, dev only): run the dev app as the
+  host's own UID/GID instead of root. Raised from a real project's
+  evaluation as the one real downgrade from Sail on WSL2: `vendor/`,
+  `public/build` and `storage/` ended up root-owned after any composer or
+  build run inside the container. Earlier documented as a deliberate
+  tradeoff rather than changed by default, and that reasoning stands --
+  but the reviewer's point was fair that its objection (a *fixed*
+  container UID only works when it matches the bind mount's) doesn't apply
+  when the UID comes *from* the host. Opt-in keeps the default exactly as
+  it was.
+
+  Three coordinated pieces, all generated together so they can't
+  disagree: the dev image is built with `HOST_UID`/`HOST_GID` (a matching
+  user, or an existing one reused -- a host GID like macOS's 20 already
+  exists in Alpine as `dialout`, and only the numeric ids matter for file
+  ownership); the dev entrypoint reads `SHIP_HOST_USER` to run `composer
+  install` and any non-php-fpm command (an Octane server) as that user,
+  leaving php-fpm's master root so it can drop its own workers; and the
+  `ship exec`-family commands add `--user` for the app service only.
+  That last one learns what to do from an `x-ship` marker in the
+  *generated compose file*, not by re-reading `ship.json`, so a
+  production file, or one regenerated after the option was turned off,
+  can never get a stray `--user`. `docker exec` sets `HOME` from the
+  user's passwd entry, so Composer's cache lands somewhere writable.
+
+  When it can't apply -- native Windows or already root (no non-root POSIX
+  user to match), `SHIP_MUTAGEN` (it syncs into a volume as root), or
+  FrankenPHP (a Debian image needing `useradd`, not `adduser`) -- `ship
+  up` says so instead of quietly running as root, since the visible
+  result of that (the root-owned `vendor/` they turned it on to avoid)
+  would otherwise be a mystery.
+
+  Verified live on a real Linux filesystem (WSL2, UID 1000), not just
+  unit tests: the boot-time `composer install` left `composer.lock` and
+  `vendor/` owned by `1000:1000` on the host; php-fpm's master stayed root
+  with its pool workers as the host user, and a real request's file write
+  landed `1000:1000`; and `ship composer require` -- the `exec --user`
+  path, the reviewer's actual complaint -- left `composer.json`,
+  `composer.lock` and the new `vendor/` package owned by `1000:1000`
+  too. `ship shell` reported uid/gid 1000 with `HOME=/home/ship`.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`

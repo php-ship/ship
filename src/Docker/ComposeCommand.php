@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Ship\Docker;
 
+use Symfony\Component\Yaml\Yaml;
+
 /**
  * Builds the `docker compose -f ... --project-directory ...` prefix every command shares.
  */
@@ -31,5 +33,44 @@ final class ComposeCommand
         $args[] = $projectRoot;
 
         return $args;
+    }
+
+    /**
+     * `docker compose ... exec`, plus `--user uid:gid` when the generated file says the app runs as
+     * the host user (ship.json's hostUser) and $service is that app service -- without it, `ship
+     * composer`/`ship npm`/`ship shell` exec as root regardless of who the app itself runs as, and
+     * root-owned vendor/ and public/build are exactly what the option exists to prevent. Only the
+     * app: a database container has no such user, and `mysql`/`psql` don't need one.
+     *
+     * Read from the generated file, not ship.json, so it follows what was actually generated -- a
+     * production file, or a project that has since turned the option off, never gets a --user.
+     *
+     * @return list<string>
+     */
+    public static function execPrefix(string $projectRoot, string $service): array
+    {
+        $prefix = [...self::baseArgs($projectRoot), 'exec'];
+        $generated = $projectRoot . '/ship/docker-compose.generated.yml';
+
+        if (!is_file($generated)) {
+            return $prefix;
+        }
+
+        $contents = (string) file_get_contents($generated);
+
+        if (!str_contains($contents, 'x-ship:')) {
+            return $prefix;
+        }
+
+        /** @var array{x-ship?: array{hostUser?: string, appService?: string}} $parsed */
+        $parsed = Yaml::parse($contents);
+        $marker = $parsed['x-ship'] ?? [];
+
+        if (isset($marker['hostUser'], $marker['appService']) && $marker['appService'] === $service) {
+            $prefix[] = '--user';
+            $prefix[] = $marker['hostUser'];
+        }
+
+        return $prefix;
     }
 }

@@ -63,6 +63,7 @@ final class ShipConfigTest extends TestCase
         self::assertTrue($config->publishPorts);
         self::assertSame([], $config->deployCommands);
         self::assertSame([], $config->processes);
+        self::assertFalse($config->hostUser);
     }
 
     public function test_to_file_and_from_file_round_trip_every_field_unchanged(): void
@@ -79,6 +80,7 @@ final class ShipConfigTest extends TestCase
             publishPorts: false,
             deployCommands: ['php artisan migrate --force', 'php artisan telescope:setup-database'],
             processes: ['horizon' => 'php artisan horizon'],
+            hostUser: true,
         );
 
         $path = $this->projectRoot . '/ship.json';
@@ -107,6 +109,7 @@ final class ShipConfigTest extends TestCase
         self::assertStringNotContainsString('publishPorts', $written);
         self::assertStringNotContainsString('deployCommands', $written);
         self::assertStringNotContainsString('processes', $written);
+        self::assertStringNotContainsString('hostUser', $written);
     }
 
     public function test_to_file_writes_pretty_printed_json_ending_in_a_newline(): void

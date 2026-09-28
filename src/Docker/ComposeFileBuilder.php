@@ -27,14 +27,23 @@ final class ComposeFileBuilder
      * $mutagenSync only ever changes anything in Development -- Production bakes the source into
      * the image at build time (see "builder"/"prod" stages), so there's no bind mount, and nothing
      * to sync, either way.
+     *
+     * $hostUser (see ShipConfig::$hostUser) is only ever passed for development, already filtered by
+     * the caller for everything that makes it inapplicable -- this just applies it.
+     *
+     * @param array{uid: int, gid: int}|null $hostUser
      */
-    public function build(ShipConfig $config, ShipEnvironment $environment, bool $mutagenSync = false): string
-    {
+    public function build(
+        ShipConfig $config,
+        ShipEnvironment $environment,
+        bool $mutagenSync = false,
+        ?array $hostUser = null,
+    ): string {
         $serviceNames = $config->serviceNames;
 
         $compose = [
             'services' => $this->renameFragmentKeys(
-                $this->baseServices($config, $environment, $mutagenSync),
+                $this->baseServices($config, $environment, $mutagenSync, $hostUser),
                 $serviceNames,
             ),
             'networks' => [
@@ -97,6 +106,10 @@ final class ComposeFileBuilder
         $compose['services'][$appServiceName]['environment'] = [
             ...$compose['services'][$appServiceName]['environment'] ?? [],
             ...$appEnv,
+            // Read by the dev entrypoint (stubs/docker/php/dev/entrypoint.sh): what to run
+            // composer install and any non-php-fpm command as. Numeric, so it doesn't depend on
+            // whatever name the image gave the user.
+            ...($hostUser !== null ? ['SHIP_HOST_USER' => "{$hostUser['uid']}:{$hostUser['gid']}"] : []),
             // Only set at all when Dusk is selected -- Selenium (a separate container) reaches the
             // app over the "ship" network, not via whatever host-reachable URL a real browser or
             // artisan command would use, and DuskService itself has no visibility into which
@@ -128,6 +141,13 @@ final class ComposeFileBuilder
         // After the app's own environment and networks are final -- these copy them.
         if (!$environment->isDevelopment()) {
             $compose['services'] = $this->addProcessServices($compose['services'], $config->processes, $appServiceName);
+        }
+
+        // Lets the commands that shell out to `docker compose exec` (see ComposeCommand::execPrefix())
+        // learn what was actually generated -- mode-aware by construction, unlike re-reading
+        // ship.json, which says nothing about whether this file is a dev or a production one.
+        if ($hostUser !== null) {
+            $compose['x-ship'] = ['hostUser' => "{$hostUser['uid']}:{$hostUser['gid']}", 'appService' => $appServiceName];
         }
 
         $namedVolumes = $this->namedVolumesUsedBy($compose['services']);
@@ -453,10 +473,15 @@ final class ComposeFileBuilder
     }
 
     /**
+     * @param array{uid: int, gid: int}|null $hostUser
      * @return array<string, array<string, mixed>>
      */
-    private function baseServices(ShipConfig $config, ShipEnvironment $environment, bool $mutagenSync): array
-    {
+    private function baseServices(
+        ShipConfig $config,
+        ShipEnvironment $environment,
+        bool $mutagenSync,
+        ?array $hostUser,
+    ): array {
         $target = $environment->isDevelopment() ? 'dev' : 'prod';
         $runtime = $config->services['runtime'] ?? null;
 
@@ -480,6 +505,7 @@ final class ComposeFileBuilder
                         'NODE_VERSION' => $config->nodeVersion,
                         'OCTANE_RUNTIME' => $this->runtimeBuildArg($runtime),
                         'PHP_EXTENSIONS' => implode(' ', $config->phpExtensions),
+                        ...($hostUser !== null ? ['HOST_UID' => (string) $hostUser['uid'], 'HOST_GID' => (string) $hostUser['gid']] : []),
                     ],
                 ],
                 'volumes' => $environment->isDevelopment() ? $devVolume : [],
