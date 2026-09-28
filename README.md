@@ -302,15 +302,18 @@ need it:
 ```
 
 - `serviceNames` — maps a service's default compose name to a custom
-  one. Every `ship` command that targets a renamed service (`ship
-  shell`, `ship exec`, `ship db`, `ship composer`/`ship npm`/`ship
-  artisan`, Mutagen sync) follows the rename automatically, as does the
-  env var carrying that service's own hostname (`DB_HOST`, `REDIS_HOST`,
-  ...) — only the hostname changes; a driver identifier that happens to
+  one. Every `ship` command that picks a service for you (`ship shell`
+  with no argument, `ship db`, `ship composer`/`ship npm`/`ship artisan`,
+  Mutagen sync) follows the rename automatically, as does the env var
+  carrying that service's own hostname (`DB_HOST`, `REDIS_HOST`, ...) —
+  only the hostname changes; a driver identifier that happens to
   read the same as the old name (`DB_CONNECTION=mysql`) is left alone.
   Rename as many or as few as you need; anything not listed keeps its
   default name. Doesn't apply to `additionalServices` entries — those
   already get their own distinct compose name via their own `name`.
+  Commands where *you* type the service (`ship exec <service> …`, `ship
+  logs <service>`, `ship shell <service>`) take the literal compose name,
+  so after renaming `app` to `admin-app` that's `ship exec admin-app …`.
 - `externalNetwork` — the name of a Docker network created outside
   `ship` (by another compose project, e.g. one running your shared
   MySQL/Redis/etc.), attached to the app service in addition to `ship`'s
@@ -498,6 +501,11 @@ one):
 ```sh
 ship exec app chown -R $(id -u):$(id -g) storage bootstrap/cache vendor public/build
 ```
+
+(`ship exec` takes the literal compose service name, so if you renamed `app`
+via `serviceNames`, use that name here instead — `ship exec admin-app chown …`.
+`ship shell`, `ship artisan`, `ship composer` and `ship npm` already follow
+the rename on their own.)
 
 Production is unaffected either way — those files are baked into the
 image at build time, at a known ownership, not written by a running
