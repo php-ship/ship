@@ -61,6 +61,7 @@ final class ShipConfigTest extends TestCase
         self::assertNull($config->externalNetwork);
         self::assertSame([], $config->phpExtensions);
         self::assertTrue($config->publishPorts);
+        self::assertSame([], $config->deployCommands);
     }
 
     public function test_to_file_and_from_file_round_trip_every_field_unchanged(): void
@@ -75,6 +76,7 @@ final class ShipConfigTest extends TestCase
             externalNetwork: 'shared_infra',
             phpExtensions: ['gd', 'zip', 'bcmath'],
             publishPorts: false,
+            deployCommands: ['php artisan migrate --force', 'php artisan telescope:setup-database'],
         );
 
         $path = $this->projectRoot . '/ship.json';
@@ -101,6 +103,7 @@ final class ShipConfigTest extends TestCase
         self::assertStringNotContainsString('externalNetwork', $written);
         self::assertStringNotContainsString('phpExtensions', $written);
         self::assertStringNotContainsString('publishPorts', $written);
+        self::assertStringNotContainsString('deployCommands', $written);
     }
 
     public function test_to_file_writes_pretty_printed_json_ending_in_a_newline(): void

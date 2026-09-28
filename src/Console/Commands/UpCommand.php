@@ -9,6 +9,7 @@ use Ship\Contracts\FrameworkAdapter;
 use Ship\Contracts\ShipEnvironment;
 use Ship\Docker\ComposeCommand;
 use Ship\Docker\ComposeFileBuilder;
+use Ship\Docker\DeployPlan;
 use Ship\Docker\EntrypointScriptBuilder;
 use Ship\Extensions\ExtensionLoader;
 use Ship\Frameworks\LaravelAdapter;
@@ -96,6 +97,14 @@ final class UpCommand extends Command
         file_put_contents($entrypointPath, (new EntrypointScriptBuilder())->build($releaseCommands));
         chmod($entrypointPath, 0o755);
 
+        if (!$environment->isDevelopment() && $config->deployCommands !== []) {
+            $result = $this->runDeployCommands($config, $compose, $output);
+
+            if ($result !== Command::SUCCESS) {
+                return $result;
+            }
+        }
+
         $result = $this->runner->runInteractive(
             [...ComposeCommand::baseArgs($this->projectRoot), 'up', '--build', '-d'],
             $this->projectRoot,
@@ -129,6 +138,65 @@ final class UpCommand extends Command
         return $mutagenSync
             ? (new MutagenSync($this->runner, $this->projectRoot, $config->serviceNames['app'] ?? 'app'))->start($output)
             : Command::SUCCESS;
+    }
+
+    /**
+     * ship.json's deployCommands (see ShipConfig::$deployCommands): once per `ship up --prod`, after
+     * the images exist and before any new container starts -- so a failed migration stops the
+     * deploy with the previous containers still serving, instead of new code booting against a
+     * schema it doesn't match. Building first is what makes running them possible at all (they run
+     * inside a one-off container of the freshly built app image), and the infrastructure has to be
+     * brought up explicitly since nothing else would start it yet -- see DeployPlan.
+     */
+    private function runDeployCommands(ShipConfig $config, string $composeYaml, OutputInterface $output): int
+    {
+        $result = $this->runner->runInteractive(
+            [...ComposeCommand::baseArgs($this->projectRoot), 'build'],
+            $this->projectRoot,
+        );
+
+        if ($result !== Command::SUCCESS) {
+            return $result;
+        }
+
+        $infrastructure = DeployPlan::infrastructureServices($composeYaml);
+
+        if ($infrastructure !== []) {
+            $result = $this->runner->runInteractive(
+                DeployPlan::startInfrastructureArgs($this->projectRoot, $infrastructure),
+                $this->projectRoot,
+            );
+
+            if ($result !== Command::SUCCESS) {
+                $output->writeln('<error>ship: the infrastructure services did not become healthy -- no deploy '
+                    . 'command was run, and no new container was started.</error>');
+
+                return $result;
+            }
+        }
+
+        $appService = $config->serviceNames['app'] ?? 'app';
+
+        foreach ($config->deployCommands as $command) {
+            $output->writeln("<comment>ship: running deploy command: {$command}</comment>");
+
+            $result = $this->runner->runInteractive(
+                DeployPlan::runArgs($this->projectRoot, $appService, $command),
+                $this->projectRoot,
+            );
+
+            if ($result !== Command::SUCCESS) {
+                $output->writeln(sprintf(
+                    '<error>ship: deploy command failed (exit %d): %s -- no new container was started.</error>',
+                    $result,
+                    $command,
+                ));
+
+                return $result;
+            }
+        }
+
+        return Command::SUCCESS;
     }
 
     /**

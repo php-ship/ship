@@ -594,6 +594,34 @@
   same pattern rather than assuming: `pg_isready` over the socket never
   succeeded before TCP did, so it's left alone.
 
+- `ship.json`'s `deployCommands`: shell commands run exactly once per
+  `ship up --prod`, after the images are built and before any new
+  container starts -- migrations, a package's own one-off setup, creating
+  buckets. Raised from a real project's evaluation: its deploy script ran
+  `migrate --force` and similar once, before starting the new containers,
+  while ship's only production hook ran at every container *boot*
+  (`FrameworkAdapter::releaseCommands()`: `artisan optimize`), which is
+  exactly wrong for a migration -- with more than one container from the
+  same image, each would run it at once. Deliberately named
+  `deployCommands`, not `releaseCommands`, to not collide with that
+  existing boot-time concept.
+
+  Each runs in a one-off `docker compose run --rm --no-deps -T` container
+  of the freshly built app image (`sh -c`, so any shell line works),
+  after `ship` brings up the services it provisions that aren't built
+  from `ship/Dockerfile` (databases, caches) with `up -d --wait`, since
+  nothing else would start them yet -- the app has no `depends_on` for
+  them. If a command fails, `ship up --prod` stops there and starts
+  nothing new, so a failed migration leaves the previous containers
+  serving instead of new code booting against a schema it doesn't match.
+  The docker argv building lives in `Ship\Docker\DeployPlan`, not in
+  `UpCommand`, so anything else needing the same sequence can reuse it.
+
+  Verified live against a real production stack with MySQL: the command
+  ran once against a database that was actually ready (this is what
+  surfaced the MySQL healthcheck race above), and a stack whose middle
+  command fails stopped there without starting the app or webserver.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`

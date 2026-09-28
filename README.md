@@ -220,6 +220,21 @@ plain, readable JSON document:
   firewalls like `ufw`, so with the default (`true`) the app answers directly
   on the server's public IP, skipping the proxy's TLS and headers entirely.
   Production only — development always publishes what it needs.
+- `deployCommands` — shell commands run exactly once per `ship up --prod`,
+  after the images are built and **before** any new container starts:
+  ```json
+  "deployCommands": ["php artisan migrate --force", "php artisan telescope:setup-database"]
+  ```
+  Each runs in a one-off container of the freshly built app image, after
+  `ship` has brought up the database/cache services it provisions (and
+  waited for them to be healthy). If one fails, `ship up --prod` stops
+  there and starts nothing new — so a failed migration leaves the previous
+  containers serving instead of new code booting against a schema it doesn't
+  match. This is deliberately not where framework boot steps like `artisan
+  optimize` live: those run at every container *boot* (see
+  [Production build](#production-build)), which is exactly wrong for a
+  migration — with more than one container from the same image, each would
+  run it at once. Ignored in development.
 
 Host-side port collisions (running more than one `ship` project, or
 another tool already using a default port) are handled with environment

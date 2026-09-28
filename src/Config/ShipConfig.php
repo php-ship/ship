@@ -52,6 +52,14 @@ final class ShipConfig
      *        public IP, skipping the proxy's TLS and headers entirely. Production only --
      *        development always publishes what it needs (the app, Vite, ...). True (the default)
      *        keeps today's behavior.
+     * @param list<string> $deployCommands shell commands run exactly once per `ship up --prod`,
+     *        after the images are built and before the new containers start -- database
+     *        migrations, a package's own one-off setup, creating buckets. Deliberately not the
+     *        same thing as FrameworkAdapter::releaseCommands(), despite the similar name: those run
+     *        at every container *boot* (artisan optimize, ...), which is exactly wrong for a
+     *        migration once more than one container shares the image (each would run it, at once).
+     *        Run inside a one-off container of the app service, against whatever database the
+     *        stack -- or the external network -- provides. Production only; ignored in dev.
      */
     public function __construct(
         public readonly string $phpVersion,
@@ -63,6 +71,7 @@ final class ShipConfig
         public readonly ?string $externalNetwork = null,
         public readonly array $phpExtensions = [],
         public readonly bool $publishPorts = true,
+        public readonly array $deployCommands = [],
     ) {
     }
 
@@ -85,6 +94,7 @@ final class ShipConfig
          *     externalNetwork?: ?string,
          *     phpExtensions?: list<string>,
          *     publishPorts?: bool,
+         *     deployCommands?: list<string>,
          * } $data
          */
         $data = json_decode((string) file_get_contents($path), associative: true, flags: JSON_THROW_ON_ERROR);
@@ -99,6 +109,7 @@ final class ShipConfig
             externalNetwork: $data['externalNetwork'] ?? null,
             phpExtensions: $data['phpExtensions'] ?? [],
             publishPorts: $data['publishPorts'] ?? true,
+            deployCommands: $data['deployCommands'] ?? [],
         );
     }
 
@@ -126,6 +137,9 @@ final class ShipConfig
         }
         if (!$this->publishPorts) {
             $payload['publishPorts'] = false;
+        }
+        if ($this->deployCommands !== []) {
+            $payload['deployCommands'] = $this->deployCommands;
         }
 
         file_put_contents(
