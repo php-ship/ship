@@ -895,6 +895,29 @@
   not just a restart -- confirming the *container*, not merely the
   process, is disposable now), and read the same row back afterward.
 
+- Fixed the FrankenPHP healthcheck known gap: `dunglas/frankenphp`'s base image bakes in a
+  HEALTHCHECK against Caddy's own admin metrics endpoint (`curl localhost:2019/metrics`), which
+  this project's `prod` stage inherited unexamined. Investigated rather than assumed: Octane's own
+  `StartFrankenPhpCommand` really does run the real `frankenphp` binary against a real Caddyfile
+  with that admin endpoint genuinely configured, so the healthcheck isn't pointed at nothing, the
+  way "Octane manages this through an embedded extension" might suggest on a first read. The real
+  gap is narrower but still real: `/metrics` reports whether Caddy's own HTTP server process is
+  alive -- a property of the control plane, not of whatever the embedded PHP worker is actually
+  doing with each request. Fixed with `HEALTHCHECK NONE` in the `prod` stage, overriding the
+  inherited one entirely -- bringing FrankenPHP in line with Swoole/RoadRunner, which have never
+  had a healthcheck of any kind (their `php:*-fpm-alpine` base ships none), rather than inventing a
+  new, different one. No Octane runtime loses a feature its siblings already had; FrankenPHP loses
+  a false sense of one it had by accident of its base image alone.
+
+  Verified live, not just reasoned about: built a real production FrankenPHP image and ran it
+  directly, with no real app config (deliberately, to force every request to fail) -- a plain
+  request returned 500 on every try, while `curl localhost:2019/metrics` *inside the same
+  container* returned 200 throughout, proving the exact false-positive the old healthcheck was
+  exposed to: it would have read "healthy" the entire time the app was completely broken. After
+  the fix, `docker inspect`'s `.State.Health` is `nil` and `docker ps` shows a plain "Up", with no
+  `(healthy)`/`(unhealthy)` qualifier at all -- the same no-healthcheck shape Swoole/RoadRunner
+  already have.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
