@@ -1003,6 +1003,16 @@
   dockerfile never leaks onto Reverb, which never needs Caddy's image just to run a plain `php
   artisan reverb:start`.
 
+- Fixed two real nginx bugs found via the same independent audit. `location ~ \.php$` passed *any*
+  request path ending in `.php` to PHP-FPM, existing file or not -- restricted to an exact
+  `location = /index.php` match, the only path that block should ever see; a `.php` file somehow
+  ending up under `public/` some other way now gets served statically by `location /`'s
+  `try_files` instead of executed. Separately, the upstream host was hardcoded to `app:9000` --
+  renaming the app service via `ship.json`'s `serviceNames` left nginx 502ing every request
+  against a DNS name nothing in the stack answers to anymore. `ship init` now substitutes the
+  resolved app service name into the published config when it differs from `app` -- a no-op for
+  the overwhelming majority of projects that never touch `serviceNames`.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
