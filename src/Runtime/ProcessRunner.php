@@ -15,11 +15,16 @@ final class ProcessRunner
     /**
      * Runs a command with stdio attached to ours, streaming output live; used for anything interactive.
      *
+     * $env, when given, is merged over the inherited environment (Symfony's own Process behavior) --
+     * used by ProductionBuildRunner to make `.env.production` available to `docker compose build`'s
+     * own `${VAR}` substitution, without changing anything for every other caller that omits it.
+     *
      * @param list<string> $command
+     * @param ?array<string, string> $env
      */
-    public function runInteractive(array $command, ?string $cwd = null): int
+    public function runInteractive(array $command, ?string $cwd = null, ?array $env = null): int
     {
-        $process = new Process($command, $cwd, timeout: null);
+        $process = new Process($command, $cwd, $env, timeout: null);
         $tty = Process::isTtySupported();
         $process->setTty($tty);
 
