@@ -5,16 +5,11 @@ declare(strict_types=1);
 namespace Ship\Console\Commands;
 
 use Ship\Config\ShipConfig;
-use Ship\Contracts\FrameworkAdapter;
 use Ship\Contracts\ShipEnvironment;
 use Ship\Docker\ComposeCommand;
 use Ship\Docker\ComposeFileBuilder;
-use Ship\Docker\DeployPlan;
-use Ship\Docker\EntrypointScriptBuilder;
 use Ship\Docker\HostUser;
 use Ship\Extensions\ExtensionLoader;
-use Ship\Frameworks\LaravelAdapter;
-use Ship\Frameworks\SymfonyAdapter;
 use Ship\Runtime\ProcessRunner;
 use Ship\Services\ServiceRegistry;
 use Ship\Support\ShipVersion;
@@ -22,11 +17,16 @@ use Ship\Sync\MutagenSync;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
-use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Yaml\Yaml;
 
-#[AsCommand(name: 'up', description: 'Build and start the environment')]
+/**
+ * Development only -- see `ship build`/`ship release --tag` for production, a separate workflow
+ * entirely (ProductionBuildRunner), not a mode of this command. Keeping the two apart means this
+ * command never again grows a production-only branch (deploy commands, image export, ...) the way
+ * it briefly did before `ship build`/`ship release` existed.
+ */
+#[AsCommand(name: 'up', description: 'Build and start the development environment')]
 final class UpCommand extends Command
 {
     public function __construct(
@@ -36,17 +36,9 @@ final class UpCommand extends Command
         parent::__construct();
     }
 
-    protected function configure(): void
-    {
-        $this->addOption('prod', null, InputOption::VALUE_NONE, 'Start in production mode');
-    }
-
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $config = ShipConfig::fromFile($this->projectRoot . '/ship.json');
-        $environment = (bool) $input->getOption('prod')
-            ? ShipEnvironment::Production
-            : ShipEnvironment::Development;
 
         $registry = new ServiceRegistry(ServiceRegistry::defaults());
 
@@ -63,13 +55,11 @@ final class UpCommand extends Command
 
         $this->warnAboutStubVersionMismatch($output);
 
-        // Never on in production regardless of SHIP_MUTAGEN -- there's no bind mount there to
-        // begin with (source is baked into the image at build time), so nothing to sync.
-        $mutagenSync = $environment->isDevelopment() && MutagenSync::isEnabled();
+        $mutagenSync = MutagenSync::isEnabled();
 
-        $hostUser = $this->resolveHostUser($config, $environment, $mutagenSync, $output);
+        $hostUser = $this->resolveHostUser($config, $mutagenSync, $output);
 
-        $compose = (new ComposeFileBuilder($registry))->build($config, $environment, $mutagenSync, $hostUser);
+        $compose = (new ComposeFileBuilder($registry))->build($config, ShipEnvironment::Development, $mutagenSync, $hostUser);
 
         $composeDir = $this->projectRoot . '/ship';
         if (!is_dir($composeDir)) {
@@ -78,35 +68,6 @@ final class UpCommand extends Command
 
         $composePath = $composeDir . '/docker-compose.generated.yml';
         file_put_contents($composePath, $compose);
-
-        // Generated on every `ship up` (not just --prod) so it's cheap
-        // and always current; the "dev" build target simply never
-        // references it. Content depends on which FrameworkAdapter
-        // matches the project, which is exactly why this can't be a
-        // static stub InitCommand publishes once — see
-        // EntrypointScriptBuilder's docblock.
-        $releaseCommands = array_merge(
-            [],
-            ...array_map(
-                static fn (FrameworkAdapter $adapter): array => $adapter->releaseCommands(),
-                $this->detectFrameworkAdapters($config->extensions),
-            ),
-        );
-        $entrypointDir = $composeDir . '/prod';
-        if (!is_dir($entrypointDir)) {
-            mkdir($entrypointDir, recursive: true);
-        }
-        $entrypointPath = $entrypointDir . '/entrypoint.sh';
-        file_put_contents($entrypointPath, (new EntrypointScriptBuilder())->build($releaseCommands));
-        chmod($entrypointPath, 0o755);
-
-        if (!$environment->isDevelopment() && $config->deployCommands !== []) {
-            $result = $this->runDeployCommands($config, $compose, $output);
-
-            if ($result !== Command::SUCCESS) {
-                return $result;
-            }
-        }
 
         $result = $this->runner->runInteractive(
             [...ComposeCommand::baseArgs($this->projectRoot), 'up', '--build', '-d'],
@@ -150,9 +111,9 @@ final class UpCommand extends Command
      *
      * @return array{uid: int, gid: int}|null
      */
-    private function resolveHostUser(ShipConfig $config, ShipEnvironment $environment, bool $mutagenSync, OutputInterface $output): ?array
+    private function resolveHostUser(ShipConfig $config, bool $mutagenSync, OutputInterface $output): ?array
     {
-        if (!$config->hostUser || !$environment->isDevelopment()) {
+        if (!$config->hostUser) {
             return null;
         }
 
@@ -169,65 +130,6 @@ final class UpCommand extends Command
         }
 
         return HostUser::detect();
-    }
-
-    /**
-     * ship.json's deployCommands (see ShipConfig::$deployCommands): once per `ship up --prod`, after
-     * the images exist and before any new container starts -- so a failed migration stops the
-     * deploy with the previous containers still serving, instead of new code booting against a
-     * schema it doesn't match. Building first is what makes running them possible at all (they run
-     * inside a one-off container of the freshly built app image), and the infrastructure has to be
-     * brought up explicitly since nothing else would start it yet -- see DeployPlan.
-     */
-    private function runDeployCommands(ShipConfig $config, string $composeYaml, OutputInterface $output): int
-    {
-        $result = $this->runner->runInteractive(
-            [...ComposeCommand::baseArgs($this->projectRoot), 'build'],
-            $this->projectRoot,
-        );
-
-        if ($result !== Command::SUCCESS) {
-            return $result;
-        }
-
-        $infrastructure = DeployPlan::infrastructureServices($composeYaml);
-
-        if ($infrastructure !== []) {
-            $result = $this->runner->runInteractive(
-                DeployPlan::startInfrastructureArgs($this->projectRoot, $infrastructure),
-                $this->projectRoot,
-            );
-
-            if ($result !== Command::SUCCESS) {
-                $output->writeln('<error>ship: the infrastructure services did not become healthy -- no deploy '
-                    . 'command was run, and no new container was started.</error>');
-
-                return $result;
-            }
-        }
-
-        $appService = $config->serviceNames['app'] ?? 'app';
-
-        foreach ($config->deployCommands as $command) {
-            $output->writeln("<comment>ship: running deploy command: {$command}</comment>");
-
-            $result = $this->runner->runInteractive(
-                DeployPlan::runArgs($this->projectRoot, $appService, $command),
-                $this->projectRoot,
-            );
-
-            if ($result !== Command::SUCCESS) {
-                $output->writeln(sprintf(
-                    '<error>ship: deploy command failed (exit %d): %s -- no new container was started.</error>',
-                    $result,
-                    $command,
-                ));
-
-                return $result;
-            }
-        }
-
-        return Command::SUCCESS;
     }
 
     /**
@@ -276,9 +178,9 @@ final class UpCommand extends Command
 
     /**
      * `ship up` doesn't republish stub files itself -- only `ship init` does (see its own
-     * publishStubs()) -- so a project that upgrades the `php-ship/ship` package and runs `ship
-     * up`/`ship up --prod` directly just keeps whatever `ship/Dockerfile` etc. the *previous*
-     * version wrote, silently. This only warns, never re-publishes on its own: a project may have
+     * publishStubs()) -- so a project that upgrades the `php-ship/ship` package and runs `ship up`
+     * directly just keeps whatever `ship/Dockerfile` etc. the *previous* version wrote, silently.
+     * This only warns, never re-publishes on its own: a project may have
      * hand-edited those files (see README's "Customizing the stack"), and silently overwriting
      * that would be worse than an outdated stub. Stays quiet for a project whose `ship init` never
      * recorded a version (older `ship`, or the version genuinely couldn't be determined) -- no
@@ -489,25 +391,5 @@ final class UpCommand extends Command
         $port = substr($output, (int) strrpos($output, ':') + 1);
 
         return $port !== '' && ctype_digit($port) && $port !== '0';
-    }
-
-    /**
-     * Same detection Application does at boot -- duplicated since this command runs standalone.
-     *
-     * @param list<string> $extensionClasses
-     * @return list<FrameworkAdapter>
-     */
-    private function detectFrameworkAdapters(array $extensionClasses): array
-    {
-        $candidates = [
-            new LaravelAdapter(),
-            new SymfonyAdapter(),
-            ...(new ExtensionLoader())->loadFrameworkAdapters($extensionClasses),
-        ];
-
-        return array_values(array_filter(
-            $candidates,
-            fn (FrameworkAdapter $adapter): bool => $adapter->detect($this->projectRoot),
-        ));
     }
 }

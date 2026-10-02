@@ -8,7 +8,6 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Ship\Config\ShipConfig;
 use Ship\Console\Commands\UpCommand;
-use Ship\Contracts\ShipEnvironment;
 use Ship\Runtime\ProcessRunner;
 use Ship\Support\ShipVersion;
 use Symfony\Component\Console\Output\BufferedOutput;
@@ -112,10 +111,10 @@ final class UpCommandTest extends TestCase
         $swooleConfig = new ShipConfig(phpVersion: '8.4', services: ['runtime' => 'octane-swoole'], hostUser: true);
 
         $frankenOutput = new BufferedOutput();
-        $frankenResult = $method->invoke($command, $frankenConfig, ShipEnvironment::Development, false, $frankenOutput);
+        $frankenResult = $method->invoke($command, $frankenConfig, false, $frankenOutput);
 
         $swooleOutput = new BufferedOutput();
-        $swooleResult = $method->invoke($command, $swooleConfig, ShipEnvironment::Development, false, $swooleOutput);
+        $swooleResult = $method->invoke($command, $swooleConfig, false, $swooleOutput);
 
         self::assertSame($swooleResult, $frankenResult);
         self::assertSame($swooleOutput->fetch(), $frankenOutput->fetch());

@@ -160,7 +160,7 @@ final class ComposeFileBuilder
         // can't distinguish an empty list from an empty map. Compose's
         // schema requires ports/volumes/depends_on to be sequences, so
         // `{}` fails `docker compose config` validation outright -- caught
-        // by an actual `ship up --prod` smoke test, not by any unit test,
+        // by an actual `ship build` smoke test, not by any unit test,
         // since ComposeFileBuilderTest only ever parses the YAML back into
         // PHP, which can't tell `{}` and `[]` apart either.
         return Yaml::dump($compose, inline: 6, indent: 2, flags: Yaml::DUMP_EMPTY_ARRAY_AS_SEQUENCE);
