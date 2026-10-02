@@ -739,6 +739,18 @@
   `composer.lock` and the new `vendor/` package owned by `1000:1000`
   too. `ship shell` reported uid/gid 1000 with `HOME=/home/ship`.
 
+- Fixed a real bug found while live-testing the three FrankenPHP items
+  below, unrelated to any of them: the `dunglas/frankenphp` base image
+  has neither `ext-zip` nor an `unzip`/`7z` binary, so Composer can't
+  extract a single package distributed as a zip -- the normal case for
+  anything pulled from Packagist, not an edge case. This failed the
+  `builder` stage outright on the very first real `composer.lock`
+  (confirmed with a plain `composer require laravel/octane`), meaning
+  production FrankenPHP builds with any real dependencies were already
+  broken before today. Fixed with `apt-get install unzip` in the `base`
+  stage. The main Dockerfile doesn't need this -- Alpine's
+  `php:*-fpm-alpine` base already ships `unzip`.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
