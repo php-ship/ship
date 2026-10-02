@@ -622,8 +622,8 @@
   surfaced the MySQL healthcheck race above), and a stack whose middle
   command fails stopped there without starting the app or webserver.
 
-- Octane runs as `www-data` in production (Swoole and RoadRunner),
-  instead of root. Raised from a real project's evaluation: the prod
+- Octane runs as `www-data` in production (Swoole, RoadRunner, and
+  FrankenPHP), instead of root. Raised from a real project's evaluation: the prod
   entrypoint's `chown www-data` step only helped php-fpm, whose *master*
   starts as root purely to drop each worker to `www-data` itself --
   Octane is its own long-lived server with no such split, so the whole
@@ -642,11 +642,25 @@
   php-fpm keeps the plain `exec`: dropping its master would break the
   very drop-the-workers behavior it relies on.
 
-  Deliberately *not* applied to FrankenPHP: its Debian base needs its own
-  non-root setup -- Caddy writes to `/data` and `/config` (root-owned in
-  that image) and needs a capability to bind low ports -- not just a user
-  switch, and getting that wrong would break a runtime that works today.
-  Revisit as its own change.
+  Originally excluded FrankenPHP: its Debian base needed its own non-root
+  setup -- Caddy writes to `/data` and `/config` (root-owned in that
+  image), and `su-exec` doesn't exist there. Closed once asked directly
+  "what about FrankenPHP running as root": `Dockerfile.frankenphp` now
+  chowns those two directories to `www-data` in the `prod` stage (a
+  no-op cost otherwise), and the entrypoint's drop falls back to
+  `setpriv` (from `util-linux`, already in the image) when `su-exec`
+  isn't there -- confirmed live to `exec()` its target directly the same
+  way `su-exec` does, not fork-and-wait. No capability needed for the
+  low-port case either: ship already publishes the unprivileged
+  `${APP_PORT:-8000}`, not 80/443.
+
+  Verified live against a real Laravel + Octane + FrankenPHP production
+  build: `octane:start` and the embedded `frankenphp` process were both
+  `www-data` (checked via `/proc`, since `ps` isn't in this image), a
+  real request returned 200, the Caddy directories were
+  `www-data:www-data`, and `docker stop` took 1s with exit code 0
+  (graceful, not the 10s SIGKILL fallback a wrapper process swallowing
+  SIGTERM would have produced).
 
   Verified live against a real `laravel/laravel` + `laravel/octane`
   Swoole production build: `octane:start` was PID 1 owned by `www-data`
