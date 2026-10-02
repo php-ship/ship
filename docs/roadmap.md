@@ -953,6 +953,20 @@
   exclusion. Verified live: the same minimal-image test, with the fixed patterns, excluded both the
   nested `.env` and the whole `dist/` tree, while still preserving a root `.env.example`.
 
+- Fixed another real bug found via the same independent audit: `MailpitService`/`DuskService`
+  never checked `$environment` at all, so production got a Mailpit and a Selenium container too
+  whenever selected -- dev/test-only tooling with no business in a production release. Worse than
+  just unwanted containers: Mailpit's `MAIL_HOST` unconditionally overrode whatever real mail
+  config `.env.production` actually set (`environment:` always wins over `env_file:`), so real
+  mail -- including password reset links -- was silently captured into an unauthenticated web UI
+  instead of ever being sent.
+
+  Fixed generically, not with two one-off special cases: an empty `composeFragment()` is now a
+  service's own signal to `ComposeFileBuilder::applyService()` that it contributes nothing at all
+  in this environment -- no compose service, no env vars injected into `app`, no `removes()`
+  either. Any third-party `ServiceDefinition` gets the same opt-out for free. Every built-in
+  service's fragment was already never empty, so this is fully backward compatible.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
