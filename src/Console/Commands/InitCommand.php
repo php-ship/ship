@@ -367,17 +367,26 @@ final class InitCommand extends Command
      * A real security fix: the builder stage's `COPY . .` would bake .env, and any secrets in it, straight
      * into the image without this -- recoverable later via `docker history` even after a following step
      * deletes it, since layers are additive. Merged into any existing .dockerignore, not overwritten.
+     *
+     * `**`-prefixed, not bare `.env`/`.env.*` -- confirmed live, not assumed: a bare pattern only
+     * matches at the build context *root*, not recursively, so a nested file (most importantly
+     * `dist/ship/<tag>/.env`, `ship release`'s own copy of `.env.production`) was NOT excluded by
+     * the un-prefixed form, and landed readable inside the very next image built in that same
+     * project -- an actual production secret leak, not a theoretical one. `/dist` is excluded
+     * outright for the same reason: it's `ship release`'s own generated output (images, often
+     * hundreds of MB, carried forward release after release), never a build input.
      */
     private function ensureDockerignoreExcludesEnv(): void
     {
         $path = $this->projectRoot . '/.dockerignore';
         $required = [
-            '.env',
-            '.env.*',
-            '!.env.example',
+            '**/.env',
+            '**/.env.*',
+            '!**/.env.example',
             '.git',
             'node_modules',
             'vendor',
+            '/dist',
         ];
 
         $fileLines = is_file($path) ? file($path, FILE_IGNORE_NEW_LINES) : [];
