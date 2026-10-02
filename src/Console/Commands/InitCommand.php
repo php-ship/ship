@@ -360,6 +360,7 @@ final class InitCommand extends Command
         }
 
         $this->ensureDockerignoreExcludesEnv();
+        $this->ensureGitignoreExcludesDist();
     }
 
     /**
@@ -390,6 +391,30 @@ final class InitCommand extends Command
         $header = $existing === [] ? "# Added by `ship init` -- keeps secrets and build noise out of the\n# Docker build context.\n" : "\n# Added by `ship init`:\n";
 
         file_put_contents($path, $header . implode("\n", $missing) . "\n", FILE_APPEND);
+    }
+
+    /**
+     * `ship release --tag` writes a release's images (docker save tars, often hundreds of MB) and
+     * `.env` (copied from `.env.production`) under here -- generated output, and a real secrets
+     * leak risk, neither of which belongs in the project's own git history. Merged into any
+     * existing .gitignore, not overwritten, and a no-op when the project already ignores it under
+     * some wider pattern.
+     */
+    private function ensureGitignoreExcludesDist(): void
+    {
+        $path = $this->projectRoot . '/.gitignore';
+        $required = '/dist/ship/';
+
+        $fileLines = is_file($path) ? file($path, FILE_IGNORE_NEW_LINES) : [];
+        $existing = $fileLines === false ? [] : $fileLines;
+
+        if (in_array($required, $existing, true)) {
+            return;
+        }
+
+        $header = $existing === [] ? "# Added by `ship init` -- `ship release`'s own generated output.\n" : "\n# Added by `ship init`:\n";
+
+        file_put_contents($path, $header . $required . "\n", FILE_APPEND);
     }
 
     /**
