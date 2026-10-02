@@ -86,7 +86,7 @@ final class InitCommand extends Command
         );
         $config->toFile($this->projectRoot . '/ship.json');
 
-        $this->publishStubs($selected);
+        $this->publishStubs($selected, $config->serviceNames['app'] ?? 'app');
         $this->warnAboutViteDevServerConfigIfNeeded($io);
         $this->warnAboutMissingReverbPackageIfNeeded($io, $selected);
 
@@ -357,7 +357,7 @@ final class InitCommand extends Command
      *
      * @param array<string, string> $selected
      */
-    private function publishStubs(array $selected): void
+    private function publishStubs(array $selected, string $appServiceName): void
     {
         $filesystem = new Filesystem();
         $packageRoot = dirname(__DIR__, 3);
@@ -378,6 +378,17 @@ final class InitCommand extends Command
                 $target . '/nginx/default.conf',
                 overwriteNewerFiles: true,
             );
+
+            // A real bug found via an independent audit: the stub hardcodes "app:9000" --
+            // renaming the app service via ship.json's serviceNames (e.g. to share a Docker
+            // network with another ship project) left nginx still trying to reach a DNS name
+            // nothing in the stack answers to anymore, 502ing every request. Only rewritten when
+            // it actually differs, so the overwhelming majority of projects that never touch
+            // serviceNames get the exact same file as before.
+            if ($appServiceName !== 'app') {
+                $confPath = $target . '/nginx/default.conf';
+                file_put_contents($confPath, str_replace('app:9000', "{$appServiceName}:9000", (string) file_get_contents($confPath)));
+            }
         }
 
         if (($selected['storage'] ?? null) === 'garage') {

@@ -73,6 +73,40 @@ final class InitCommandServiceSelectionTest extends TestCase
         self::assertFileExists($this->projectRoot . '/ship/nginx/default.conf');
     }
 
+    /**
+     * Only the exact front controller is ever passed to PHP-FPM -- a real bug found via an
+     * independent audit: the previous `location ~ \.php$` passed *any* request path ending in
+     * .php to PHP-FPM, existing file or not, instead of being restricted to index.php.
+     */
+    public function test_nginx_restricts_php_execution_to_the_front_controller(): void
+    {
+        $this->runInit(['None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
+
+        $conf = (string) file_get_contents($this->projectRoot . '/ship/nginx/default.conf');
+
+        self::assertStringContainsString('location = /index.php', $conf);
+    }
+
+    /**
+     * A real bug found via an independent audit: the stub hardcodes "app:9000" -- renaming the
+     * app service via ship.json's serviceNames left nginx trying to reach a DNS name nothing in
+     * the stack answers to anymore, 502ing every request.
+     */
+    public function test_nginx_upstream_follows_a_renamed_app_service(): void
+    {
+        file_put_contents(
+            $this->projectRoot . '/ship.json',
+            json_encode(['php' => '8.4', 'services' => [], 'serviceNames' => ['app' => 'client-app']]),
+        );
+
+        $this->runInit(['None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
+
+        $conf = (string) file_get_contents($this->projectRoot . '/ship/nginx/default.conf');
+
+        self::assertStringContainsString('set $upstream_app client-app:9000;', $conf);
+        self::assertStringNotContainsString('set $upstream_app app:9000;', $conf);
+    }
+
     public function test_nginx_is_omitted_when_an_octane_runtime_is_selected(): void
     {
         // "Octane (RoadRunner)", not the default Swoole option -- its label is plain ASCII,
