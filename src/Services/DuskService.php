@@ -29,6 +29,15 @@ final class DuskService implements ServiceDefinition
 
     public function composeFragment(ShipEnvironment $environment, ?string $instanceName = null): array
     {
+        // Dev/test tooling, not infrastructure -- a real bug found live: with no check here at all,
+        // production built and started a Selenium container too, for a browser test suite that
+        // never runs there. An empty fragment is this class's signal that it contributes nothing in
+        // production at all -- see ComposeFileBuilder::applyService() for how that's honored
+        // generically.
+        if (!$environment->isDevelopment()) {
+            return [];
+        }
+
         return [
             'selenium' => [
                 'image' => 'selenium/standalone-chrome:4',

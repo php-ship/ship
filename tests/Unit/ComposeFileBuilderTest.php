@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use Ship\Config\ShipConfig;
 use Ship\Contracts\ShipEnvironment;
 use Ship\Docker\ComposeFileBuilder;
+use Ship\Services\MailpitService;
 use Ship\Services\MySqlService;
 use Ship\Services\PostgresService;
 use Ship\Services\RedisService;
@@ -49,6 +50,26 @@ final class ComposeFileBuilderTest extends TestCase
 
         self::assertSame('pgsql', $parsed['services']['app']['environment']['DB_CONNECTION']);
         self::assertSame('redis', $parsed['services']['app']['environment']['REDIS_HOST']);
+    }
+
+    /**
+     * A real bug found live, caught by an independent audit: with no environment check in
+     * MailpitService itself, production got a Mailpit container too, and its MAIL_HOST
+     * unconditionally overrode whatever real mail config .env.production actually set
+     * (environment: always wins over env_file:, see OPTIONAL_ENV_FILE's own docblock) -- real
+     * mail, password reset links included, silently captured into an unauthenticated web UI
+     * instead of ever being sent.
+     */
+    public function test_dev_only_tooling_like_mailpit_is_entirely_absent_in_production(): void
+    {
+        $builder = new ComposeFileBuilder(new ServiceRegistry([new MailpitService()]));
+        $config = new ShipConfig(phpVersion: '8.4', services: ['mail' => 'mailpit']);
+
+        $yaml = $builder->build($config, ShipEnvironment::Production);
+        $parsed = Yaml::parse($yaml);
+
+        self::assertArrayNotHasKey('mailpit', $parsed['services']);
+        self::assertArrayNotHasKey('MAIL_HOST', $parsed['services']['app']['environment']);
     }
 
     /**

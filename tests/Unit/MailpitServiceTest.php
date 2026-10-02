@@ -36,4 +36,16 @@ final class MailpitServiceTest extends TestCase
 
         self::assertSame('mailpit-marketing', $appEnv['MARKETING_MAIL_HOST']);
     }
+
+    /**
+     * Dev/test tooling, not infrastructure -- a real bug found live: with no environment check at
+     * all, production got a Mailpit container too, and its MAIL_HOST unconditionally overrode
+     * whatever real mail config .env.production set (environment: always wins over env_file:).
+     * An empty fragment is this class's own signal to ComposeFileBuilder that it contributes
+     * nothing in production -- no container, no env vars injected into "app" either.
+     */
+    public function test_it_contributes_nothing_in_production(): void
+    {
+        self::assertSame([], (new MailpitService())->composeFragment(ShipEnvironment::Production));
+    }
 }

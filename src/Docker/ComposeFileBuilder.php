@@ -189,6 +189,19 @@ final class ComposeFileBuilder
         array $serviceNames,
     ): array {
         $service = $this->registry->get($key);
+        $fragment = $service->composeFragment($environment, $instanceName);
+
+        // An empty fragment is a service's own signal that it contributes nothing at all in this
+        // environment -- e.g. MailpitService/DuskService in production, dev/test-only tooling with
+        // no business in a production release, not just a container ship happens not to start.
+        // Treated uniformly as "this service is absent here": no compose service, no env vars
+        // injected into "app" either (a real bug found live: Mailpit's own MAIL_HOST unconditionally
+        // overrode a real .env.production's own mail config, and Dusk's Selenium container, with no
+        // environment check of its own, was built and started in every production release).
+        if ($fragment === []) {
+            return [$compose, $appEnv, $removed];
+        }
+
         $env = $service->environmentVariables($instanceName);
 
         // Renamed together, not separately -- environmentVariables() bakes this same service's own
@@ -196,17 +209,17 @@ final class ComposeFileBuilder
         // a URL, e.g. MEILISEARCH_HOST => "http://meilisearch:7700"), computed independently of
         // composeFragment() with no shared state tying the two together, so nothing else already
         // knows to keep them in sync once a name changes.
-        foreach ($service->composeFragment($environment, $instanceName) as $name => $fragment) {
+        foreach ($fragment as $name => $serviceFragment) {
             $newName = $serviceNames[$name] ?? $name;
 
             if ($newName !== $name) {
                 $env = $this->renameHostnameReferences($env, $name, $newName);
             }
 
-            $fragment['networks'] ??= ['ship'];
+            $serviceFragment['networks'] ??= ['ship'];
             $compose['services'][$newName] = isset($compose['services'][$newName])
-                ? $this->mergeServiceFragment($compose['services'][$newName], $fragment)
-                : $fragment;
+                ? $this->mergeServiceFragment($compose['services'][$newName], $serviceFragment)
+                : $serviceFragment;
         }
 
         // A later, same-name env var wins -- lets additionalServices override a key the default

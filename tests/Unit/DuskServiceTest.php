@@ -23,4 +23,15 @@ final class DuskServiceTest extends TestCase
     {
         self::assertSame([], (new DuskService())->removes());
     }
+
+    /**
+     * Dev/test tooling, not infrastructure -- a real bug found live: with no environment check at
+     * all, production built and started a Selenium container too, for a browser test suite that
+     * never runs there. An empty fragment is this class's own signal to ComposeFileBuilder that it
+     * contributes nothing in production -- no container, no env vars injected into "app" either.
+     */
+    public function test_it_contributes_nothing_in_production(): void
+    {
+        self::assertSame([], (new DuskService())->composeFragment(ShipEnvironment::Production));
+    }
 }
