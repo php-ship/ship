@@ -60,18 +60,24 @@ final class EntrypointScriptBuilder
         // root to then drop each *worker* to www-data itself, but an Octane server, or a process
         // like Horizon or the scheduler, is its own long-lived program with no such split -- left
         // alone it runs as root, every request handler included. The generated compose file sets
-        // SHIP_RUN_AS on exactly those services. Skipped (stays root) where su-exec doesn't exist,
-        // i.e. FrankenPHP's Debian image -- see docs/roadmap.md.
-        $lines[] = 'if [ -n "$SHIP_RUN_AS" ] && command -v su-exec >/dev/null 2>&1; then';
-        $lines[] = '    exec su-exec "$SHIP_RUN_AS" "$@"';
+        // SHIP_RUN_AS on exactly those services. su-exec on the Alpine image; setpriv -- confirmed
+        // live to exec() its target directly, same as su-exec, not fork-and-wait -- on FrankenPHP's
+        // Debian one, which has no su-exec but already ships setpriv. SHIP_RUN_AS is always a bare
+        // name ("www-data") here, never "uid:gid", so the same value is both --reuid and --regid.
+        $lines[] = 'if [ -n "$SHIP_RUN_AS" ]; then';
+        $lines[] = '    if command -v su-exec >/dev/null 2>&1; then';
+        $lines[] = '        exec su-exec "$SHIP_RUN_AS" "$@"';
+        $lines[] = '    elif command -v setpriv >/dev/null 2>&1; then';
+        $lines[] = '        exec setpriv --reuid="$SHIP_RUN_AS" --regid="$SHIP_RUN_AS" --clear-groups --no-new-privs "$@"';
+        $lines[] = '    fi';
         $lines[] = 'fi';
         // exec (not a plain call) replaces this script's process rather
         // than spawning a child of it, so the real server ends up as
         // PID 1 -- otherwise `docker stop`'s SIGTERM hits this shell
         // instead of php-fpm/octane, and the container only dies on the
-        // slower SIGKILL timeout. su-exec (unlike su or sudo) exec()s the
-        // target directly rather than forking a child under itself, so this
-        // holds when dropping privileges too.
+        // slower SIGKILL timeout. su-exec/setpriv (unlike su or sudo)
+        // exec() the target directly rather than forking a child under
+        // itself, so this holds when dropping privileges too.
         $lines[] = 'exec "$@"';
         $lines[] = '';
 

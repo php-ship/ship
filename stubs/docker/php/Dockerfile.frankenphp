@@ -74,6 +74,11 @@ COPY --from=assets /var/www/html /var/www/html
 # generated-not-static file, same reasoning.
 COPY ship/prod/entrypoint.sh /usr/local/bin/ship-entrypoint
 RUN chmod +x /usr/local/bin/ship-entrypoint
+# Matches Swoole/RoadRunner's own prod stage: Octane is its own long-lived program with no
+# master-drops-workers split, so OctaneFrankenPhpService sets SHIP_RUN_AS=www-data and the
+# generated entrypoint drops to it -- which needs Caddy's own state/certificate directories
+# (root-owned in the base image) writable by www-data first.
+RUN chown -R www-data:www-data /data/caddy /config/caddy
 ENTRYPOINT ["/usr/local/bin/ship-entrypoint"]
 
 # KNOWN GAP: the base dunglas/frankenphp image ships a HEALTHCHECK against

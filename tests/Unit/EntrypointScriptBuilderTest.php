@@ -83,8 +83,24 @@ final class EntrypointScriptBuilderTest extends TestCase
     {
         $script = (new EntrypointScriptBuilder())->build([]);
 
-        self::assertStringContainsString('if [ -n "$SHIP_RUN_AS" ] && command -v su-exec', $script);
+        self::assertStringContainsString('if [ -n "$SHIP_RUN_AS" ]', $script);
         self::assertStringContainsString('exec su-exec "$SHIP_RUN_AS" "$@"', $script);
+    }
+
+    /**
+     * Debian (FrankenPHP) has no su-exec but already ships setpriv, confirmed live to exec() its
+     * target directly, same as su-exec, not fork-and-wait. SHIP_RUN_AS is always a bare name
+     * ("www-data") here, never "uid:gid", so the same value works as both --reuid and --regid.
+     */
+    public function test_it_falls_back_to_setpriv_when_su_exec_is_not_available(): void
+    {
+        $script = (new EntrypointScriptBuilder())->build([]);
+
+        self::assertStringContainsString('elif command -v setpriv', $script);
+        self::assertStringContainsString(
+            'exec setpriv --reuid="$SHIP_RUN_AS" --regid="$SHIP_RUN_AS" --clear-groups --no-new-privs "$@"',
+            $script,
+        );
     }
 
     /**

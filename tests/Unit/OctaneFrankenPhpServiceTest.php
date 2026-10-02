@@ -25,7 +25,7 @@ final class OctaneFrankenPhpServiceTest extends TestCase
 
     public function test_it_starts_octane_with_the_frankenphp_server(): void
     {
-        $fragment = (new OctaneFrankenPhpService())->composeFragment(ShipEnvironment::Development);
+        $fragment = (new OctaneFrankenPhpService())->composeFragment(ShipEnvironment::Production);
 
         self::assertSame(
             ['php', 'artisan', 'octane:start', '--server=frankenphp', '--host=0.0.0.0', '--port=8000'],
@@ -41,5 +41,19 @@ final class OctaneFrankenPhpServiceTest extends TestCase
     public function test_it_removes_the_webserver_service(): void
     {
         self::assertSame(['webserver'], (new OctaneFrankenPhpService())->removes());
+    }
+
+    /**
+     * Production only, same as Swoole/RoadRunner (see OctaneSwooleServiceTest's own equivalent):
+     * Octane has no master-drops-workers split, so without this it runs as root. Dev never reads
+     * SHIP_RUN_AS (its own entrypoint is a different, static file).
+     */
+    public function test_it_asks_the_entrypoint_to_drop_to_www_data_in_production_only(): void
+    {
+        $dev = (new OctaneFrankenPhpService())->composeFragment(ShipEnvironment::Development);
+        $prod = (new OctaneFrankenPhpService())->composeFragment(ShipEnvironment::Production);
+
+        self::assertSame(['SHIP_RUN_AS' => 'www-data'], $prod['app']['environment']);
+        self::assertSame([], $dev['app']['environment']);
     }
 }

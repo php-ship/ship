@@ -50,6 +50,12 @@ final class OctaneFrankenPhpService implements ServiceDefinition
                 // rather than enabling it on the strength of an upstream issue being closed.
                 'command' => ['php', 'artisan', 'octane:start', '--server=frankenphp', '--host=0.0.0.0', '--port=8000'],
                 'ports' => ['${APP_PORT:-8000}:8000', '${APP_HTTPS_PORT:-8443}:8443'],
+                // Production only, same as Swoole/RoadRunner: Octane is its own long-lived program
+                // with no master-drops-workers split, so without this it runs as root. See
+                // Dockerfile.frankenphp's prod stage for the matching chown of Caddy's own
+                // directories, and EntrypointScriptBuilder for the actual drop (setpriv here --
+                // Debian has no su-exec, but does have setpriv already, confirmed live).
+                'environment' => $environment->isDevelopment() ? [] : ['SHIP_RUN_AS' => 'www-data'],
             ],
         ];
     }
