@@ -37,9 +37,9 @@ final class SeaweedFsService implements ServiceDefinition
             $name => [
                 'image' => 'chrislusf/seaweedfs:4.46',
                 'command' => ['server', '-s3', '-s3.port=8333', '-dir=/data'],
-                'volumes' => $environment->isDevelopment()
-                    ? ["ship-{$name}-data:/data"]
-                    : [],
+                // Persisted in both environments -- see MySqlService's own comment for why.
+                // $environment is otherwise unused here now -- required by ServiceDefinition regardless.
+                'volumes' => ["ship-{$name}-data:/data"],
                 'healthcheck' => [
                     // 127.0.0.1, not "localhost" -- this image's resolver tries ::1 first, which
                     // nothing listens on, so wget reports connection refused and the container

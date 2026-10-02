@@ -51,7 +51,12 @@ final class ComposeFileBuilderTest extends TestCase
         self::assertSame('redis', $parsed['services']['app']['environment']['REDIS_HOST']);
     }
 
-    public function test_it_omits_dev_only_volumes_in_production(): void
+    /**
+     * A database losing every row on the next `docker compose restart`/redeploy would be a real
+     * data-loss bug, not a dev/prod distinction worth making -- unlike "app"'s own bind mount
+     * (dev only; see baseServices()), which this is not testing.
+     */
+    public function test_a_stateful_services_data_volume_persists_in_production_too(): void
     {
         $builder = new ComposeFileBuilder($this->registry());
 
@@ -60,8 +65,8 @@ final class ComposeFileBuilderTest extends TestCase
         $yaml = $builder->build($config, ShipEnvironment::Production);
         $parsed = Yaml::parse($yaml);
 
-        self::assertSame([], $parsed['services']['pgsql']['volumes']);
-        self::assertArrayNotHasKey('volumes', $parsed);
+        self::assertSame(['ship-pgsql-data:/var/lib/postgresql'], $parsed['services']['pgsql']['volumes']);
+        self::assertArrayHasKey('ship-pgsql-data', $parsed['volumes']);
     }
 
     public function test_top_level_volumes_reflect_every_selected_services_named_volumes(): void

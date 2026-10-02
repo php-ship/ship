@@ -33,10 +33,13 @@ final class RedisService implements ServiceDefinition
         return [
             $name => [
                 'image' => 'redis:8-alpine',
-                'command' => ['redis-server', '--save', $environment->isDevelopment() ? '60 1' : '""'],
-                'volumes' => $environment->isDevelopment()
-                    ? ["ship-{$name}-data:/data"]
-                    : [],
+                // Persisted (and RDB saves left on) in both environments -- see MySqlService's own
+                // comment on why production needs this generally. Sessions specifically make this
+                // matter here even though ship only ever wires this as a cache/session store, never
+                // a queue: losing every session on each redeploy logs out every active user, which
+                // is a real, user-visible regression, not a theoretical one.
+                'command' => ['redis-server', '--save', '60 1'],
+                'volumes' => ["ship-{$name}-data:/data"],
                 'healthcheck' => [
                     'test' => ['CMD', 'redis-cli', 'ping'],
                     'interval' => '5s',

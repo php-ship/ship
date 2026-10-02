@@ -62,9 +62,9 @@ final class SiloService implements ServiceDefinition
                 // second named instance (storage supports additionalServices) doesn't silently
                 // collide with the default one on the same host port.
                 'ports' => [$this->consolePortMapping($instanceName)],
-                'volumes' => $environment->isDevelopment()
-                    ? ["ship-{$name}-data:/data"]
-                    : [],
+                // Persisted in both environments -- see MySqlService's own comment for why.
+                // $environment is otherwise unused here now -- required by ServiceDefinition regardless.
+                'volumes' => ["ship-{$name}-data:/data"],
                 'healthcheck' => [
                     'test' => ['CMD', 'curl', '-f', 'http://127.0.0.1:9000/minio/health/live'],
                     'interval' => '5s',

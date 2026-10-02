@@ -26,12 +26,16 @@ final class RedisServiceTest extends TestCase
         self::assertArrayNotHasKey('SESSION_DRIVER', $namedEnv);
     }
 
-    public function test_data_volume_only_exists_in_development(): void
+    /**
+     * Sessions make this matter even though ship only ever wires Redis as a cache/session store,
+     * never a queue: losing every session on each redeploy logs out every active user.
+     */
+    public function test_the_data_volume_persists_in_both_environments(): void
     {
         $service = new RedisService();
 
         self::assertNotSame([], $service->composeFragment(ShipEnvironment::Development)['redis']['volumes']);
-        self::assertSame([], $service->composeFragment(ShipEnvironment::Production)['redis']['volumes']);
+        self::assertNotSame([], $service->composeFragment(ShipEnvironment::Production)['redis']['volumes']);
     }
 
     public function test_a_named_instance_gets_its_own_host_and_env_prefix(): void

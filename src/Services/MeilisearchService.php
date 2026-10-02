@@ -38,9 +38,9 @@ final class MeilisearchService implements ServiceDefinition
                     'MEILI_MASTER_KEY' => "\${{$prefix}MEILISEARCH_KEY:-shipsearchkey}",
                     'MEILI_NO_ANALYTICS' => 'true',
                 ],
-                'volumes' => $environment->isDevelopment()
-                    ? ["ship-{$name}-data:/meili_data"]
-                    : [],
+                // Persisted in both environments -- see MySqlService's own comment for why.
+                // $environment is otherwise unused here now -- required by ServiceDefinition regardless.
+                'volumes' => ["ship-{$name}-data:/meili_data"],
             ],
         ];
     }

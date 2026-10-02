@@ -40,9 +40,9 @@ final class PostgresService implements ServiceDefinition, ProvidesDatabaseShell
                     'POSTGRES_USER' => "\${{$prefix}DB_USERNAME:-app}",
                     'POSTGRES_PASSWORD' => "\${{$prefix}DB_PASSWORD:-secret}",
                 ],
-                'volumes' => $environment->isDevelopment()
-                    ? ["ship-{$name}-data:/var/lib/postgresql"]
-                    : [],
+                // Persisted in both environments -- see MySqlService's own comment for why.
+                // $environment is otherwise unused here now -- required by ServiceDefinition regardless.
+                'volumes' => ["ship-{$name}-data:/var/lib/postgresql"],
                 'healthcheck' => [
                     'test' => ['CMD-SHELL', "pg_isready -U \${{$prefix}DB_USERNAME:-app}"],
                     'interval' => '5s',

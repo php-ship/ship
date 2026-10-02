@@ -50,9 +50,9 @@ final class GarageService implements ServiceDefinition
                     'GARAGE_DEFAULT_SECRET_KEY' => 'shipsecret',
                     'GARAGE_DEFAULT_BUCKET' => 'local',
                 ],
-                'volumes' => $environment->isDevelopment()
-                    ? ["ship-{$name}-data:/data", "ship-{$name}-meta:/meta"]
-                    : [],
+                // Persisted in both environments -- see MySqlService's own comment for why.
+                // $environment is otherwise unused here now -- required by ServiceDefinition regardless.
+                'volumes' => ["ship-{$name}-data:/data", "ship-{$name}-meta:/meta"],
                 // No shell or curl in a FROM-scratch image -- `status` is the
                 // only way to check the node is up, over its own local RPC.
                 'healthcheck' => [

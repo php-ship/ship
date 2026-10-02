@@ -22,12 +22,12 @@ final class RustFsServiceTest extends TestCase
         self::assertStringContainsString('rustfs', $appEnv['AWS_ENDPOINT']);
     }
 
-    public function test_data_volume_only_exists_in_development(): void
+    public function test_the_data_volume_persists_in_both_environments(): void
     {
         $service = new RustFsService();
 
         self::assertNotSame([], $service->composeFragment(ShipEnvironment::Development)['rustfs']['volumes']);
-        self::assertSame([], $service->composeFragment(ShipEnvironment::Production)['rustfs']['volumes']);
+        self::assertNotSame([], $service->composeFragment(ShipEnvironment::Production)['rustfs']['volumes']);
     }
 
     public function test_a_named_instance_gets_its_own_endpoint_and_env_prefix(): void

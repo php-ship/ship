@@ -44,9 +44,12 @@ final class MySqlService implements ServiceDefinition, ProvidesDatabaseShell
                     // root access beyond what MySQL's own image setup uses it for.
                     'MYSQL_ROOT_PASSWORD' => "\${{$prefix}DB_PASSWORD:-secret}",
                 ],
-                'volumes' => $environment->isDevelopment()
-                    ? ["ship-{$name}-data:/var/lib/mysql"]
-                    : [],
+                // Persisted in both environments -- a production database losing every row on
+                // the next `docker compose restart`/redeploy is a real data-loss bug, not a
+                // dev/prod distinction worth making. See docs/roadmap.md for the fix across
+                // every stateful service. $environment is otherwise unused here now --
+                // required by ServiceDefinition regardless.
+                'volumes' => ["ship-{$name}-data:/var/lib/mysql"],
                 'healthcheck' => [
                     // 127.0.0.1, not "localhost" -- found the hard way: "localhost" makes mysqladmin
                     // use the unix socket, and on a fresh volume the image first starts a

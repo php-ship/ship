@@ -31,12 +31,12 @@ final class MeilisearchServiceTest extends TestCase
         self::assertArrayNotHasKey('SCOUT_DRIVER', $service->environmentVariables('analytics'));
     }
 
-    public function test_data_volume_only_exists_in_development(): void
+    public function test_the_data_volume_persists_in_both_environments(): void
     {
         $service = new MeilisearchService();
 
         self::assertNotSame([], $service->composeFragment(ShipEnvironment::Development)['meilisearch']['volumes']);
-        self::assertSame([], $service->composeFragment(ShipEnvironment::Production)['meilisearch']['volumes']);
+        self::assertNotSame([], $service->composeFragment(ShipEnvironment::Production)['meilisearch']['volumes']);
     }
 
     public function test_a_named_instance_gets_its_own_host_and_env_prefix(): void

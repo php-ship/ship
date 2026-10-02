@@ -56,9 +56,9 @@ final class RustFsService implements ServiceDefinition
                     'RUSTFS_ACCESS_KEY' => 'ship',
                     'RUSTFS_SECRET_KEY' => 'shipsecret',
                 ],
-                'volumes' => $environment->isDevelopment()
-                    ? ["ship-{$name}-data:/data"]
-                    : [],
+                // Persisted in both environments -- see MySqlService's own comment for why.
+                // $environment is otherwise unused here now -- required by ServiceDefinition regardless.
+                'volumes' => ["ship-{$name}-data:/data"],
                 'healthcheck' => [
                     'test' => ['CMD', 'curl', '-f', 'http://127.0.0.1:9000/health'],
                     'interval' => '5s',

@@ -38,12 +38,12 @@ final class SeaweedFsServiceTest extends TestCase
         self::assertStringContainsString('seaweedfs', $appEnv['AWS_ENDPOINT']);
     }
 
-    public function test_data_volume_only_exists_in_development(): void
+    public function test_the_data_volume_persists_in_both_environments(): void
     {
         $service = new SeaweedFsService();
 
         self::assertNotSame([], $service->composeFragment(ShipEnvironment::Development)['seaweedfs']['volumes']);
-        self::assertSame([], $service->composeFragment(ShipEnvironment::Production)['seaweedfs']['volumes']);
+        self::assertNotSame([], $service->composeFragment(ShipEnvironment::Production)['seaweedfs']['volumes']);
     }
 
     public function test_a_named_instance_gets_its_own_endpoint_and_env_prefix(): void
