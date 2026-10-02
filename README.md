@@ -30,7 +30,7 @@ low-severity gaps that remain.
   - [Adding a service later](#adding-a-service-later)
   - [Multiple instances of a service](#multiple-instances-of-a-service)
   - [Custom service names and an external network](#custom-service-names-and-an-external-network)
-- [Production build](#production-build)
+- [Production releases](#production-releases)
 - [HTTPS / TLS](#https--tls)
 - [Backing up data volumes](#backing-up-data-volumes)
 - [Frontend dev server (Vite HMR)](#frontend-dev-server-vite-hmr)
@@ -64,12 +64,14 @@ two built-in adapters, not one framework with everything else bolted on.
 
 A few other differences beyond the WSL requirement:
 
-- **One command deploys to production, not just development.** Sail is a
-  dev tool; going to production is left entirely up to you. `ship up
-  --prod` builds a real production image (no bind mount, assets built,
-  `.env` never baked in, framework release/optimize commands run at boot)
-  from the exact same `ship.json` — see [Production build](#production-build).
-  On a server, starting the whole stack really is `docker compose up -d`.
+- **A portable release artifact, not just a dev tool.** Sail is a dev tool;
+  going to production is left entirely up to you. `ship release --tag`
+  builds a real production image (no bind mount, assets built, framework
+  release/optimize commands run at boot) from the exact same `ship.json`
+  and packages it with the images, a final compose file, and `.env.production`
+  into `dist/ship/<tag>/` — see [Production releases](#production-releases).
+  The destination server needs nothing but Docker: `docker load` the
+  images, then `docker compose up -d`.
 - **A real database client shell, without a published port.** `ship db`
   opens `psql`/`mysql` inside whichever database container is selected,
   reading its own credentials from its own environment — no port needs to
@@ -110,15 +112,18 @@ vendor/bin/ship down
 
 `ship init` writes `ship.json` and publishes a `ship/` directory (Dockerfile,
 nginx/php config) into your project root — both are meant to be committed.
-`ship up --prod` builds and starts the production-mode stack instead — see
-[Production build](#production-build) below for what changes and why.
+Production is a separate pair of commands, not a flag on `ship up` — see
+[Production releases](#production-releases) below for `ship build`/`ship
+release`.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
 | `ship init` | Interactive picker for services (database, cache, runtime, ...); writes `ship.json` and publishes the `ship/` directory. Re-run it after upgrading `ship` to pick up stub changes — see `docs/roadmap.md`'s "Known gaps". |
-| `ship up [--prod]` | Regenerates `ship/docker-compose.generated.yml` from `ship.json` and runs `docker compose up --build -d`. `--prod` builds the production image instead of dev. |
+| `ship up` | Regenerates `ship/docker-compose.generated.yml` from `ship.json` and runs `docker compose up --build -d`. Development only — see `ship build`/`ship release` below for production. |
+| `ship build` | Builds every project-owned production image, tagged locally. See [Production releases](#production-releases). |
+| `ship release --tag <tag>` | Builds the same images (re-tagged) and assembles the portable release artifact under `dist/ship/<tag>/`. See [Production releases](#production-releases). |
 | `ship down [--volumes]` | `docker compose down`. `--volumes` also deletes named volumes (database/storage data — use with care). |
 | `ship exec <service> <cmd...>` | Runs an arbitrary command inside a running service container. The generic escape hatch every shortcut below wraps. |
 | `ship shell [service]` | Opens an interactive shell (`sh`) in a service; defaults to `app`. |
@@ -213,26 +218,28 @@ plain, readable JSON document:
   ```
   Fed to [`mlocati/docker-php-extension-installer`](https://github.com/mlocati/docker-php-extension-installer),
   which handles each extension's own build dependencies for you.
-- `publishPorts` — set to `false` and `ship up --prod` publishes nothing to
-  the host, for a deployment where a reverse proxy (Caddy, Traefik, ...)
-  reaches the containers over a shared Docker network (see `externalNetwork`
-  below). Worth knowing why it matters: a Docker-published port bypasses host
-  firewalls like `ufw`, so with the default (`true`) the app answers directly
-  on the server's public IP, skipping the proxy's TLS and headers entirely.
-  Production only — development always publishes what it needs.
-- `deployCommands` — shell commands run exactly once per `ship up --prod`,
-  after the images are built and **before** any new container starts:
+- `publishPorts` — set to `false` and the release's compose file publishes
+  nothing to the host, for a deployment where a reverse proxy (Caddy,
+  Traefik, ...) reaches the containers over a shared Docker network (see
+  `externalNetwork` below). Worth knowing why it matters: a Docker-published
+  port bypasses host firewalls like `ufw`, so with the default (`true`) the
+  app answers directly on the server's public IP, skipping the proxy's TLS
+  and headers entirely. Production only — development always publishes
+  what it needs.
+- `deployCommands` — shell commands meant to run exactly once per deploy,
+  **before** the app services start:
   ```json
   "deployCommands": ["php artisan migrate --force", "php artisan telescope:setup-database"]
   ```
-  Each runs in a one-off container of the freshly built app image, after
-  `ship` has brought up the database/cache services it provisions (and
-  waited for them to be healthy). If one fails, `ship up --prod` stops
-  there and starts nothing new — so a failed migration leaves the previous
-  containers serving instead of new code booting against a schema it doesn't
-  match. This is deliberately not where framework boot steps like `artisan
-  optimize` live: those run at every container *boot* (see
-  [Production build](#production-build)), which is exactly wrong for a
+  `ship release --tag` writes these into the release's own
+  `deploy-commands.sh` rather than running them itself — see [Production
+  releases](#production-releases) — which brings up the database/cache
+  services first (and waits for them to be healthy) before running each
+  command in a one-off container of the app image, then stops if one fails,
+  so the operator never starts new code against a schema it doesn't match.
+  This is deliberately not where framework boot steps like `artisan
+  optimize` live: those run at every container *boot* (see [Production
+  releases](#production-releases)), which is exactly wrong for a
   migration — with more than one container from the same image, each would
   run it at once. Ignored in development.
 - `processes` — extra long-running processes that run your app from the same
@@ -372,30 +379,23 @@ project entirely, and this project's app container just needs a way in.
 name that won't collide with an unrelated container already using its
 default alias on a network you share.
 
-## Production build
+## Production releases
 
-`ship up --prod` builds a materially different image, not just the same one
-with a flag flipped:
+Production is two commands, not a flag on `ship up`:
+
+```bash
+ship build                  # build every project-owned production image
+ship release --tag 1.2.0    # build + assemble the portable release artifact
+```
+
+Both build a materially different image from `ship up`'s dev one, not the
+same one with a flag flipped:
 
 - **No bind mount.** `dev` bind-mounts `.:/var/www/html` so edits are live
   immediately; `prod` deliberately doesn't, since a real deploy target
   shouldn't depend on the host filesystem it happened to build on. Code
   gets `COPY`'d into the image at build time instead, via the `builder` →
   `assets` → `prod` stage chain in `ship/Dockerfile`.
-- **`.env` never enters the image, but is still loaded at container start if
-  present on disk.** `ship init` publishes a `.dockerignore` excluding
-  `.env`/`.env.*`/`.git`/`node_modules`/`vendor` from the build context —
-  this matters more than it might look, since Docker image layers are
-  additive, so even a `RUN rm .env` in a later stage wouldn't actually
-  remove it from the image's history; the only correct fix is keeping it
-  out of the build context in the first place. `app`, `webserver`, and
-  `reverb` all declare an optional `env_file: .env` (Compose's
-  `required: false`, so a project with none still starts fine), so a real
-  `.env` placed directly on the deploy target's filesystem — never
-  committed, never baked into an image — is exactly how secrets like
-  `APP_KEY` are meant to reach the container. Ship's own explicit
-  `environment:` values (the `DB_*`/`REDIS_*`/etc. each selected service
-  wires) still win over anything conflicting in that file.
 - **Frontend assets get built.** A `npm run build` step (guarded on
   `package.json` existing) runs in the `assets` stage, so `public/build`
   exists before `prod`/`prod-nginx` copy the tree out. There is no Vite
@@ -405,31 +405,88 @@ with a flag flipped:
   build time.** Laravel gets `php artisan optimize`; Symfony gets `php
   bin/console cache:clear`. This has to happen at boot rather than during
   the image build because these commands bake real environment values
-  into compiled files — and per the `.env` point above, those real values
-  only exist once the orchestrator injects them at container start, not
-  during the build. `Ship\Contracts\FrameworkAdapter::releaseCommands()`
-  is the extension point for this — a third-party adapter for another
-  framework returns its own list of boot-time commands the same way.
-- **An Octane server runs as `www-data`, not root.** php-fpm's master
-  starts as root only to drop each *worker* to `www-data` itself, so plain
-  php-fpm is fine. Octane (Swoole, RoadRunner) is its own long-lived server
-  with no such split — left alone, every request handler would run as root —
-  so the generated entrypoint runs its root-only steps (`artisan optimize`,
-  fixing ownership of `storage/` and friends) and then drops to `www-data`
-  before starting the server. FrankenPHP is the exception and still runs as
-  root: its Debian-based image needs its own non-root setup (Caddy's data
-  directories, low-port capabilities), not just a user switch.
+  into compiled files, which only exist once the orchestrator injects them
+  at container start, not during the build.
+  `Ship\Contracts\FrameworkAdapter::releaseCommands()` is the extension
+  point for this — a third-party adapter for another framework returns its
+  own list of boot-time commands the same way.
+- **An Octane server runs as `www-data`, not root — Swoole, RoadRunner and
+  FrankenPHP alike.** php-fpm's master starts as root only to drop each
+  *worker* to `www-data` itself, so plain php-fpm is fine. Octane is its
+  own long-lived server with no such split — left alone, every request
+  handler would run as root — so the generated entrypoint runs its
+  root-only steps (`artisan optimize`, fixing ownership of `storage/` and
+  friends) and then drops to `www-data` before starting the server.
 - **nginx can now actually serve static assets.** `webserver` builds from
   the same `ship/Dockerfile` as `app` (a `prod-nginx` target that copies
   from the `assets` stage), so it has access to `public/`'s built CSS/JS
   instead of only being able to proxy PHP requests to `app`.
 
-Deploying is then meant to be: build the image (`ship up --prod`, or your
-CI pipeline running the equivalent `docker compose ... build`), push it
-wherever it runs, and start it there with real environment variables
-injected by the orchestrator — a single `docker compose up -d` against
-the same generated compose file, once the image exists and the env vars
-are in place.
+### `.env.production`
+
+A single project-level file, `.env.production`, is the one source of
+production credentials and config — you create and fill it; `ship` never
+generates one. `ship build`/`ship release` make its values available to
+`docker compose build` (for a hand-edited `ship/Dockerfile`'s own build
+args, via Compose's own `${VAR}` substitution — nothing is baked into an
+image layer just because it's in this file), and `ship release` copies the
+whole file to the release's own `.env`, read by the containers at boot the
+same way a dev project's `.env` already is. `ship release` fails with a
+clear error if `.env.production` doesn't exist — there's no silent
+"production ran with no config" failure mode.
+
+### What `ship release --tag` produces
+
+```text
+dist/ship/1.2.0/
+├── docker-compose.yml   # final image: tags, no build:, no source needed
+├── .env                 # copied from .env.production
+├── images/
+│   ├── app.tar          # docker save -- one per *unique* image, not per service
+│   └── webserver.tar
+├── release.json          # tag, git commit, ship version, images — no secrets
+└── deploy-commands.sh    # only when ship.json's deployCommands is set
+```
+
+`dist/ship/` is git-ignored (`ship init` adds it to `.gitignore` for you) —
+a release is generated output, and often genuinely sensitive (it carries
+your `.env.production`), so it's never meant to be committed. Project-owned
+services that build from an identical Dockerfile/target/args (most
+commonly `app` and every `ship.json` `processes` entry, which build from
+the exact same config) share one image and one `.tar` — the `tag`/`-t`
+your release.json wrote.
+
+This is deliberately **one artifact**, not three different formats for a
+DevOps handoff, a developer's own manual deploy, and CI/CD. A deploy, once
+the folder is on the target machine with nothing but Docker installed
+(no PHP, no source, no `.env` committed anywhere), is:
+
+```sh
+docker load -i images/app.tar
+docker load -i images/webserver.tar
+./deploy-commands.sh   # only present when ship.json's deployCommands is set
+docker compose up -d
+```
+
+`ship` deliberately stops there — there's no `ship deploy` that SSHes
+anywhere or runs any of this remotely for you. Getting the folder onto the
+server (`scp`, a CI artifact upload, a DevOps handoff) and running those
+few commands is on you; what `ship` guarantees is that the artifact itself
+needs nothing else once it's there.
+
+### CI/CD
+
+The same commands, the same artifact — CI is not a third release format:
+
+```yaml
+- run: vendor/bin/ship release --tag ${{ github.ref_name }}
+- run: # upload dist/ship/${{ github.ref_name }} however your pipeline deploys
+```
+
+`ship release` fails immediately if `--tag` is missing in a non-interactive
+run (no tty) rather than prompting and hanging the pipeline — pass `--tag`
+explicitly in CI. Interactively, a plain `ship release` with no `--tag`
+asks for one.
 
 ## HTTPS / TLS
 
@@ -561,10 +618,10 @@ exec`/`ship shell`/`ship composer`/`ship npm`/`ship artisan` pass `--user` for
 the app service, so `vendor/`, `public/build` and `storage/` come out owned by
 you. Development only, and only where there's a non-root POSIX user to match:
 on native Windows (no UIDs; Docker Desktop's bind mounts don't have this
-problem) it does nothing, and it isn't combined with `SHIP_MUTAGEN` or
-FrankenPHP — in each case `ship up` prints why it was skipped rather than
-silently running as root. Re-run `ship up` after changing it; it's a build
-argument, so the image is rebuilt.
+problem) it does nothing, and it isn't combined with `SHIP_MUTAGEN` —
+`ship up` prints why it was skipped rather than silently running as root.
+Re-run `ship up` after changing it; it's a build argument, so the image
+is rebuilt.
 
 **Or fix it after the fact**, for just the paths that bother you, by chowning
 them back from *inside* the container (root there can chown to any UID,
@@ -628,7 +685,7 @@ itself to already be installed and on `PATH` — `ship up` fails with a clear
 error naming it if it isn't.
 
 Never applies in production: the production image bakes the source into
-itself at build time (see [Production build](#production-build)), so
+itself at build time (see [Production releases](#production-releases)), so
 there's no bind mount there to begin with, and nothing to sync either way.
 
 `vendor/` and `node_modules/` are deliberately excluded from the sync, for
@@ -722,7 +779,7 @@ exec "$@"
 ```
 
 This is the dev equivalent of what `EntrypointScriptBuilder` already
-generates for `ship up --prod` (see `FrameworkAdapter::releaseCommands()`)
+generates for `ship build`/`ship release` (see `FrameworkAdapter::releaseCommands()`)
 — useful for anything that needs to run against a real, reachable database
 on every boot (creating a package's own tables if they're missing, warming
 a cache, ...), not just once when dependencies are first installed.
