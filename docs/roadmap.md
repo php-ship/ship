@@ -755,11 +755,12 @@
   user's passwd entry, so Composer's cache lands somewhere writable.
 
   When it can't apply -- native Windows or already root (no non-root POSIX
-  user to match), `SHIP_MUTAGEN` (it syncs into a volume as root), or
-  FrankenPHP (a Debian image needing `useradd`, not `adduser`) -- `ship
-  up` says so instead of quietly running as root, since the visible
+  user to match), or `SHIP_MUTAGEN` (it syncs into a volume as root) --
+  `ship up` says so instead of quietly running as root, since the visible
   result of that (the root-owned `vendor/` they turned it on to avoid)
-  would otherwise be a mystery.
+  would otherwise be a mystery. FrankenPHP needed its own `useradd`-based
+  setup (Debian, not Alpine) rather than being excluded outright -- see
+  the dedicated entry below.
 
   Verified live on a real Linux filesystem (WSL2, UID 1000), not just
   unit tests: the boot-time `composer install` left `composer.lock` and
@@ -771,7 +772,7 @@
   too. `ship shell` reported uid/gid 1000 with `HOME=/home/ship`.
 
 - Fixed a real bug found while live-testing the three FrankenPHP items
-  below, unrelated to any of them: the `dunglas/frankenphp` base image
+  above, unrelated to any of them: the `dunglas/frankenphp` base image
   has neither `ext-zip` nor an `unzip`/`7z` binary, so Composer can't
   extract a single package distributed as a zip -- the normal case for
   anything pulled from Packagist, not an edge case. This failed the
