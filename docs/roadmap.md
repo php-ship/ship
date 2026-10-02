@@ -865,6 +865,36 @@
   second bug above was fixed, and the custom name was reflected in every
   image tag.
 
+- Fixed a real, package-wide data-loss bug: every stateful service
+  (MySQL, Postgres, Redis, Garage, Meilisearch, RustFS, SeaweedFS, Silo)
+  only ever attached its named data volume in development --
+  `$environment->isDevelopment() ? [...] : []`, present unchanged since
+  the very first commit, with no comment ever explaining it as
+  deliberate (unlike every other intentional tradeoff in this codebase).
+  In production every one of those containers ran with no volume at
+  all, so the data lived only in the container's own writable layer --
+  a `docker compose restart`, a redeploy, or the host rebooting wiped
+  it. Harmless while `ship up --prod` was just a smoke-test habit
+  nobody ran for more than a few minutes; a real, consequential bug now
+  that `ship release` produces an artifact meant to run unattended on a
+  server. Raised directly when asked for the state of the package.
+  Fixed by making every one of those volumes unconditional. Redis also
+  had `--save ""` (RDB snapshots disabled) in production specifically --
+  also unconditional now: ship only ever wires Redis as a cache/session
+  store, never a queue, but losing every session on each redeploy logs
+  out every active user, which is a real, user-visible regression, not
+  a theoretical one. The README's own "Backing up data volumes" section
+  already described the *intended* (persist-always) behavior, not what
+  the code actually did -- now the two agree, no doc change needed.
+
+  Verified live, not just the 6 unit tests this broke (each of them had
+  asserted the old, now-wrong behavior directly, e.g.
+  `test_data_volume_only_exists_in_development`): built a real
+  production MySQL container via `ship build`, wrote a row, fully
+  removed and recreated the container (`docker compose rm -f && up -d`,
+  not just a restart -- confirming the *container*, not merely the
+  process, is disposable now), and read the same row back afterward.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
