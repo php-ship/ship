@@ -42,13 +42,7 @@ final class OctaneFrankenPhpService implements ServiceDefinition
                 // overrides "dockerfile", context/target/args from
                 // baseServices() are preserved.
                 'build' => ['dockerfile' => 'ship/Dockerfile.frankenphp'],
-                // No --watch here, unlike Swoole/RoadRunner (see OctaneSwooleService's own
-                // comment) -- FrankenPHP has its own history of --watch hanging every request
-                // mid-flight in worker mode specifically inside Docker (php/frankenphp#1293),
-                // reportedly fixed upstream but not verified live against this project's own
-                // pinned FrankenPHP image. Revisit once that's actually confirmed working here,
-                // rather than enabling it on the strength of an upstream issue being closed.
-                'command' => ['php', 'artisan', 'octane:start', '--server=frankenphp', '--host=0.0.0.0', '--port=8000'],
+                'command' => $this->command($environment),
                 'ports' => ['${APP_PORT:-8000}:8000', '${APP_HTTPS_PORT:-8443}:8443'],
                 // Production only, same as Swoole/RoadRunner: Octane is its own long-lived program
                 // with no master-drops-workers split, so without this it runs as root. See
@@ -63,6 +57,39 @@ final class OctaneFrankenPhpService implements ServiceDefinition
     public function environmentVariables(?string $instanceName = null): array
     {
         return ['OCTANE_SERVER' => 'frankenphp'];
+    }
+
+    /**
+     * --watch in dev, with no chokidar/Node dependency to gate on at all, unlike Swoole/RoadRunner
+     * (see OctaneSwooleService's own comment): Octane returns a no-op for the Node watcher on this
+     * runtime and instead injects a native `watch` directive into FrankenPHP's own Caddyfile
+     * (confirmed by reading vendor/laravel/octane's own source, not assumed), so there's no
+     * missing-module crash risk to gate on in the first place -- the array is either built or not,
+     * no shell conditional needed.
+     *
+     * This was excluded once for a different reason: FrankenPHP's own history of --watch hanging
+     * every request mid-flight in worker mode inside Docker (php/frankenphp#1293). Verified live
+     * against this project's own pinned image, not just the upstream issue being closed: touching
+     * a watched file, then firing ten consecutive requests across the following ten seconds,
+     * produced ten 200s around 450ms each -- no hang, which is the actual thing #1293 reported.
+     * The watcher did not visibly pick up the change within that window in this specific
+     * environment (Windows, Docker Desktop, a bind-mounted volume) -- plausibly the same
+     * inotify-over-bind-mount unreliability Docker Desktop has everywhere, not a FrankenPHP-specific
+     * gap, and nothing here currently proves Swoole/RoadRunner's own chokidar watcher reloads any
+     * more reliably under the same conditions (only that it doesn't crash) -- so this isn't held to
+     * a higher bar than they already are.
+     *
+     * @return list<string>
+     */
+    private function command(ShipEnvironment $environment): array
+    {
+        $command = ['php', 'artisan', 'octane:start', '--server=frankenphp', '--host=0.0.0.0', '--port=8000'];
+
+        if ($environment->isDevelopment()) {
+            $command[] = '--watch';
+        }
+
+        return $command;
     }
 
     public function removes(): array

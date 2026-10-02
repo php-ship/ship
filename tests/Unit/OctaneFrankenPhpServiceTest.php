@@ -33,6 +33,20 @@ final class OctaneFrankenPhpServiceTest extends TestCase
         );
     }
 
+    /**
+     * Unlike Swoole/RoadRunner, --watch has no chokidar/Node dependency here at all -- Octane
+     * injects a native watch directive into FrankenPHP's own Caddyfile instead -- so it's
+     * unconditional in dev, with no shell-level presence check needed.
+     */
+    public function test_watch_is_added_in_development_only(): void
+    {
+        $dev = (new OctaneFrankenPhpService())->composeFragment(ShipEnvironment::Development);
+        $prod = (new OctaneFrankenPhpService())->composeFragment(ShipEnvironment::Production);
+
+        self::assertContains('--watch', $dev['app']['command']);
+        self::assertNotContains('--watch', $prod['app']['command']);
+    }
+
     public function test_octane_server_env_var_matches_the_server_flag(): void
     {
         self::assertSame('frankenphp', (new OctaneFrankenPhpService())->environmentVariables()['OCTANE_SERVER']);
