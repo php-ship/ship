@@ -67,11 +67,22 @@ final class InitCommand extends Command
         $phpVersion = $io->ask('PHP version', '8.4');
         $nodeVersion = $io->ask('Node.js version', '24');
 
+        $existing = $this->readExistingConfig();
+
         $config = new ShipConfig(
             phpVersion: (string) $phpVersion,
             services: $selected,
+            extensions: $existing->extensions ?? [],
             nodeVersion: (string) $nodeVersion,
             additionalServices: $additionalServices,
+            serviceNames: $existing->serviceNames ?? [],
+            externalNetwork: $existing?->externalNetwork,
+            phpExtensions: $existing->phpExtensions ?? [],
+            publishPorts: $existing->publishPorts ?? true,
+            deployCommands: $existing->deployCommands ?? [],
+            processes: $existing->processes ?? [],
+            hostUser: $existing->hostUser ?? false,
+            name: $existing?->name,
         );
         $config->toFile($this->projectRoot . '/ship.json');
 
@@ -82,6 +93,33 @@ final class InitCommand extends Command
         $io->success('Wrote ship.json and published the ship/ directory. Run `ship up` to build and start the environment.');
 
         return Command::SUCCESS;
+    }
+
+    /**
+     * A real bug found via an independent audit: re-running `ship init` built a fresh ShipConfig
+     * from only the four fields this command's own prompts ever touch (php, node, services,
+     * additionalServices), silently dropping every hand-edited field that isn't prompted for at
+     * all -- extensions, serviceNames, externalNetwork, phpExtensions, publishPorts,
+     * deployCommands, processes, hostUser, name. The README calls re-running "always safe" and
+     * `ship up` itself tells users to do it after a stub-version mismatch; losing `publishPorts:
+     * false` alone silently re-exposes ports a project turned off deliberately. Null (not an
+     * exception) when there's nothing to preserve yet -- a first-ever `ship init` -- or the
+     * existing file is malformed, since a broken ship.json is exactly what re-running `ship init`
+     * might be trying to fix in the first place.
+     */
+    private function readExistingConfig(): ?ShipConfig
+    {
+        $path = $this->projectRoot . '/ship.json';
+
+        if (!is_file($path)) {
+            return null;
+        }
+
+        try {
+            return ShipConfig::fromFile($path);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**
