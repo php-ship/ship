@@ -967,6 +967,21 @@
   either. Any third-party `ServiceDefinition` gets the same opt-out for free. Every built-in
   service's fragment was already never empty, so this is fully backward compatible.
 
+- Fixed a third real bug found via the same independent audit, the most severe of the three:
+  re-running `ship init` rebuilt `ShipConfig` from only the four fields its own prompts ever touch
+  (`php`, `node`, `services`, `additionalServices`), silently discarding every other field --
+  `extensions`, `serviceNames`, `externalNetwork`, `phpExtensions`, `publishPorts`,
+  `deployCommands`, `processes`, `hostUser`, `name`. The README called re-running "always safe",
+  and `ship up` itself tells users to do exactly that after a stub-version mismatch. Losing
+  `publishPorts: false` alone silently re-exposes ports a project turned off deliberately; losing
+  `hostUser: true` silently goes back to root-owned files; losing `deployCommands` silently stops
+  migrations from running on the next deploy -- all without any error, warning, or diff to notice.
+
+  Fixed by reading the existing `ship.json` (if any) before writing the new one, and carrying its
+  hand-edited-only fields forward unchanged -- `null` (not an exception) when there's nothing to
+  preserve yet (a first-ever `ship init`), or the existing file is malformed, since a broken
+  `ship.json` is exactly what re-running `ship init` might be trying to fix in the first place.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
