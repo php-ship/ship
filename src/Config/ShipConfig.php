@@ -52,14 +52,16 @@ final class ShipConfig
      *        public IP, skipping the proxy's TLS and headers entirely. Production only --
      *        development always publishes what it needs (the app, Vite, ...). True (the default)
      *        keeps today's behavior.
-     * @param list<string> $deployCommands shell commands run exactly once per `ship up --prod`,
-     *        after the images are built and before the new containers start -- database
-     *        migrations, a package's own one-off setup, creating buckets. Deliberately not the
-     *        same thing as FrameworkAdapter::releaseCommands(), despite the similar name: those run
-     *        at every container *boot* (artisan optimize, ...), which is exactly wrong for a
+     * @param list<string> $deployCommands shell commands meant to run exactly once per deploy --
+     *        database migrations, a package's own one-off setup, creating buckets. Deliberately not
+     *        the same thing as FrameworkAdapter::releaseCommands(), despite the similar name: those
+     *        run at every container *boot* (artisan optimize, ...), which is exactly wrong for a
      *        migration once more than one container shares the image (each would run it, at once).
-     *        Run inside a one-off container of the app service, against whatever database the
-     *        stack -- or the external network -- provides. Production only; ignored in dev.
+     *        `ship release --tag` writes these into the release's own deploy-commands.sh rather than
+     *        running them itself -- see ReleaseCommand::writeDeployScript() -- since the operator
+     *        decides when infrastructure is actually ready on their own server, not `ship`. Run
+     *        inside a one-off container of the app service, against whatever database the stack --
+     *        or the external network -- provides. Production only; ignored in dev.
      * @param array<string, string> $processes name => shell command for extra long-running
      *        processes that run the same app from the same image -- a queue worker, Laravel
      *        Horizon, the scheduler (`php artisan schedule:work`). Each becomes its own service
@@ -74,7 +76,14 @@ final class ShipConfig
      *        (native Linux, WSL2). The objection to a fixed UID doesn't apply when the UID comes from
      *        the host, so this builds the dev image with yours. Dev only; POSIX hosts only (Windows has
      *        no UID to match, and Docker Desktop's bind mounts don't have the problem); not combined
-     *        with SHIP_MUTAGEN or FrankenPHP -- `ship up` says so when it skips it.
+     *        with SHIP_MUTAGEN -- `ship up` says so when it skips it.
+     * @param ?string $name the project name `ship build`/`ship release` use to tag production images
+     *        (e.g. "<name>-app:<tag>"). Hand-edited, not prompted by `ship init`, same as $serviceNames
+     *        -- null (the default) falls back to the project root directory's own basename, which is
+     *        what Docker Compose's own implicit image naming already does today, so a project that
+     *        never sets this sees the same names it always would have. Explicit is safer in CI, where
+     *        the checkout directory's name is often unpredictable (a runner workspace path, a PR
+     *        number, ...) and isn't something worth matching by accident.
      */
     public function __construct(
         public readonly string $phpVersion,
@@ -89,6 +98,7 @@ final class ShipConfig
         public readonly array $deployCommands = [],
         public readonly array $processes = [],
         public readonly bool $hostUser = false,
+        public readonly ?string $name = null,
     ) {
     }
 
@@ -114,6 +124,7 @@ final class ShipConfig
          *     deployCommands?: list<string>,
          *     processes?: array<string,string>,
          *     hostUser?: bool,
+         *     name?: ?string,
          * } $data
          */
         $data = json_decode((string) file_get_contents($path), associative: true, flags: JSON_THROW_ON_ERROR);
@@ -131,6 +142,7 @@ final class ShipConfig
             deployCommands: $data['deployCommands'] ?? [],
             processes: $data['processes'] ?? [],
             hostUser: $data['hostUser'] ?? false,
+            name: $data['name'] ?? null,
         );
     }
 
@@ -167,6 +179,9 @@ final class ShipConfig
         }
         if ($this->hostUser) {
             $payload['hostUser'] = true;
+        }
+        if ($this->name !== null) {
+            $payload['name'] = $this->name;
         }
 
         file_put_contents(
