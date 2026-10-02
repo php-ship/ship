@@ -982,6 +982,13 @@
   preserve yet (a first-ever `ship init`), or the existing file is malformed, since a broken
   `ship.json` is exactly what re-running `ship init` might be trying to fix in the first place.
 
+- Fixed `ship release` reporting success when `docker save` fails (an independent audit catch):
+  `exportImages()`'s own exit code was ignored entirely, so a release could claim "release ready"
+  with a missing or truncated tar in it -- disk full, a bad tag, a docker daemon hiccup, anything
+  `docker save` itself would have failed loudly for on its own. Fixed to stop immediately on the
+  first failure, without writing `release.json`/`deploy-commands.sh` against an incomplete
+  `images/` directory.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
