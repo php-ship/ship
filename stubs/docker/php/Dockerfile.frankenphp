@@ -98,10 +98,17 @@ RUN chmod +x /usr/local/bin/ship-entrypoint
 RUN chown -R www-data:www-data /data/caddy /config/caddy
 ENTRYPOINT ["/usr/local/bin/ship-entrypoint"]
 
-# KNOWN GAP: the base dunglas/frankenphp image ships a HEALTHCHECK against
-# Caddy's admin metrics endpoint (localhost:2019/metrics). That's correct
-# when FrankenPHP runs as its own Caddy-driven process, but Octane instead
-# manages FrankenPHP through the PHP extension embedded in this image, not
-# by running the binary against a Caddyfile — so that inherited healthcheck
-# may not reflect what's actually running. Not fixed here; flagging rather
-# than silently inheriting a healthcheck that might be meaningless.
+# Disables the base image's own inherited HEALTHCHECK (curl against Caddy's admin metrics
+# endpoint, localhost:2019/metrics) rather than silently keeping it. Confirmed live, not assumed:
+# Octane's own StartFrankenPhpCommand does run the real `frankenphp` binary against a real
+# Caddyfile (`frankenphp run -c <path>`) with that admin endpoint genuinely configured and
+# listening -- so the base image's healthcheck isn't pointed at nothing, as a first read of
+# "Octane manages this through an embedded extension" might suggest. The real problem is narrower
+# but still real: /metrics reports whether Caddy's own HTTP server process is alive, which is a
+# fixed property of the control plane, not of whatever the embedded PHP worker is actually doing
+# with each request -- a worker crash-looping on every real request would still read "healthy"
+# forever. No Octane runtime ship generates has ever had a healthcheck of its own (Swoole/
+# RoadRunner's php:*-fpm-alpine base ships none), so this isn't removing a feature parallel to
+# them, just removing a false sense of one that FrankenPHP alone happened to inherit by accident
+# of its base image.
+HEALTHCHECK NONE
