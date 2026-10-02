@@ -89,7 +89,14 @@ final class ReleaseCommand extends Command
 
         $this->writeReleaseCompose($releaseDir);
         $filesystem->copy($envProductionPath, $releaseDir . '/.env');
-        $this->exportImages($result['images'], $releaseDir, $output);
+
+        if (!$this->exportImages($result['images'], $releaseDir, $output)) {
+            $output->writeln('<error>ship: exporting one or more images failed -- the release is incomplete, not '
+                . 'written as release.json/deploy-commands.sh.</error>');
+
+            return Command::FAILURE;
+        }
+
         $this->writeDeployScript($config, $releaseDir);
 
         $manifest = ReleaseManifest::build($tag, $this->projectRoot, $this->runner, $result['images']);
@@ -175,17 +182,27 @@ final class ReleaseCommand extends Command
     /**
      * One `docker save` per unique image (see ProductionImagePlan) -- never per service, so two
      * services sharing one image (e.g. "app" and a `processes` entry) don't double the archive.
+     * Returns false on the first failure (a real bug found via an independent audit: this exit
+     * code was previously ignored entirely, so a release could report success with a missing or
+     * truncated tar -- disk full, a bad tag, docker daemon hiccup, anything `docker save` itself
+     * would have failed loudly for on its own).
      *
      * @param list<array{tag: string, canonicalService: string, members: list<string>}> $images
      */
-    private function exportImages(array $images, string $releaseDir, OutputInterface $output): void
+    private function exportImages(array $images, string $releaseDir, OutputInterface $output): bool
     {
         foreach ($images as $image) {
             $path = "{$releaseDir}/images/{$image['canonicalService']}.tar";
             $output->writeln("<info>ship: exporting {$image['tag']} -> images/{$image['canonicalService']}.tar</info>");
 
-            $this->runner->runInteractive(['docker', 'save', '-o', $path, $image['tag']], $this->projectRoot);
+            $result = $this->runner->runInteractive(['docker', 'save', '-o', $path, $image['tag']], $this->projectRoot);
+
+            if ($result !== Command::SUCCESS) {
+                return false;
+            }
         }
+
+        return true;
     }
 
     /**

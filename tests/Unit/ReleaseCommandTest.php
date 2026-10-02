@@ -53,6 +53,29 @@ final class ReleaseCommandTest extends TestCase
     }
 
     /**
+     * Regression coverage for a real bug found via an independent audit: `docker save`'s own exit
+     * code was previously ignored entirely, so a release could report success with a missing or
+     * truncated tar. A nonexistent image tag makes `docker save` itself fail predictably, without
+     * needing a real image to actually exist.
+     */
+    public function test_export_images_fails_when_docker_save_fails(): void
+    {
+        $releaseDir = sys_get_temp_dir() . '/ship-export-images-test-' . bin2hex(random_bytes(8));
+        mkdir($releaseDir . '/images', recursive: true);
+
+        $command = new ReleaseCommand(sys_get_temp_dir(), new ProcessRunner());
+        $images = [['tag' => 'ship-test-image-that-does-not-exist:none', 'canonicalService' => 'app', 'members' => ['app']]];
+
+        $method = new \ReflectionMethod($command, 'exportImages');
+        $succeeded = $method->invoke($command, $images, $releaseDir, new BufferedOutput());
+
+        self::assertFalse($succeeded);
+        self::assertFileDoesNotExist($releaseDir . '/images/app.tar');
+
+        (new \Symfony\Component\Filesystem\Filesystem())->remove($releaseDir);
+    }
+
+    /**
      * @param array<string, string> $options
      */
     private function resolveTag(array $options, bool $interactive, ?BufferedOutput $output = null): ?string
