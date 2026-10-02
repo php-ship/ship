@@ -6,7 +6,9 @@ namespace Ship\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Ship\Config\ShipConfig;
 use Ship\Console\Commands\UpCommand;
+use Ship\Contracts\ShipEnvironment;
 use Ship\Runtime\ProcessRunner;
 use Ship\Support\ShipVersion;
 use Symfony\Component\Console\Output\BufferedOutput;
@@ -93,5 +95,29 @@ final class UpCommandTest extends TestCase
         file_put_contents($projectRoot . '/ship/.ship-version', $version . "\n");
 
         return $projectRoot;
+    }
+
+    /**
+     * FrankenPHP was excluded from hostUser once (its Debian image had no non-root setup at all),
+     * raised again once that gap was closed -- this just has to no longer be special-cased:
+     * whatever resolveHostUser decides for it has to match a plain Swoole config given the same
+     * inputs, not its own distinct ("FrankenPHP image is not supported yet") rejection reason.
+     */
+    public function test_frankenphp_is_no_longer_excluded_from_host_user(): void
+    {
+        $command = new UpCommand(sys_get_temp_dir(), new ProcessRunner());
+        $method = new \ReflectionMethod($command, 'resolveHostUser');
+
+        $frankenConfig = new ShipConfig(phpVersion: '8.4', services: ['runtime' => 'octane-frankenphp'], hostUser: true);
+        $swooleConfig = new ShipConfig(phpVersion: '8.4', services: ['runtime' => 'octane-swoole'], hostUser: true);
+
+        $frankenOutput = new BufferedOutput();
+        $frankenResult = $method->invoke($command, $frankenConfig, ShipEnvironment::Development, false, $frankenOutput);
+
+        $swooleOutput = new BufferedOutput();
+        $swooleResult = $method->invoke($command, $swooleConfig, ShipEnvironment::Development, false, $swooleOutput);
+
+        self::assertSame($swooleResult, $frankenResult);
+        self::assertSame($swooleOutput->fetch(), $frankenOutput->fetch());
     }
 }

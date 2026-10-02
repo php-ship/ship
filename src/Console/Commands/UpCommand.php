@@ -158,7 +158,6 @@ final class UpCommand extends Command
 
         $reason = match (true) {
             $mutagenSync => 'SHIP_MUTAGEN syncs into a volume as root, so the two cannot be combined',
-            ($config->services['runtime'] ?? null) === 'octane-frankenphp' => 'the FrankenPHP image is not supported yet',
             HostUser::detect() === null => 'there is no non-root POSIX user to match here (native Windows, or already root)',
             default => null,
         };

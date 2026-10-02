@@ -42,6 +42,23 @@ COPY ship/dev/php.ini /usr/local/etc/php/conf.d/99-ship-dev.ini
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 COPY ship/dev/entrypoint.sh /usr/local/bin/ship-entrypoint
 RUN chmod +x /usr/local/bin/ship-entrypoint
+# ship.json's hostUser (opt-in, see stubs/docker/php/Dockerfile's matching, more-commented block --
+# identical reasoning, Debian's useradd/getent instead of Alpine's adduser/addgroup). "www-data"
+# (33:33) already exists in this base image, so a host UID of 33 reuses it rather than creating a
+# second one. HOST_UID stays 0 (root, today's behavior) unless it's set.
+ARG HOST_UID=0
+ARG HOST_GID=0
+RUN if [ "$HOST_UID" != "0" ]; then \
+        group=$(getent group "$HOST_GID" | cut -d: -f1); \
+        [ -n "$group" ] || { groupadd -g "$HOST_GID" ship && group=ship; }; \
+        user=$(getent passwd "$HOST_UID" | cut -d: -f1); \
+        [ -n "$user" ] || { useradd -u "$HOST_UID" -g "$group" -M ship && user=ship; }; \
+        mkdir -p /home/ship && chown "$HOST_UID:$HOST_GID" /home/ship; \
+    fi
+# Caddy's own state/certificate directories -- root-owned in the base image -- have to be writable
+# by whoever FrankenPHP actually runs as. Chowning to 0:0 when HOST_UID is unset is a no-op (already
+# root-owned), so this costs nothing when the option is off.
+RUN chown -R "$HOST_UID:$HOST_GID" /data/caddy /config/caddy
 ENTRYPOINT ["/usr/local/bin/ship-entrypoint"]
 # No CMD here: FrankenPHP's default CMD from its base image would start
 # Caddy directly off a Caddyfile, but Octane manages FrankenPHP itself via

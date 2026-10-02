@@ -23,14 +23,20 @@ set -e
 #
 # SHIP_HOST_USER ("uid:gid", set from ship.json's hostUser -- see ShipConfig) runs it as the host's
 # own user instead of root, so vendor/ isn't left root-owned on the host. HOME points at the home
-# directory the image created for that user, since su-exec keeps root's, which it can't write.
+# directory the image created for that user, since su-exec/setpriv keep root's, which it can't
+# write. su-exec on the Alpine image; setpriv -- confirmed live to exec() its target directly, same
+# as su-exec, not fork-and-wait -- on FrankenPHP's Debian one, which has no su-exec but already
+# ships setpriv. setpriv wants --reuid/--regid as separate flags, not one "uid:gid" argument, hence
+# the parameter expansion splitting it below.
 if [ -n "$SHIP_HOST_USER" ]; then
     export HOME=/home/ship
 fi
 
 if [ -f composer.json ] && [ ! -f vendor/autoload.php ]; then
-    if [ -n "$SHIP_HOST_USER" ]; then
+    if [ -n "$SHIP_HOST_USER" ] && command -v su-exec >/dev/null 2>&1; then
         su-exec "$SHIP_HOST_USER" composer install --no-interaction
+    elif [ -n "$SHIP_HOST_USER" ] && command -v setpriv >/dev/null 2>&1; then
+        setpriv --reuid="${SHIP_HOST_USER%%:*}" --regid="${SHIP_HOST_USER##*:}" --clear-groups --no-new-privs composer install --no-interaction
     else
         composer install --no-interaction
     fi
@@ -40,7 +46,11 @@ fi
 # anything else that is its own long-lived program -- an Octane server -- would run as root,
 # writing root-owned files into storage/, so it drops to the host user here.
 if [ -n "$SHIP_HOST_USER" ] && [ "$1" != "php-fpm" ]; then
-    exec su-exec "$SHIP_HOST_USER" "$@"
+    if command -v su-exec >/dev/null 2>&1; then
+        exec su-exec "$SHIP_HOST_USER" "$@"
+    elif command -v setpriv >/dev/null 2>&1; then
+        exec setpriv --reuid="${SHIP_HOST_USER%%:*}" --regid="${SHIP_HOST_USER##*:}" --clear-groups --no-new-privs "$@"
+    fi
 fi
 
 exec "$@"
