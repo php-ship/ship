@@ -989,6 +989,20 @@
   first failure, without writing `release.json`/`deploy-commands.sh` against an incomplete
   `images/` directory.
 
+- Fixed three real Reverb bugs found via the same independent audit, all from the same root
+  cause: `ReverbService`'s own `composeFragment()` has no access to `$appEnv`, `$config`, or
+  `$hostUser`, so it could never align itself with `app` on its own. Reverb never got `app`'s own
+  injected environment (`DB_*`, `REDIS_*`, ...), so anything it touched that needed the database
+  (a private-channel auth callback, say) failed to connect; it never got `SHIP_RUN_AS`, so it ran
+  as root in production, the same gap already fixed for every Octane runtime and `processes`
+  entry; and its own build args were missing `OCTANE_RUNTIME`/`HOST_UID`/`HOST_GID`, forcing a
+  second, wasteful image build for content that should be identical to `app`'s.
+
+  Fixed in `ComposeFileBuilder`, after `app`'s own environment and build args are already final --
+  only the build *args* are copied, not the whole build block, so FrankenPHP overriding `app`'s own
+  dockerfile never leaks onto Reverb, which never needs Caddy's image just to run a plain `php
+  artisan reverb:start`.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
