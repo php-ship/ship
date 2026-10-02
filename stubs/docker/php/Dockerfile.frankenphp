@@ -15,6 +15,13 @@ FROM dunglas/frankenphp:1-php${PHP_VERSION}-bookworm AS base
 # Dockerfile -- see that file's comment for why.
 RUN install-php-extensions pdo_pgsql pdo_mysql intl mbstring opcache redis pcntl
 
+# Found live, not guessed: this base image has neither ext-zip nor an unzip/7z binary, so Composer
+# can't extract a single package distributed as a zip -- which is the normal case for anything
+# pulled from Packagist, not an edge case -- failing the "builder" stage below outright on the
+# first real composer.lock (confirmed with a plain `composer require laravel/octane`). The main
+# Dockerfile doesn't need this: Alpine's php:*-fpm-alpine base already ships unzip.
+RUN apt-get update && apt-get install -y --no-install-recommends unzip && rm -rf /var/lib/apt/lists/*
+
 # Copied from the official node image at the pinned NODE_VERSION -- glibc-built (matches this
 # Debian bookworm base, unlike the main Dockerfile's musl/Alpine node image), not installed via
 # `apt-get install nodejs npm`, for the same reason the main Dockerfile doesn't: the OS package
