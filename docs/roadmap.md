@@ -918,6 +918,31 @@
   `(healthy)`/`(unhealthy)` qualifier at all -- the same no-healthcheck shape Swoole/RoadRunner
   already have.
 
+- Fixed a real credentials bug: Garage, RustFS, and Silo all hardcoded their admin
+  credentials to the literal strings `"ship"`/`"shipsecret"`, with no way to override them --
+  unlike every other credentialed service in the registry (MySqlService's `DB_PASSWORD`,
+  PostgresService's own, ...), which all use a `${VAR:-default}` expression a project's own
+  `.env`/`.env.production` can override. Raised directly when asked for the state of the package.
+  Matters most for Silo specifically: its admin console is published to the host by default
+  (`publishPorts` defaults to `true`), so a hardcoded literal meant every default `ship release`
+  deploy exposed a login page with a publicly-known credential on the open internet. Garage/RustFS
+  don't publish a console, so they were lower-risk, but still shared one hardcoded credential
+  across every project that ever selected them.
+
+  Fixed by sourcing all three from the same `{$prefix}AWS_ACCESS_KEY_ID`/
+  `{$prefix}AWS_SECRET_ACCESS_KEY` expression `environmentVariables()` already exposes to the app
+  (Garage's own default bucket too, from `{$prefix}AWS_BUCKET`) -- one value now drives both what
+  the app connects with and what the storage container actually provisions, the same "one value,
+  two roles" pattern MySQL/Postgres already use for `DB_PASSWORD`. A project that never sets these
+  still gets the same defaults as before; one that does gets a real credential instead of a
+  publicly-known one.
+
+  Verified live: brought up a real Silo container with no override and confirmed its actual
+  `MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD` env vars still resolved to the old defaults
+  (`ship`/`shipsecret`, so nothing broke for an untouched project); then added
+  `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` to `.env` and recreated the container, confirming
+  those same env vars now read the overridden values instead.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
