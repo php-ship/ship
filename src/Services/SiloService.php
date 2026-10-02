@@ -44,6 +44,7 @@ final class SiloService implements ServiceDefinition
     public function composeFragment(ShipEnvironment $environment, ?string $instanceName = null): array
     {
         $name = $this->composeServiceName($instanceName);
+        $prefix = $this->envPrefix($instanceName);
 
         return [
             $name => [
@@ -51,9 +52,15 @@ final class SiloService implements ServiceDefinition
                 'command' => ['server', '/data', '--console-address', ':9001'],
                 'environment' => [
                     // Must match environmentVariables() below exactly, or "app"
-                    // authenticates with credentials Silo never provisioned.
-                    'MINIO_ROOT_USER' => 'ship',
-                    'MINIO_ROOT_PASSWORD' => 'shipsecret',
+                    // authenticates with credentials Silo never provisioned. "ship"/"shipsecret"
+                    // are only the *defaults* -- same `${VAR:-default}` pattern every other
+                    // credentialed service (MySqlService's DB_PASSWORD, ...) already uses. This
+                    // matters more here than for Garage/RustFS: Silo's admin console is published
+                    // to the host by default (see 'ports' below), so leaving this hardcoded would
+                    // mean every default `ship release` deploy exposes a login page with a
+                    // publicly-known credential on the open internet.
+                    'MINIO_ROOT_USER' => "\${{$prefix}AWS_ACCESS_KEY_ID:-ship}",
+                    'MINIO_ROOT_PASSWORD' => "\${{$prefix}AWS_SECRET_ACCESS_KEY:-shipsecret}",
                 ],
                 // Only the console is host-published -- the S3 API itself is only ever reached by
                 // "app" over the internal "ship" network (see environmentVariables()'s
@@ -88,8 +95,10 @@ final class SiloService implements ServiceDefinition
             "{$prefix}AWS_ENDPOINT" => "http://{$name}:9000",
             "{$prefix}AWS_USE_PATH_STYLE_ENDPOINT" => 'true',
             "{$prefix}AWS_DEFAULT_REGION" => 'us-east-1',
-            "{$prefix}AWS_ACCESS_KEY_ID" => 'ship',
-            "{$prefix}AWS_SECRET_ACCESS_KEY" => 'shipsecret',
+            // Same expressions as composeFragment()'s own MINIO_ROOT_USER/MINIO_ROOT_PASSWORD, so
+            // both sides always resolve from the same source at the same compose-parse time.
+            "{$prefix}AWS_ACCESS_KEY_ID" => "\${{$prefix}AWS_ACCESS_KEY_ID:-ship}",
+            "{$prefix}AWS_SECRET_ACCESS_KEY" => "\${{$prefix}AWS_SECRET_ACCESS_KEY:-shipsecret}",
             "{$prefix}AWS_BUCKET" => 'local',
         ];
     }

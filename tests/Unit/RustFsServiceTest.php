@@ -22,6 +22,20 @@ final class RustFsServiceTest extends TestCase
         self::assertStringContainsString('rustfs', $appEnv['AWS_ENDPOINT']);
     }
 
+    /**
+     * "ship"/"shipsecret" must only ever be the *default* a project's own .env/.env.production
+     * can override -- a bare literal would mean every RustFS deployment everywhere shares one
+     * publicly-known, hardcoded credential, unlike every other credentialed service in the
+     * registry (MySqlService's DB_PASSWORD, ...).
+     */
+    public function test_credentials_are_overridable_defaults_not_hardcoded_literals(): void
+    {
+        $fragment = (new RustFsService())->composeFragment(ShipEnvironment::Development);
+
+        self::assertSame('${AWS_ACCESS_KEY_ID:-ship}', $fragment['rustfs']['environment']['RUSTFS_ACCESS_KEY']);
+        self::assertSame('${AWS_SECRET_ACCESS_KEY:-shipsecret}', $fragment['rustfs']['environment']['RUSTFS_SECRET_KEY']);
+    }
+
     public function test_the_data_volume_persists_in_both_environments(): void
     {
         $service = new RustFsService();

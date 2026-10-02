@@ -34,6 +34,7 @@ final class GarageService implements ServiceDefinition
     public function composeFragment(ShipEnvironment $environment, ?string $instanceName = null): array
     {
         $name = $this->composeServiceName($instanceName);
+        $prefix = $this->envPrefix($instanceName);
 
         return [
             $name => [
@@ -45,10 +46,14 @@ final class GarageService implements ServiceDefinition
                 'command' => ['/garage', 'server', '--single-node', '--default-access-key', '--default-bucket'],
                 'environment' => [
                     // Must match environmentVariables() below exactly, or "app"
-                    // authenticates with credentials Garage never provisioned.
-                    'GARAGE_DEFAULT_ACCESS_KEY' => 'ship',
-                    'GARAGE_DEFAULT_SECRET_KEY' => 'shipsecret',
-                    'GARAGE_DEFAULT_BUCKET' => 'local',
+                    // authenticates with credentials Garage never provisioned. "ship"/"shipsecret"
+                    // are only the *defaults* -- same `${VAR:-default}` pattern every other
+                    // credentialed service (MySqlService's DB_PASSWORD, ...) already uses, so a
+                    // project's own .env/.env.production can override them instead of every Garage
+                    // deployment everywhere sharing one publicly-known, hardcoded credential.
+                    'GARAGE_DEFAULT_ACCESS_KEY' => "\${{$prefix}AWS_ACCESS_KEY_ID:-ship}",
+                    'GARAGE_DEFAULT_SECRET_KEY' => "\${{$prefix}AWS_SECRET_ACCESS_KEY:-shipsecret}",
+                    'GARAGE_DEFAULT_BUCKET' => "\${{$prefix}AWS_BUCKET:-local}",
                 ],
                 // Persisted in both environments -- see MySqlService's own comment for why.
                 // $environment is otherwise unused here now -- required by ServiceDefinition regardless.
@@ -75,11 +80,12 @@ final class GarageService implements ServiceDefinition
             "{$prefix}AWS_ENDPOINT" => "http://{$name}:3900",
             "{$prefix}AWS_USE_PATH_STYLE_ENDPOINT" => 'true',
             "{$prefix}AWS_DEFAULT_REGION" => 'garage',
-            // Must match composeFragment()'s GARAGE_DEFAULT_ACCESS_KEY/
-            // GARAGE_DEFAULT_SECRET_KEY/GARAGE_DEFAULT_BUCKET above.
-            "{$prefix}AWS_ACCESS_KEY_ID" => 'ship',
-            "{$prefix}AWS_SECRET_ACCESS_KEY" => 'shipsecret',
-            "{$prefix}AWS_BUCKET" => 'local',
+            // Same expressions as composeFragment()'s own GARAGE_DEFAULT_ACCESS_KEY/
+            // GARAGE_DEFAULT_SECRET_KEY/GARAGE_DEFAULT_BUCKET, so both sides always resolve from
+            // the same source at the same compose-parse time, never two independent guesses.
+            "{$prefix}AWS_ACCESS_KEY_ID" => "\${{$prefix}AWS_ACCESS_KEY_ID:-ship}",
+            "{$prefix}AWS_SECRET_ACCESS_KEY" => "\${{$prefix}AWS_SECRET_ACCESS_KEY:-shipsecret}",
+            "{$prefix}AWS_BUCKET" => "\${{$prefix}AWS_BUCKET:-local}",
         ];
     }
 

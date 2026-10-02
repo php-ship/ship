@@ -30,6 +30,20 @@ final class SiloServiceTest extends TestCase
         self::assertNotSame([], $service->composeFragment(ShipEnvironment::Production)['silo']['volumes']);
     }
 
+    /**
+     * "ship"/"shipsecret" must only ever be the *default* a project's own .env/.env.production
+     * can override. This matters more here than for Garage/RustFS: Silo's console is published
+     * to the host by default, so a hardcoded literal would mean every default `ship release`
+     * deploy exposes a login page with a publicly-known credential on the open internet.
+     */
+    public function test_credentials_are_overridable_defaults_not_hardcoded_literals(): void
+    {
+        $fragment = (new SiloService())->composeFragment(ShipEnvironment::Development);
+
+        self::assertSame('${AWS_ACCESS_KEY_ID:-ship}', $fragment['silo']['environment']['MINIO_ROOT_USER']);
+        self::assertSame('${AWS_SECRET_ACCESS_KEY:-shipsecret}', $fragment['silo']['environment']['MINIO_ROOT_PASSWORD']);
+    }
+
     public function test_a_named_instance_gets_its_own_endpoint_and_env_prefix(): void
     {
         $service = new SiloService();

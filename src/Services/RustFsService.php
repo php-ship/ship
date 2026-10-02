@@ -46,15 +46,20 @@ final class RustFsService implements ServiceDefinition
     public function composeFragment(ShipEnvironment $environment, ?string $instanceName = null): array
     {
         $name = $this->composeServiceName($instanceName);
+        $prefix = $this->envPrefix($instanceName);
 
         return [
             $name => [
                 'image' => 'rustfs/rustfs:1.0.0',
                 'environment' => [
                     // Must match environmentVariables() below exactly, or "app"
-                    // authenticates with credentials RustFS never provisioned.
-                    'RUSTFS_ACCESS_KEY' => 'ship',
-                    'RUSTFS_SECRET_KEY' => 'shipsecret',
+                    // authenticates with credentials RustFS never provisioned. "ship"/"shipsecret"
+                    // are only the *defaults* -- same `${VAR:-default}` pattern every other
+                    // credentialed service (MySqlService's DB_PASSWORD, ...) already uses, so a
+                    // project's own .env/.env.production can override them instead of every RustFS
+                    // deployment everywhere sharing one publicly-known, hardcoded credential.
+                    'RUSTFS_ACCESS_KEY' => "\${{$prefix}AWS_ACCESS_KEY_ID:-ship}",
+                    'RUSTFS_SECRET_KEY' => "\${{$prefix}AWS_SECRET_ACCESS_KEY:-shipsecret}",
                 ],
                 // Persisted in both environments -- see MySqlService's own comment for why.
                 // $environment is otherwise unused here now -- required by ServiceDefinition regardless.
@@ -82,8 +87,10 @@ final class RustFsService implements ServiceDefinition
             "{$prefix}AWS_ENDPOINT" => "http://{$name}:9000",
             "{$prefix}AWS_USE_PATH_STYLE_ENDPOINT" => 'true',
             "{$prefix}AWS_DEFAULT_REGION" => 'us-east-1',
-            "{$prefix}AWS_ACCESS_KEY_ID" => 'ship',
-            "{$prefix}AWS_SECRET_ACCESS_KEY" => 'shipsecret',
+            // Same expressions as composeFragment()'s own RUSTFS_ACCESS_KEY/RUSTFS_SECRET_KEY, so
+            // both sides always resolve from the same source at the same compose-parse time.
+            "{$prefix}AWS_ACCESS_KEY_ID" => "\${{$prefix}AWS_ACCESS_KEY_ID:-ship}",
+            "{$prefix}AWS_SECRET_ACCESS_KEY" => "\${{$prefix}AWS_SECRET_ACCESS_KEY:-shipsecret}",
             "{$prefix}AWS_BUCKET" => 'local',
         ];
     }

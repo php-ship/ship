@@ -31,4 +31,20 @@ final class GarageServiceTest extends TestCase
         self::assertSame($garageEnv['GARAGE_DEFAULT_SECRET_KEY'], $appEnv['AWS_SECRET_ACCESS_KEY']);
         self::assertSame($garageEnv['GARAGE_DEFAULT_BUCKET'], $appEnv['AWS_BUCKET']);
     }
+
+    /**
+     * "ship"/"shipsecret"/"local" must only ever be *defaults* a project's own
+     * .env/.env.production can override -- a bare literal would mean every Garage deployment
+     * everywhere shares one publicly-known, hardcoded credential, unlike every other credentialed
+     * service in the registry (MySqlService's DB_PASSWORD, ...).
+     */
+    public function test_credentials_are_overridable_defaults_not_hardcoded_literals(): void
+    {
+        $fragment = (new GarageService())->composeFragment(ShipEnvironment::Development);
+        $garageEnv = $fragment['garage']['environment'];
+
+        self::assertSame('${AWS_ACCESS_KEY_ID:-ship}', $garageEnv['GARAGE_DEFAULT_ACCESS_KEY']);
+        self::assertSame('${AWS_SECRET_ACCESS_KEY:-shipsecret}', $garageEnv['GARAGE_DEFAULT_SECRET_KEY']);
+        self::assertSame('${AWS_BUCKET:-local}', $garageEnv['GARAGE_DEFAULT_BUCKET']);
+    }
 }
