@@ -57,8 +57,9 @@ jobs:
       # Invoking bin/ship directly (not through a Composer require) means the fixture app needs
       # no dependency on this package at all -- $projectRoot is just getcwd(), see bin/ship. That
       # sidesteps a real limitation: a Composer path repository pointing at this checkout can't
-      # resolve inside an isolated Docker build context, so testing the actual `ship up --prod`
-      # build (not just dev) needs the fixture to have no such dependency in the first place.
+      # resolve inside an isolated Docker build context, so testing the actual `ship build`
+      # production build (not just dev) needs the fixture to have no such dependency in the first
+      # place.
       - name: ship init (MySQL + Redis)
         working-directory: /tmp/ci-fixture
         run: |
@@ -123,31 +124,82 @@ jobs:
         working-directory: /tmp/ci-fixture
         run: docker compose -f ship/docker-compose.generated.yml --project-directory . down -v
 
-      - name: ship up --prod builds and boots for real
+      # Breaking-change coverage: the old `ship up --prod` is gone, not just undocumented -- Symfony
+      # Console rejects an option no command declares, so this has to fail, not silently ignore
+      # "--prod" and boot the dev stack instead.
+      - name: ship up --prod is rejected, not silently ignored
         working-directory: /tmp/ci-fixture
         run: |
-          php "$GITHUB_WORKSPACE/bin/ship" up --prod
+          ! php "$GITHUB_WORKSPACE/bin/ship" up --prod
+
+      - name: ship release fails cleanly with no --tag in a non-interactive run
+        working-directory: /tmp/ci-fixture
+        run: |
+          ! php "$GITHUB_WORKSPACE/bin/ship" release
+
+      - name: Add deployCommands and a .env.production for the release
+        working-directory: /tmp/ci-fixture
+        run: |
+          php -r '
+          $config = json_decode(file_get_contents("ship.json"), true);
+          $config["deployCommands"] = ["php artisan migrate --force"];
+          file_put_contents("ship.json", json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+          '
+          cp .env .env.production
+
+      - name: ship build builds every project-owned production image
+        working-directory: /tmp/ci-fixture
+        run: php "$GITHUB_WORKSPACE/bin/ship" build
+
+      - name: ship release --tag produces the portable release artifact
+        working-directory: /tmp/ci-fixture
+        run: php "$GITHUB_WORKSPACE/bin/ship" release --tag ci-test
+
+      # Structural checks on the artifact itself, not just that the command exited 0 -- this is
+      # exactly what a DevOps handoff/CI consumer would be handed, so its shape is the real contract.
+      - name: The release artifact has the right shape and no build context left in it
+        working-directory: /tmp/ci-fixture
+        run: |
+          test -f dist/ship/ci-test/docker-compose.yml
+          test -f dist/ship/ci-test/.env
+          test -f dist/ship/ci-test/release.json
+          test -f dist/ship/ci-test/images/app.tar
+          test -f dist/ship/ci-test/images/webserver.tar
+          test -f dist/ship/ci-test/deploy-commands.sh
+          ! grep -q 'build:' dist/ship/ci-test/docker-compose.yml
+          php -r '
+          $images = json_decode(file_get_contents("dist/ship/ci-test/release.json"), true)["images"];
+          exit(count($images) === 2 ? 0 : 1);
+          '
+
+      # The whole point of this artifact: load it and boot it with nothing but Docker -- no source,
+      # no Dockerfile, no build context -- exactly what the destination server would do.
+      - name: Load the release images and boot the stack from the artifact alone
+        working-directory: /tmp/ci-fixture/dist/ship/ci-test
+        run: |
+          docker load -i images/app.tar
+          docker load -i images/webserver.tar
+          docker compose --project-directory . up -d --wait mysql redis
+          ./deploy-commands.sh
+          docker compose --project-directory . up -d
           for i in $(seq 1 10); do
             code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:80/ || true)
             [ "$code" = "200" ] && break
             sleep 3
           done
           test "$code" = "200"
-          # artisan optimize runs at container boot -- see EntrypointScriptBuilder -- so the
-          # cached bootstrap files existing confirms it actually ran, not just that PHP started.
-          php "$GITHUB_WORKSPACE/bin/ship" exec app test -f bootstrap/cache/config.php
 
-      - name: Dump prod stack state on failure
+      - name: Dump release stack state on failure
         if: failure()
-        working-directory: /tmp/ci-fixture
+        working-directory: /tmp/ci-fixture/dist/ship/ci-test
         run: |
-          docker compose -f ship/docker-compose.generated.yml --project-directory . ps
-          docker compose -f ship/docker-compose.generated.yml --project-directory . logs
+          docker compose --project-directory . ps
+          docker compose --project-directory . logs
 
-      - name: Tear down prod stack
+      - name: Tear down the release stack
         if: always()
-        working-directory: /tmp/ci-fixture
-        run: docker compose -f ship/docker-compose.generated.yml --project-directory . down -v --rmi local
+        working-directory: /tmp/ci-fixture/dist/ship/ci-test
+        run: docker compose --project-directory . down -v --rmi local
 
       # A separate fixture (not a reuse of the one above) specifically for the Octane/Swoole
       # runtime: it needs its own PECL extension compiled at image build time (see
