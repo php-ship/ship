@@ -143,6 +143,14 @@ final class ComposeFileBuilder
             $compose['services'] = $this->addProcessServices($compose['services'], $config->processes, $appServiceName);
         }
 
+        $compose['services'] = $this->alignReverbWithApp(
+            $compose['services'],
+            $appServiceName,
+            $serviceNames['reverb'] ?? 'reverb',
+            $appEnv,
+            $environment,
+        );
+
         // Lets the commands that shell out to `docker compose exec` (see ComposeCommand::execPrefix())
         // learn what was actually generated -- mode-aware by construction, unlike re-reading
         // ship.json, which says nothing about whether this file is a dev or a production one.
@@ -401,6 +409,55 @@ final class ComposeFileBuilder
                 'stop_grace_period' => '60s',
             ];
         }
+
+        return $services;
+    }
+
+    /**
+     * Reverb is a genuinely separate compose service (see ReverbService's own docblock), but it
+     * runs the exact same Laravel app "app" does -- three real bugs found via an independent
+     * audit, all from the same root cause: ReverbService's own composeFragment() has no access to
+     * $appEnv, $config, or $hostUser, so it could never align itself with "app" on its own.
+     *
+     * 1. Reverb never got "app"'s own injected environment (DB_*, REDIS_*, ...) at all, so
+     *    anything it touched that needed the database -- a private-channel auth callback checking
+     *    the current user, say -- failed to connect.
+     * 2. Reverb never got SHIP_RUN_AS, so it ran as root in production -- the same root-process
+     *    gap already fixed for every Octane runtime and `processes` entry, just missed here.
+     * 3. Reverb's own build args were missing OCTANE_RUNTIME/HOST_UID/HOST_GID, so whenever any of
+     *    those differed from "app"'s own ARG defaults (Swoole selected as the runtime, say, or
+     *    hostUser in dev), Reverb's build no longer matched "app"'s byte-for-byte -- forcing a
+     *    second, wasteful image build and export for content that should be identical.
+     *
+     * Only the build *args* are copied, not the whole build block -- ReverbService's own
+     * dockerfile/context/target are left alone deliberately: FrankenPHP overrides "app"'s own
+     * dockerfile, but Reverb never needs Caddy/FrankenPHP's image just to run a plain `php artisan
+     * reverb:start`, and copying "app"'s build wholesale would drag that override onto it too.
+     *
+     * Applies in both environments -- the missing DB_* and REDIS_* env vars gap exists in dev
+     * too, not just production -- but SHIP_RUN_AS only in production, matching every other
+     * service that sets it.
+     *
+     * @param array<string, array<string, mixed>> $services
+     * @param array<string, string> $appEnv
+     * @return array<string, array<string, mixed>>
+     */
+    private function alignReverbWithApp(
+        array $services,
+        string $appServiceName,
+        string $reverbServiceName,
+        array $appEnv,
+        ShipEnvironment $environment,
+    ): array {
+        if (!isset($services[$reverbServiceName])) {
+            return $services;
+        }
+
+        $services[$reverbServiceName]['build']['args'] = $services[$appServiceName]['build']['args'] ?? [];
+        $services[$reverbServiceName]['environment'] = [
+            ...$appEnv,
+            ...($environment->isDevelopment() ? [] : ['SHIP_RUN_AS' => 'www-data']),
+        ];
 
         return $services;
     }

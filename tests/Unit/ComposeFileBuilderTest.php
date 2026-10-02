@@ -10,6 +10,8 @@ use Ship\Contracts\ShipEnvironment;
 use Ship\Docker\ComposeFileBuilder;
 use Ship\Services\MailpitService;
 use Ship\Services\MySqlService;
+use Ship\Services\OctaneFrankenPhpService;
+use Ship\Services\OctaneSwooleService;
 use Ship\Services\PostgresService;
 use Ship\Services\RedisService;
 use Ship\Services\ReverbService;
@@ -326,6 +328,45 @@ final class ComposeFileBuilderTest extends TestCase
         // same PHP version rather than the Dockerfile's own ARG default.
         self::assertSame('8.3', $parsed['services']['reverb']['build']['args']['PHP_VERSION']);
         self::assertSame('8.3', $parsed['services']['app']['build']['args']['PHP_VERSION']);
+    }
+
+    /**
+     * Three real bugs found via an independent audit, all fixed together: Reverb never got "app"'s
+     * own injected environment (DB_*, REDIS_*, ...) at all, so anything it touched that needed the
+     * database -- a private-channel auth callback, say -- failed to connect; it never got
+     * SHIP_RUN_AS, so it ran as root in production; and its own build args were missing
+     * OCTANE_RUNTIME, so selecting Octane/Swoole alongside Reverb forced a second, wasteful image
+     * build for content that should be identical to "app"'s.
+     */
+    public function test_reverb_gets_apps_env_vars_ship_run_as_and_matching_build_args(): void
+    {
+        $registry = new ServiceRegistry([new MySqlService(), new OctaneSwooleService(), new ReverbService()]);
+        $builder = new ComposeFileBuilder($registry);
+
+        $config = new ShipConfig(
+            phpVersion: '8.4',
+            services: ['database' => 'mysql', 'runtime' => 'octane-swoole', 'broadcasting' => 'reverb'],
+        );
+        $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Production));
+
+        self::assertSame('mysql', $parsed['services']['reverb']['environment']['DB_CONNECTION']);
+        self::assertSame('www-data', $parsed['services']['reverb']['environment']['SHIP_RUN_AS']);
+        self::assertSame(
+            $parsed['services']['app']['build']['args']['OCTANE_RUNTIME'],
+            $parsed['services']['reverb']['build']['args']['OCTANE_RUNTIME'],
+        );
+    }
+
+    public function test_reverb_keeps_its_own_dockerfile_even_when_app_overrides_its_own(): void
+    {
+        $registry = new ServiceRegistry([new OctaneFrankenPhpService(), new ReverbService()]);
+        $builder = new ComposeFileBuilder($registry);
+
+        $config = new ShipConfig(phpVersion: '8.4', services: ['runtime' => 'octane-frankenphp', 'broadcasting' => 'reverb']);
+        $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Production));
+
+        self::assertSame('ship/Dockerfile.frankenphp', $parsed['services']['app']['build']['dockerfile']);
+        self::assertSame('ship/Dockerfile', $parsed['services']['reverb']['build']['dockerfile']);
     }
 
     public function test_node_version_is_configurable_and_backfilled_the_same_way_as_php_version(): void
