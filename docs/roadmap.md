@@ -590,7 +590,7 @@
   `docker compose config`, so a service with no ports simply isn't
   checked.
 
-  Verified live with `ship up --prod`: with `publishPorts: false` it
+  Verified live with `ship build`: with `publishPorts: false` it
   completed successfully, both containers showed only internal ports
   (no host mapping), and a request to the host's port 80 got no response.
 
@@ -611,10 +611,10 @@
   same pattern rather than assuming: `pg_isready` over the socket never
   succeeded before TCP did, so it's left alone.
 
-- `ship.json`'s `deployCommands`: shell commands run exactly once per
-  `ship up --prod`, after the images are built and before any new
-  container starts -- migrations, a package's own one-off setup, creating
-  buckets. Raised from a real project's evaluation: its deploy script ran
+- `ship.json`'s `deployCommands`: shell commands meant to run exactly once
+  per deploy, after the images are built and before any new container
+  starts -- migrations, a package's own one-off setup, creating buckets.
+  Raised from a real project's evaluation: its deploy script ran
   `migrate --force` and similar once, before starting the new containers,
   while ship's only production hook ran at every container *boot*
   (`FrameworkAdapter::releaseCommands()`: `artisan optimize`), which is
@@ -625,14 +625,18 @@
 
   Each runs in a one-off `docker compose run --rm --no-deps -T` container
   of the freshly built app image (`sh -c`, so any shell line works),
-  after `ship` brings up the services it provisions that aren't built
-  from `ship/Dockerfile` (databases, caches) with `up -d --wait`, since
-  nothing else would start them yet -- the app has no `depends_on` for
-  them. If a command fails, `ship up --prod` stops there and starts
-  nothing new, so a failed migration leaves the previous containers
-  serving instead of new code booting against a schema it doesn't match.
-  The docker argv building lives in `Ship\Docker\DeployPlan`, not in
-  `UpCommand`, so anything else needing the same sequence can reuse it.
+  after bringing up the services provisioned that aren't built from
+  `ship/Dockerfile` (databases, caches) with `up -d --wait`, since nothing
+  else would start them yet -- the app has no `depends_on` for them. If a
+  command fails, the sequence stops there and starts nothing new, so a
+  failed migration leaves the previous containers serving instead of new
+  code booting against a schema it doesn't match. The docker argv building
+  lives in `Ship\Docker\DeployPlan`, not in `UpCommand`, so anything else
+  needing the same sequence can reuse it. This ran inside `ship up --prod`
+  itself at the time -- superseded by `ship build`/`ship release --tag`
+  (see that entry below), which instead writes the same sequence into the
+  release's own `deploy-commands.sh` for the operator to run, since neither
+  command talks to a production server directly.
 
   Verified live against a real production stack with MySQL: the command
   ran once against a database that was actually ready (this is what
@@ -782,6 +786,84 @@
   broken before today. Fixed with `apt-get install unzip` in the `base`
   stage. The main Dockerfile doesn't need this -- Alpine's
   `php:*-fpm-alpine` base already ships `unzip`.
+
+- Replaced `ship up --prod` with two new commands, `ship build` and
+  `ship release --tag <tag>` -- a deliberate breaking change, not an
+  addition alongside the old path. Raised from a real need: a developer
+  with server access, a DevOps team, and CI/CD all needed to hand off
+  *one* portable artifact a destination server can run with nothing but
+  Docker installed -- no PHP, no source tree, no project Dockerfiles, and
+  no `.env` committed anywhere -- rather than each needing its own
+  variant of "build the image, then figure out how to get it running."
+  `ship up --prod` could build the image, but starting it anywhere else
+  meant shipping the whole project (source, `ship/Dockerfile`, `ship.json`)
+  to rebuild from scratch there, exactly what this exists to avoid.
+
+  `ship build` builds every project-owned production image (anything with
+  a `build:` in the generated compose file -- the same predicate
+  `DeployPlan::infrastructureServices()` already used, inverted) under a
+  fixed local tag (`<name>-<service>:local`); `ship release --tag` runs
+  the exact same planning and build step with the real tag instead, then
+  assembles `dist/ship/<tag>/`: a compose file with `build:` stripped and
+  `image:` tags pointing at what was just built, `.env.production` copied
+  to `.env`, each unique image exported with `docker save`, and
+  `release.json` metadata (tag, git commit, ship version, images -- never
+  a secret). One shared class, `Ship\Docker\ProductionBuildRunner`, backs
+  both commands, so there's exactly one place that decides what a
+  production image is.
+
+  `ship.json`'s `name` (new, optional, defaults to the project directory's
+  basename -- what Compose's own implicit naming already did) is the
+  project name image tags use, since relying on an implicit directory-name
+  default across a dev machine, CI runner, and a server risked three
+  different tags for the same project. `ProductionImagePlan` groups
+  services sharing an identical `build:` (most commonly "app" and every
+  `processes` entry, which already copy "app"'s own build config) under
+  one tag and one exported `.tar`, rather than building and saving the
+  same content three times.
+
+  `deployCommands` moves with it: `ship up --prod` used to run them
+  itself; now `ship release --tag` writes the same sequence into the
+  release's own `deploy-commands.sh` (bringing up the database/cache
+  services first, then each command in a one-off container), for the
+  operator to run on the server once the images are loaded -- `ship`
+  itself still never deploys anywhere.
+
+  A real bug found live, not in review: the first non-interactive `--tag`
+  check only looked at `$input->isInteractive()`, which Symfony only ever
+  sets false from an explicit `--no-interaction`/`-n` flag, never from
+  detecting a non-tty stdin on its own. Piping from `/dev/null` with no
+  `-n` -- exactly a plain CI `run:` step, no flag added -- left `ship
+  release` printing "Release tag:" and hanging forever instead of failing
+  fast. Fixed by also checking `stream_isatty(STDIN)` directly (unlike
+  `posix_isatty`, available on every platform this package already
+  claims to run).
+
+  A second real bug found live: `deploy-commands.sh`'s own "bring up
+  infrastructure first" step initially read the *release's* final
+  `docker-compose.yml` to decide what counts as infrastructure -- but
+  that file has already had `build:` stripped from every project-owned
+  service by the time it's written, so "no `build:` key" (the same test
+  `DeployPlan::infrastructureServices()` uses) misclassified "app" and
+  "webserver" as infrastructure too, meaning the script would have
+  started them *before* running migrations, defeating the entire reason
+  the ordering exists. Fixed by reading `ship/docker-compose.generated.yml`
+  instead -- `ProductionBuildRunner`'s own working copy, still carrying
+  `build:` at that point.
+
+  Verified live end-to-end against a real `laravel/laravel` + MySQL +
+  Redis fixture, not just unit tests: `ship build` produced
+  `<name>-app:local`/`<name>-webserver:local`; `ship release --tag 1.0.0`
+  produced a `dist/ship/1.0.0/` with every file the spec calls for, a
+  compose file with no `build:` anywhere in it; `docker load`-ing both
+  tars and running `docker compose up -d` from inside that directory
+  alone (no `-f` pointing anywhere else, no source tree present) booted
+  the real stack, and `php artisan migrate --force` against it followed
+  by a real HTTP request both succeeded. Re-verified with `deployCommands`
+  set and a custom `ship.json` `name`: the generated `deploy-commands.sh`
+  correctly listed only `mysql redis` (not `app`/`webserver`) after the
+  second bug above was fixed, and the custom name was reflected in every
+  image tag.
 
 ## Not started
 
