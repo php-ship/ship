@@ -12,6 +12,7 @@ use Ship\Console\Commands\ExecCommand;
 use Ship\Console\Commands\InitCommand;
 use Ship\Console\Commands\LogsCommand;
 use Ship\Console\Commands\ProxyCommand;
+use Ship\Console\Commands\ReleaseCommand;
 use Ship\Console\Commands\ShellCommand;
 use Ship\Console\Commands\UpCommand;
 use Ship\Contracts\FrameworkAdapter;
@@ -45,6 +46,7 @@ final class Application extends SymfonyApplication
         $this->registerCommand(new InitCommand($this->projectRoot, $registry));
         $this->registerCommand(new UpCommand($this->projectRoot, $runner));
         $this->registerCommand(new BuildCommand($this->projectRoot, $runner));
+        $this->registerCommand(new ReleaseCommand($this->projectRoot, $runner));
         $this->registerCommand(new DownCommand($this->projectRoot, $runner));
         $this->registerCommand(new ExecCommand($this->projectRoot, $runner));
         $this->registerCommand(new ShellCommand($this->projectRoot, $runner));
