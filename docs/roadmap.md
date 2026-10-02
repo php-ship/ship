@@ -943,6 +943,16 @@
   `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` to `.env` and recreated the container, confirming
   those same env vars now read the overridden values instead.
 
+- Fixed a real secret leak found via an independent audit: `ship init`'s own `.dockerignore`
+  entries (`.env`, `.env.*`) only ever match at the build context *root* -- confirmed live, not
+  assumed, by building a minimal image with ship's exact file. `dist/ship/<tag>/.env` (`ship
+  release`'s own copy of `.env.production`) was never excluded, and the builder stage's `COPY . .`
+  picked it straight up, landing readable inside the very next image built in that project --
+  carrying every earlier release's own tars forward too. Fixed with `**`-prefixed patterns
+  (`**/.env`, `**/.env.*`, `!**/.env.example`), which match at any depth, plus an outright `/dist`
+  exclusion. Verified live: the same minimal-image test, with the fixed patterns, excluded both the
+  nested `.env` and the whole `dist/` tree, while still preserving a root `.env.example`.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
