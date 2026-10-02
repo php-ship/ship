@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ship\Console;
 
 use Ship\Config\ShipConfig;
+use Ship\Console\Commands\BuildCommand;
 use Ship\Console\Commands\DbCommand;
 use Ship\Console\Commands\DownCommand;
 use Ship\Console\Commands\ExecCommand;
@@ -43,6 +44,7 @@ final class Application extends SymfonyApplication
 
         $this->registerCommand(new InitCommand($this->projectRoot, $registry));
         $this->registerCommand(new UpCommand($this->projectRoot, $runner));
+        $this->registerCommand(new BuildCommand($this->projectRoot, $runner));
         $this->registerCommand(new DownCommand($this->projectRoot, $runner));
         $this->registerCommand(new ExecCommand($this->projectRoot, $runner));
         $this->registerCommand(new ShellCommand($this->projectRoot, $runner));
