@@ -129,6 +129,7 @@ release`.
 | `ship shell [service]` | Opens an interactive shell (`sh`) in a service; defaults to `app`. |
 | `ship logs [service] [-f]` | Tails logs for one service, or all services if none given. `-f`/`--follow` streams live. |
 | `ship db [instance]` | Opens a database's interactive client shell (`psql`/`mysql`), reading credentials from that container's own environment. Omit `instance` for the default database; name one of `additionalServices`' database entries to open that instance instead. Fails clearly if no database is selected, or the named instance doesn't exist. |
+| `ship config:test` | `ship.json`'s equivalent of `nginx -t`: validates `ship.json`, builds both the development and production compose files, and checks for a required production credential missing from `.env.production` or a stale nginx upstream — all without starting or building anything. Reports every problem it finds in one pass, not just the first. |
 | `ship composer <args...>` | Proxies to `composer` inside the `app` container. |
 | `ship npm <args...>` | Proxies to `npm` inside the `app` container (e.g. `ship npm run dev`, `ship npm install`). |
 | `ship artisan <args...>` | Proxies to `php artisan` inside `app` — only registered when Laravel's `artisan` is detected at the project root. |
