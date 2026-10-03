@@ -64,8 +64,28 @@ final class ConfigTestCommand extends Command
             (new ExtensionLoader())->load($config->extensions, $registry);
         }
 
-        $this->buildCompose($registry, $config, ShipEnvironment::Development, 'development', $output);
-        $prodCompose = $this->buildCompose($registry, $config, ShipEnvironment::Production, 'production', $output);
+        // Checked independently, up front, rather than solely by attempting the real build()
+        // below -- a real bug found via a fourth independent audit: ComposeFileBuilder::build()
+        // throws on the *first* problem it hits, so an unregistered service key hid a bad
+        // `processes` name behind it (or vice versa), directly contradicting this command's own
+        // "reports everything in one pass" promise. Both checks are environment-independent (a
+        // key is either registered or not; a name is either shaped right or not, regardless of
+        // dev/prod), so one pass here covers both builds below at once.
+        $problemsBeforeBuild = $this->problems;
+        $this->checkServiceKeysAreRegistered($registry, $config, $output);
+        $this->checkProcessNames($config, $output);
+
+        // Skipped, not attempted anyway, once the checks above already found something -- both
+        // builds would only re-throw on the exact same already-reported problem (ComposeFileBuilder
+        // has no other failure mode -- confirmed by reading its own source), double-reporting one
+        // real issue as two. The one thing this trades away is checkRequiredProductionEnv() below,
+        // which needs the actual generated compose string -- a secondary check, reasonably skipped
+        // until the structural problem above is fixed first.
+        $prodCompose = null;
+        if ($this->problems === $problemsBeforeBuild) {
+            $this->buildCompose($registry, $config, ShipEnvironment::Development, 'development', $output);
+            $prodCompose = $this->buildCompose($registry, $config, ShipEnvironment::Production, 'production', $output);
+        }
 
         if ($prodCompose !== null) {
             $this->checkRequiredProductionEnv($prodCompose, $output);
@@ -97,11 +117,63 @@ final class ConfigTestCommand extends Command
     }
 
     /**
+     * Every value under ship.json's "services" and every "additionalServices" entry's "service"
+     * -- whichever group it's under, built-in or from an extension -- has to resolve to something
+     * $registry actually has, or ComposeFileBuilder::applyService() throws a raw
+     * OutOfBoundsException the moment it's reached. Checked directly against $registry (not by
+     * attempting a build) so every bad key is reported, not just the first one build() happens
+     * to reach first.
+     */
+    private function checkServiceKeysAreRegistered(ServiceRegistry $registry, ShipConfig $config, OutputInterface $output): void
+    {
+        $keys = array_values($config->services);
+
+        foreach ($config->additionalServices as $additional) {
+            $keys[] = $additional['service'];
+        }
+
+        foreach (array_unique($keys) as $key) {
+            if (!$registry->has($key)) {
+                $this->problems++;
+                $output->writeln(sprintf(
+                    '<error>ship.json: "%s" is not a registered service -- check ship.json\'s services/'
+                        . 'additionalServices for a typo, or that the extension providing it is actually '
+                        . 'listed in ship.json\'s extensions.</error>',
+                    $key,
+                ));
+            }
+        }
+    }
+
+    /**
+     * Same regex ComposeFileBuilder::addProcessServices() itself enforces (a `processes` name
+     * becomes a compose service name, production only) -- checked here directly so every bad
+     * name is reported, not just the first one that method happens to reach first. Its own
+     * second check (a name colliding with a service ship already generates) is left to the real
+     * build below: which names collide depends on what else ship.json selects, not just the name
+     * itself, so it isn't something this can check in isolation the same way.
+     */
+    private function checkProcessNames(ShipConfig $config, OutputInterface $output): void
+    {
+        foreach ($config->processes as $name => $command) {
+            if (preg_match('/^[a-z][a-z0-9_-]*$/', $name) !== 1) {
+                $this->problems++;
+                $output->writeln(sprintf(
+                    '<error>ship.json processes: "%s" is not a valid name -- it becomes a compose '
+                        . 'service name, so lowercase letters, digits, "-" and "_" only, starting with a '
+                        . 'letter.</error>',
+                    $name,
+                ));
+            }
+        }
+    }
+
+    /**
      * Pure PHP, no Docker involved -- the exact same build this environment's real `ship up`/
-     * `ship build`/`ship release` would run, so anything it throws (an unregistered service key
-     * in ship.json's services, an invalid `processes` name, ...) is exactly what that real
-     * command would have thrown too, just caught here before anything is actually started or
-     * built.
+     * `ship build`/`ship release` would run. By this point, the only known failure modes
+     * (checkServiceKeysAreRegistered()/checkProcessNames() above) have already been ruled out, so
+     * this is a safety net for anything else ComposeFileBuilder (or a service's own
+     * composeFragment()) might still throw, not the primary way either of those two is detected.
      */
     private function buildCompose(
         ServiceRegistry $registry,

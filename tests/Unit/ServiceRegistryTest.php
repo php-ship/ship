@@ -42,6 +42,14 @@ final class ServiceRegistryTest extends TestCase
         self::assertInstanceOf(PostgresService::class, $registry->get('pgsql'));
     }
 
+    public function test_has_tells_a_registered_key_from_an_unregistered_one(): void
+    {
+        $registry = new ServiceRegistry([new PostgresService()]);
+
+        self::assertTrue($registry->has('pgsql'));
+        self::assertFalse($registry->has('not-a-real-service'));
+    }
+
     public function test_registering_the_same_key_twice_lets_the_later_one_win(): void
     {
         $registry = new ServiceRegistry([new PostgresService()]);

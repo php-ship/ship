@@ -32,6 +32,11 @@ final class ServiceRegistry
             ?? throw new \OutOfBoundsException("No registered service with key \"{$key}\".");
     }
 
+    public function has(string $key): bool
+    {
+        return isset($this->services[$key]);
+    }
+
     /**
      * @return list<ServiceDefinition>
      */

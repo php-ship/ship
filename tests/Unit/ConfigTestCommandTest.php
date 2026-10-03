@@ -51,7 +51,13 @@ final class ConfigTestCommandTest extends TestCase
         self::assertStringContainsString('ship.json:', $this->tester->getDisplay());
     }
 
-    public function test_it_reports_an_unregistered_service_key_naming_the_environment(): void
+    /**
+     * Checked once, not once per environment -- a real bug found via a fourth independent audit:
+     * registry membership doesn't depend on dev vs prod, and reporting it twice (one label per
+     * environment, as an earlier version of this command did by attempting both builds
+     * unconditionally) would double-count one real problem as two.
+     */
+    public function test_it_reports_an_unregistered_service_key_exactly_once(): void
     {
         (new ShipConfig(phpVersion: '8.4', services: ['database' => 'not-a-real-service']))
             ->toFile($this->projectRoot . '/ship.json');
@@ -60,9 +66,50 @@ final class ConfigTestCommandTest extends TestCase
 
         self::assertSame(Command::FAILURE, $exitCode);
         $display = $this->tester->getDisplay();
-        self::assertStringContainsString('(development)', $display);
-        self::assertStringContainsString('(production)', $display);
         self::assertStringContainsString('not-a-real-service', $display);
+        self::assertStringContainsString('1 problem found', $display);
+    }
+
+    /**
+     * Regression coverage for a real bug found via a fourth independent audit: an unregistered
+     * service key in ship.json's additionalServices is exactly as fatal as one in services
+     * itself, and must be checked the same way.
+     */
+    public function test_it_reports_an_unregistered_additional_service_key(): void
+    {
+        (new ShipConfig(
+            phpVersion: '8.4',
+            services: [],
+            additionalServices: [['group' => 'database', 'service' => 'not-a-real-service', 'name' => 'analytics']],
+        ))->toFile($this->projectRoot . '/ship.json');
+
+        $exitCode = $this->runCommand();
+
+        self::assertSame(Command::FAILURE, $exitCode);
+        self::assertStringContainsString('not-a-real-service', $this->tester->getDisplay());
+    }
+
+    /**
+     * Regression coverage for a real bug found via a fourth independent audit, confirmed live:
+     * ComposeFileBuilder::build() throws on the *first* problem it hits, so an unregistered
+     * service key used to hide a bad `processes` name behind it, directly contradicting this
+     * command's own "reports everything in one pass" promise.
+     */
+    public function test_it_reports_a_bad_service_key_and_a_bad_process_name_together(): void
+    {
+        (new ShipConfig(
+            phpVersion: '8.4',
+            services: ['database' => 'not-a-real-service'],
+            processes: ['Invalid Name' => 'php artisan queue:work'],
+        ))->toFile($this->projectRoot . '/ship.json');
+
+        $exitCode = $this->runCommand();
+
+        self::assertSame(Command::FAILURE, $exitCode);
+        $display = $this->tester->getDisplay();
+        self::assertStringContainsString('not-a-real-service', $display);
+        self::assertStringContainsString('Invalid Name', $display);
+        self::assertStringContainsString('2 problems found', $display);
     }
 
     public function test_it_passes_on_a_minimal_valid_config_with_no_env_files(): void
