@@ -12,6 +12,7 @@ use Ship\Docker\EnvFile;
 use Ship\Docker\HostUser;
 use Ship\Docker\MySqlUsernameGuard;
 use Ship\Docker\NginxUpstreamMismatch;
+use Ship\Docker\ProjectName;
 use Ship\Extensions\ExtensionLoader;
 use Ship\Runtime\ProcessRunner;
 use Ship\Services\ServiceRegistry;
@@ -83,7 +84,13 @@ final class UpCommand extends Command
 
         $hostUser = $this->resolveHostUser($config, $mutagenSync, $output);
 
-        $compose = (new ComposeFileBuilder($registry))->build($config, ShipEnvironment::Development, $mutagenSync, $hostUser);
+        $compose = (new ComposeFileBuilder($registry))->build(
+            $config,
+            ShipEnvironment::Development,
+            $mutagenSync,
+            $hostUser,
+            ProjectName::resolve($config, $this->projectRoot),
+        );
 
         $composeDir = $this->projectRoot . '/ship';
         if (!is_dir($composeDir)) {

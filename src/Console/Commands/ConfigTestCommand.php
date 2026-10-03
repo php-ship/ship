@@ -10,6 +10,7 @@ use Ship\Docker\ComposeFileBuilder;
 use Ship\Docker\EnvFile;
 use Ship\Docker\MySqlUsernameGuard;
 use Ship\Docker\NginxUpstreamMismatch;
+use Ship\Docker\ProjectName;
 use Ship\Extensions\ExtensionLoader;
 use Ship\Services\ServiceRegistry;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -183,7 +184,11 @@ final class ConfigTestCommand extends Command
         OutputInterface $output,
     ): ?string {
         try {
-            return (new ComposeFileBuilder($registry))->build($config, $environment);
+            return (new ComposeFileBuilder($registry))->build(
+                $config,
+                $environment,
+                projectName: ProjectName::resolve($config, $this->projectRoot),
+            );
         } catch (\Throwable $e) {
             $this->problems++;
             $output->writeln("<error>ship.json ({$label}): {$e->getMessage()}</error>");

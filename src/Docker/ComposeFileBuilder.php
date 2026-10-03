@@ -31,6 +31,15 @@ final class ComposeFileBuilder
      * $hostUser (see ShipConfig::$hostUser) is only ever passed for development, already filtered by
      * the caller for everything that makes it inapplicable -- this just applies it.
      *
+     * $projectName becomes the file's top-level `name:` -- without it, Compose derives the
+     * project name from --project-directory's own basename instead, which every named volume
+     * and the default network alias are keyed off. Two differently-pathed checkouts that happen
+     * to share a basename then share both; the same project checked out under two different tag
+     * directories (dist/ship/1.2.0, dist/ship/1.3.0 -- exactly what `ship release` produces) gets
+     * a *different* synthesized name each time instead of one that follows the project itself.
+     * Optional (not required) so a caller that genuinely has no project name available yet --
+     * every direct unit test construction of this class -- still gets today's behavior.
+     *
      * @param array{uid: int, gid: int}|null $hostUser
      */
     public function build(
@@ -38,10 +47,12 @@ final class ComposeFileBuilder
         ShipEnvironment $environment,
         bool $mutagenSync = false,
         ?array $hostUser = null,
+        ?string $projectName = null,
     ): string {
         $serviceNames = $config->serviceNames;
 
         $compose = [
+            ...($projectName !== null ? ['name' => $projectName] : []),
             'services' => $this->renameFragmentKeys(
                 $this->baseServices($config, $environment, $mutagenSync, $hostUser),
                 $serviceNames,

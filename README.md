@@ -739,6 +739,15 @@ either way, since bind-mount mode doesn't auto-install it now either.
 
 ## Running more than one project at once
 
+Every generated compose file carries a top-level `name:` (`ship.json`'s own
+`name`, or the project directory's basename if it's unset) — every named
+volume and the default network alias are keyed off it, so two differently-
+pathed checkouts that happen to share a directory basename don't share
+either. Set `name` explicitly in `ship.json` for anything that depends on
+it staying the same regardless of where the project is checked out — most
+notably a release built from `dist/ship/<tag>/`, where each tag is its own
+directory and would otherwise get its own, different implicit name.
+
 Every published port has an env var override, read at `ship up` time from
 your shell or a `.env` file in the project root:
 

@@ -25,6 +25,32 @@ final class ComposeFileBuilderTest extends TestCase
         return new ServiceRegistry([new PostgresService(), new RedisService()]);
     }
 
+    /**
+     * Without a top-level name:, Compose derives the project name from --project-directory's own
+     * basename instead -- every named volume and the default network alias are keyed off it, so
+     * two differently-pathed checkouts sharing a basename (or the same project checked out under
+     * two different `ship release` tag directories) would otherwise share both.
+     */
+    public function test_a_given_project_name_becomes_the_top_level_name(): void
+    {
+        $builder = new ComposeFileBuilder($this->registry());
+        $config = new ShipConfig(phpVersion: '8.4', services: []);
+
+        $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Development, projectName: 'acme-api'));
+
+        self::assertSame('acme-api', $parsed['name']);
+    }
+
+    public function test_no_project_name_means_no_top_level_name_key(): void
+    {
+        $builder = new ComposeFileBuilder($this->registry());
+        $config = new ShipConfig(phpVersion: '8.4', services: []);
+
+        $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Development));
+
+        self::assertArrayNotHasKey('name', $parsed);
+    }
+
     public function test_it_includes_selected_services_in_the_compose_output(): void
     {
         $builder = new ComposeFileBuilder($this->registry());
