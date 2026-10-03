@@ -369,6 +369,11 @@ need it:
   Commands where *you* type the service (`ship exec <service> …`, `ship
   logs <service>`, `ship shell <service>`) take the literal compose name,
   so after renaming `app` to `admin-app` that's `ship exec admin-app …`.
+  Renaming `app` specifically also needs `ship init` re-run afterward (when
+  nginx is in use, i.e. no Octane runtime selected) — the published
+  `ship/nginx/default.conf` bakes the app service's name into its upstream
+  at `ship init` time, and only re-running it updates that file; `ship up`
+  warns if it ever falls out of sync with a hand-edited `serviceNames`.
 - `externalNetwork` — the name of a Docker network created outside
   `ship` (by another compose project, e.g. one running your shared
   MySQL/Redis/etc.), attached to the app service in addition to `ship`'s
