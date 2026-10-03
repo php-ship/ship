@@ -1567,6 +1567,20 @@ A sixth independent audit found one trivial leftover in `EnvFile::parse()`.
   Verified live: a real `ship init` run against an existing multi-service `ship.json`, every
   prompt answered by pressing Enter, reproduces the same selections instead of wiping them.
 
+- Three reductions in production secret exposure. "webserver" (nginx) no longer gets
+  `env_file: .env`/`.env.production` -- its config is byte-for-byte static, so it had no actual
+  use for any app secret. MySQL's root password is `DB_ROOT_PASSWORD`, a separate secret from the
+  app user's own `DB_PASSWORD` (required independently in production, same as every other
+  credentialed service) -- not the same value doubling as both, which meant a leaked app
+  credential handed over full MySQL admin access too. `DockerignoreGuard` (extracted out of
+  `InitCommand`) now also runs from `ProductionBuildRunner`, so `ship build`/`ship release` are
+  covered even when `.dockerignore` was hand-edited, reverted, or never existed because `ship
+  init` ran before this guard did -- not just at `ship init` time -- and it now excludes
+  `auth.json`/`.npmrc` (Composer's and npm's own credential files) alongside `.env`. Verified
+  live: webserver's generated fragment has no `env_file`, `MYSQL_ROOT_PASSWORD` resolves from a
+  separately-required `DB_ROOT_PASSWORD`, and deleting `.dockerignore` after `ship init` then
+  running `ship build` recreates it before the build is attempted.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`

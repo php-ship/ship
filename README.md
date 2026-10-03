@@ -478,12 +478,15 @@ dist/ship/1.2.0/
 `dist/ship/` is git-ignored (`ship init` adds it to `.gitignore` for you) —
 a release is generated output, and often genuinely sensitive (it carries
 your `.env.production`), so it's never meant to be committed. It's also
-excluded from the Docker build context itself (`ship init`'s
-`.dockerignore`, `/dist/ship` specifically — not your project's whole
-`dist/`, in case you keep other build output there) — without that, a
-second release built in the same project would bake every *earlier*
-release's own `.env`/images straight into the next image via the builder
-stage's `COPY . .`. Project-owned
+excluded from the Docker build context itself (`.dockerignore`,
+`/dist/ship` specifically — not your project's whole `dist/`, in case you
+keep other build output there), along with `.env`/`.env.*`, `auth.json`,
+and `.npmrc` — without that, a second release built in the same project
+would bake every *earlier* release's own `.env`/images straight into the
+next image via the builder stage's `COPY . .`. `ship init` writes this
+guard, and `ship build`/`ship release` re-apply it too, in case
+`.dockerignore` was hand-edited, reverted, or never existed because
+`init` ran before the guard did. Project-owned
 services that build from an identical Dockerfile/target/args (most
 commonly `app` and every `ship.json` `processes` entry, which build from
 the exact same config) share one image and one `.tar` — the `tag`/`-t`
