@@ -1548,6 +1548,16 @@ A sixth independent audit found one trivial leftover in `EnvFile::parse()`.
   has no `node_modules` while `public/build`, `vendor`, and the app code are all still present and
   the app still boots.
 
+- `ComposeFileBuilder::build()` rejects four hand-edited `ship.json` shapes that previously
+  generated broken compose output with no error: two `serviceNames` values resolving to the same
+  compose key, a `serviceNames` rename colliding with another selected service's own default
+  name, two `additionalServices` entries sharing a `name`, and an `additionalServices` entry for a
+  service that doesn't use `SupportsNamedInstances` (so it can't actually become a second,
+  distinct instance -- Reverb is the only one today). Checked against the real registry, in
+  `build()` itself, so every caller (`ship up`/`build`/`release`, and `config:test`'s own dry-run
+  build) gets the same protection. Verified live through `config:test` against all four shapes,
+  and against a legitimate multi-rename config to confirm no false positive.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
