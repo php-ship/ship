@@ -61,16 +61,25 @@ fi
 # *not* php-fpm, so it's exactly as exposed to this race as Reverb is -- the install that mattered
 # was `ship up`'s own, via MutagenSync::installComposerDependencies() (which only ever runs once
 # the sync is fully "Watching", guaranteeing composer.lock has actually arrived), not whichever one
-# this entrypoint happened to attempt first against a partially-synced tree. Gated on
-# `$1 != "php-fpm"`, the same as the wait loop above, so setting this unconditionally whenever
-# SHIP_MUTAGEN is active (regardless of which runtime "app" itself ends up running) is still a
-# complete no-op for plain php-fpm, which never reaches here at all.
-if [ -n "$SHIP_DEV_SKIP_INSTALL" ] && [ "$1" != "php-fpm" ]; then
-    i=0
-    while [ ! -f vendor/autoload.php ] && [ "$i" -lt 120 ]; do
-        sleep 1
-        i=$((i + 1))
-    done
+# this entrypoint happened to attempt first against a partially-synced tree.
+#
+# A fourth, found via a fifth independent audit: plain php-fpm wasn't actually exempt from this
+# race either, in one narrow case -- a *previous* `ship up` that synced the tree (composer.json
+# already present) but was interrupted before installing, then `ship down` (without `--volumes`)
+# and a fresh `ship up`. The new container's entrypoint runs for the first time against a volume
+# that already has composer.json, so the `elif` below would have fired immediately regardless of
+# `$1`, racing `ship up`'s own install exactly like the Octane case above. So SHIP_DEV_SKIP_INSTALL
+# skips the `elif` below entirely whenever it's set, php-fpm included -- just never *waits* for
+# php-fpm specifically, which still starts immediately and tolerates emptiness as always; only an
+# Octane server or Reverb (its own `$1 != "php-fpm"` identifies them) wait for the file.
+if [ -n "$SHIP_DEV_SKIP_INSTALL" ]; then
+    if [ "$1" != "php-fpm" ]; then
+        i=0
+        while [ ! -f vendor/autoload.php ] && [ "$i" -lt 120 ]; do
+            sleep 1
+            i=$((i + 1))
+        done
+    fi
 elif [ -f composer.json ] && [ ! -f vendor/autoload.php ]; then
     if [ -n "$SHIP_HOST_USER" ] && command -v su-exec >/dev/null 2>&1; then
         su-exec "$SHIP_HOST_USER" composer install --no-interaction
