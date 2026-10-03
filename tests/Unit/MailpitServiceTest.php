@@ -18,6 +18,19 @@ final class MailpitServiceTest extends TestCase
     }
 
     /**
+     * Regression coverage for a real bug found via a seventh independent audit: a bare
+     * `HOST:CONTAINER` mapping binds every interface, not just loopback, for a web UI that only
+     * ever needs to reach the developer's own machine. Mailpit is dev-only tooling entirely (see
+     * the production test below), so there's no production case to leave unbound here.
+     */
+    public function test_the_web_ui_port_binds_loopback_only(): void
+    {
+        $fragment = (new MailpitService())->composeFragment(ShipEnvironment::Development);
+
+        self::assertSame(['127.0.0.1:${MAILPIT_WEB_PORT:-8025}:8025'], $fragment['mailpit']['ports']);
+    }
+
+    /**
      * There's no single sane default host port for an arbitrary number of named instances without
      * risking a collision -- a named instance's web UI stays reachable inside the Docker network
      * only, unless a project adds its own docker-compose.override.yml entry.

@@ -78,6 +78,18 @@ final class SiloServiceTest extends TestCase
     {
         $fragment = (new SiloService())->composeFragment(ShipEnvironment::Development);
 
+        self::assertSame(['127.0.0.1:${SILO_CONSOLE_PORT:-9001}:9001'], $fragment['silo']['ports']);
+    }
+
+    /**
+     * Regression coverage for a real bug found via a seventh independent audit: a bare
+     * `HOST:CONTAINER` mapping binds every interface, not just loopback, for a management console
+     * that only ever needs to reach the developer's own machine.
+     */
+    public function test_the_console_port_is_not_loopback_bound_in_production(): void
+    {
+        $fragment = (new SiloService())->composeFragment(ShipEnvironment::Production);
+
         self::assertSame(['${SILO_CONSOLE_PORT:-9001}:9001'], $fragment['silo']['ports']);
     }
 
@@ -90,7 +102,7 @@ final class SiloServiceTest extends TestCase
     {
         $fragment = (new SiloService())->composeFragment(ShipEnvironment::Development, 'archive');
 
-        self::assertSame(['${ARCHIVE_SILO_CONSOLE_PORT:-9001}:9001'], $fragment['silo-archive']['ports']);
+        self::assertSame(['127.0.0.1:${ARCHIVE_SILO_CONSOLE_PORT:-9001}:9001'], $fragment['silo-archive']['ports']);
     }
 
     /**

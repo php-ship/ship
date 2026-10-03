@@ -20,6 +20,21 @@ final class OctaneFrankenPhpServiceTest extends TestCase
     {
         $fragment = (new OctaneFrankenPhpService())->composeFragment(ShipEnvironment::Development);
 
+        self::assertSame(
+            ['127.0.0.1:${APP_PORT:-8000}:8000', '127.0.0.1:${APP_HTTPS_PORT:-8443}:8443'],
+            $fragment['app']['ports'],
+        );
+    }
+
+    /**
+     * Regression coverage for a real bug found via a seventh independent audit: a bare
+     * `HOST:CONTAINER` mapping binds every interface, not just loopback. Production is untouched
+     * here -- a published production port often does need to be reachable from outside.
+     */
+    public function test_ports_are_not_loopback_bound_in_production(): void
+    {
+        $fragment = (new OctaneFrankenPhpService())->composeFragment(ShipEnvironment::Production);
+
         self::assertSame(['${APP_PORT:-8000}:8000', '${APP_HTTPS_PORT:-8443}:8443'], $fragment['app']['ports']);
     }
 

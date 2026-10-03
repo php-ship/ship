@@ -6,6 +6,7 @@ namespace Ship\Services;
 
 use Ship\Contracts\ServiceDefinition;
 use Ship\Contracts\ShipEnvironment;
+use Ship\Docker\DevPortBinding;
 
 /**
  * Reverb needs its own long process and published port -- a WebSocket server, unlike php-fpm or Octane
@@ -47,7 +48,7 @@ final class ReverbService implements ServiceDefinition
                 ],
                 'command' => ['php', 'artisan', 'reverb:start', '--host=0.0.0.0', '--port=8080'],
                 'volumes' => $environment->isDevelopment() ? ['.:/var/www/html'] : [],
-                'ports' => ['${REVERB_PORT:-8080}:8080'],
+                'ports' => [DevPortBinding::bind('${REVERB_PORT:-8080}:8080', $environment)],
                 'networks' => ['ship'],
                 // Same optional .env as "app" -- see ComposeFileBuilder::OPTIONAL_ENV_FILE's
                 // docblock. Reverb boots a real Laravel app too, so it needs the same secrets.

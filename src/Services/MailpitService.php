@@ -6,6 +6,7 @@ namespace Ship\Services;
 
 use Ship\Contracts\ServiceDefinition;
 use Ship\Contracts\ShipEnvironment;
+use Ship\Docker\DevPortBinding;
 
 final class MailpitService implements ServiceDefinition
 {
@@ -48,7 +49,7 @@ final class MailpitService implements ServiceDefinition
                 // single sane default host port for an arbitrary number of named instances
                 // without risking a collision. A named instance's UI is still reachable inside
                 // the Docker network; add a docker-compose.override.yml entry to publish one too.
-                'ports' => $instanceName === null ? ['${MAILPIT_WEB_PORT:-8025}:8025'] : [],
+                'ports' => $instanceName === null ? [DevPortBinding::bind('${MAILPIT_WEB_PORT:-8025}:8025', $environment)] : [],
             ],
         ];
     }

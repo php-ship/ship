@@ -156,7 +156,7 @@ final class ComposeFileBuilderTest extends TestCase
         $dev = Yaml::parse($builder->build($config, ShipEnvironment::Development));
         $prod = Yaml::parse($builder->build($config, ShipEnvironment::Production));
 
-        self::assertContains('${VITE_PORT:-5173}:${VITE_PORT:-5173}', $dev['services']['app']['ports']);
+        self::assertContains('127.0.0.1:${VITE_PORT:-5173}:${VITE_PORT:-5173}', $dev['services']['app']['ports']);
         self::assertSame([], $prod['services']['app']['ports']);
     }
 
@@ -193,7 +193,7 @@ final class ComposeFileBuilderTest extends TestCase
 
         $dev = Yaml::parse($builder->build($config, ShipEnvironment::Development));
 
-        self::assertSame('${VITE_PORT:-5173}:${VITE_PORT:-5173}', $dev['services']['app']['ports'][0]);
+        self::assertSame('127.0.0.1:${VITE_PORT:-5173}:${VITE_PORT:-5173}', $dev['services']['app']['ports'][0]);
     }
 
     /**
@@ -233,6 +233,23 @@ final class ComposeFileBuilderTest extends TestCase
         $prod = Yaml::parse($builder->build($config, ShipEnvironment::Production));
 
         self::assertSame(['${APP_PORT:-80}:80'], $prod['services']['webserver']['ports']);
+    }
+
+    /**
+     * Regression coverage for a real bug found via a seventh independent audit: a bare
+     * `HOST:CONTAINER` mapping binds every interface (0.0.0.0), reachable from anything else on
+     * the same network -- or the open internet, on a cloud dev box with no firewall -- for a port
+     * that only ever needs to reach the developer's own machine. Production is untouched: a
+     * published production port often does need to be reachable from outside.
+     */
+    public function test_the_webserver_port_binds_loopback_only_in_development(): void
+    {
+        $builder = new ComposeFileBuilder($this->registry());
+        $config = new ShipConfig(phpVersion: '8.4', services: []);
+
+        $dev = Yaml::parse($builder->build($config, ShipEnvironment::Development));
+
+        self::assertSame(['127.0.0.1:${APP_PORT:-80}:80'], $dev['services']['webserver']['ports']);
     }
 
     /**

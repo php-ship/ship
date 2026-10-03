@@ -6,6 +6,7 @@ namespace Ship\Services;
 
 use Ship\Contracts\ServiceDefinition;
 use Ship\Contracts\ShipEnvironment;
+use Ship\Docker\DevPortBinding;
 use Ship\Docker\RequiredEnv;
 
 /**
@@ -70,7 +71,7 @@ final class SiloService implements ServiceDefinition
                 // publishes one at all. The console port's own env var is instance-scoped so a
                 // second named instance (storage supports additionalServices) doesn't silently
                 // collide with the default one on the same host port.
-                'ports' => [$this->consolePortMapping($instanceName)],
+                'ports' => [DevPortBinding::bind($this->consolePortMapping($instanceName), $environment)],
                 // Persisted in both environments -- see MySqlService's own comment for why.
                 'volumes' => ["ship-{$name}-data:/data"],
                 'healthcheck' => [

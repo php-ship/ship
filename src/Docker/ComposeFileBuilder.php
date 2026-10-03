@@ -756,7 +756,9 @@ final class ComposeFileBuilder
                 // env_file: already loads the same .env this interpolates from, one VITE_PORT value
                 // drives both the compose port mapping and whatever port a vite.config.js reading
                 // process.env.VITE_PORT actually binds to -- see README's Vite HMR section.
-                'ports' => $environment->isDevelopment() ? ['${VITE_PORT:-5173}:${VITE_PORT:-5173}'] : [],
+                'ports' => $environment->isDevelopment()
+                    ? [DevPortBinding::bind('${VITE_PORT:-5173}:${VITE_PORT:-5173}', $environment)]
+                    : [],
                 'networks' => ['ship'],
                 'env_file' => self::OPTIONAL_ENV_FILE,
                 // Xdebug (installed unconditionally in "dev", see stubs/docker/php/Dockerfile)
@@ -790,7 +792,7 @@ final class ComposeFileBuilder
                     'target' => $environment->isDevelopment() ? 'dev-nginx' : 'prod-nginx',
                 ],
                 'volumes' => $environment->isDevelopment() ? $devVolume : [],
-                'ports' => ['${APP_PORT:-80}:80'],
+                'ports' => [DevPortBinding::bind('${APP_PORT:-80}:80', $environment)],
                 'depends_on' => ['app'],
                 'networks' => ['ship'],
             ];

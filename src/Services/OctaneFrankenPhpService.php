@@ -6,6 +6,7 @@ namespace Ship\Services;
 
 use Ship\Contracts\ServiceDefinition;
 use Ship\Contracts\ShipEnvironment;
+use Ship\Docker\DevPortBinding;
 
 /**
  * Structurally different from Swoole/RoadRunner: FrankenPHP *is* the server, built atop Caddy, needing
@@ -43,7 +44,10 @@ final class OctaneFrankenPhpService implements ServiceDefinition
                 // baseServices() are preserved.
                 'build' => ['dockerfile' => 'ship/Dockerfile.frankenphp'],
                 'command' => $this->command($environment),
-                'ports' => ['${APP_PORT:-8000}:8000', '${APP_HTTPS_PORT:-8443}:8443'],
+                'ports' => [
+                    DevPortBinding::bind('${APP_PORT:-8000}:8000', $environment),
+                    DevPortBinding::bind('${APP_HTTPS_PORT:-8443}:8443', $environment),
+                ],
                 // Production only, same as Swoole/RoadRunner: Octane is its own long-lived program
                 // with no master-drops-workers split, so without this it runs as root. See
                 // Dockerfile.frankenphp's prod stage for the matching chown of Caddy's own

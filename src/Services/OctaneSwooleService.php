@@ -6,6 +6,7 @@ namespace Ship\Services;
 
 use Ship\Contracts\ServiceDefinition;
 use Ship\Contracts\ShipEnvironment;
+use Ship\Docker\DevPortBinding;
 
 final class OctaneSwooleService implements ServiceDefinition
 {
@@ -35,7 +36,7 @@ final class OctaneSwooleService implements ServiceDefinition
         return [
             'app' => [
                 'command' => ['sh', '-c', $this->command($environment)],
-                'ports' => ['${APP_PORT:-8000}:8000'],
+                'ports' => [DevPortBinding::bind('${APP_PORT:-8000}:8000', $environment)],
                 // Production only (dev's own entrypoint is a different, static file that never
                 // reads this): an Octane server is its own long-lived program with no
                 // master-drops-workers split the way php-fpm has, so without this it -- every

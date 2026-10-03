@@ -16,7 +16,7 @@ final class ReverbServiceTest extends TestCase
 
         self::assertArrayHasKey('reverb', $fragment);
         self::assertArrayNotHasKey('app', $fragment);
-        self::assertSame(['${REVERB_PORT:-8080}:8080'], $fragment['reverb']['ports']);
+        self::assertSame(['127.0.0.1:${REVERB_PORT:-8080}:8080'], $fragment['reverb']['ports']);
     }
 
     public function test_it_omits_the_bind_mount_in_production(): void
@@ -25,6 +25,18 @@ final class ReverbServiceTest extends TestCase
 
         self::assertSame([], $fragment['reverb']['volumes']);
         self::assertSame('prod', $fragment['reverb']['build']['target']);
+    }
+
+    /**
+     * Regression coverage for a real bug found via a seventh independent audit: a bare
+     * `HOST:CONTAINER` mapping binds every interface, not just loopback. Production is untouched
+     * -- Reverb's published port often does need to be reachable from outside there.
+     */
+    public function test_the_port_is_not_loopback_bound_in_production(): void
+    {
+        $fragment = (new ReverbService())->composeFragment(ShipEnvironment::Production);
+
+        self::assertSame(['${REVERB_PORT:-8080}:8080'], $fragment['reverb']['ports']);
     }
 
     /**
