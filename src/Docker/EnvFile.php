@@ -57,12 +57,40 @@ final class EnvFile
             // comment, and all) fell through as one literal string instead of either path
             // applying. Finding the closing quote explicitly (not just checking the end of the
             // string) and only ever comment-stripping what comes *after* it fixes both at once.
-            if ($value !== '' && ($value[0] === '"' || $value[0] === "'")) {
-                $quote = $value[0];
-                $closing = strpos($value, $quote, 1);
+            if ($value !== '' && $value[0] === '"') {
+                // A fourth, found via a sixth independent re-audit: an *escaped* quote inside a
+                // double-quoted value -- `E="a\"b"` -- cut the value short at that escaped quote
+                // instead of the real closing one, since the previous fix's plain strpos() has no
+                // concept of escaping at all. Scanned character by character instead, treating a
+                // backslash as consuming whatever follows it (an escaped quote, an escaped
+                // backslash, ...) rather than a value boundary -- the same thing a shell or a real
+                // dotenv parser already does with double-quoted values. Single-quoted ones are
+                // deliberately left on the simpler strpos() path below: they have no escape
+                // mechanism at all in shell/dotenv convention, so the first matching quote is
+                // always the real one.
+                $closing = null;
+                $length = strlen($value);
+
+                for ($i = 1; $i < $length; $i++) {
+                    if ($value[$i] === '\\' && $i + 1 < $length) {
+                        $i++;
+                        continue;
+                    }
+
+                    if ($value[$i] === '"') {
+                        $closing = $i;
+                        break;
+                    }
+                }
 
                 // An unterminated quote has nothing real to close on -- left as the raw,
                 // already-trimmed value, the same lenient fallback this always had.
+                if ($closing !== null) {
+                    $value = (string) preg_replace('/\\\\(["\\\\])/', '$1', substr($value, 1, $closing - 1));
+                }
+            } elseif ($value !== '' && $value[0] === "'") {
+                $closing = strpos($value, "'", 1);
+
                 if ($closing !== false) {
                     $value = substr($value, 1, $closing - 1);
                 }

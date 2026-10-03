@@ -106,6 +106,39 @@ final class EnvFileTest extends TestCase
         self::assertSame(['UNTERMINATED' => '"oops'], EnvFile::parse($path));
     }
 
+    /**
+     * Regression coverage for a real bug found via a sixth independent re-audit, confirmed live:
+     * an *escaped* quote inside a double-quoted value -- E="a\"b" -- cut the value short at that
+     * escaped quote (parsing as the literal "a\") instead of continuing to the real closing one.
+     * The only consumers that ever read this (MySqlUsernameGuard, the `${VAR}` interpolation
+     * handed to `docker compose build`) would have seen the truncated value -- Compose itself
+     * reads the real file at container runtime, so the containers were never actually affected.
+     */
+    public function test_an_escaped_quote_inside_a_double_quoted_value_does_not_end_it_early(): void
+    {
+        $path = $this->writeTempEnv('E="a\"b"' . "\n");
+
+        self::assertSame(['E' => 'a"b'], EnvFile::parse($path));
+    }
+
+    public function test_an_escaped_backslash_inside_a_double_quoted_value_is_unescaped(): void
+    {
+        $path = $this->writeTempEnv('BACKSLASH="path\\\\end"' . "\n");
+
+        self::assertSame(['BACKSLASH' => 'path\\end'], EnvFile::parse($path));
+    }
+
+    /**
+     * Single-quoted values have no escape mechanism at all in shell/dotenv convention -- unlike
+     * double-quoted ones, the first matching quote is always the real closing one.
+     */
+    public function test_a_backslash_inside_a_single_quoted_value_is_kept_literal(): void
+    {
+        $path = $this->writeTempEnv("SINGLE='a\\b'\n");
+
+        self::assertSame(['SINGLE' => 'a\\b'], EnvFile::parse($path));
+    }
+
     private function writeTempEnv(string $contents): string
     {
         $path = sys_get_temp_dir() . '/ship-env-file-test-' . bin2hex(random_bytes(8));
