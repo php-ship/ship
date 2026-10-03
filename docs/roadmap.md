@@ -433,7 +433,9 @@
   library) that `ship.json`'s service selections give no way to infer,
   which otherwise makes `composer install` fail outright on unmet
   platform requirements. Hand-edited, not prompted by `ship init`, same
-  as `extensions`/`serviceNames`.
+  as `extensions`/`serviceNames`. Honored by both `stubs/docker/php/Dockerfile`
+  and `Dockerfile.frankenphp`, so a project running Octane under
+  FrankenPHP gets the same extensions as every other runtime.
 
   Fed to `mlocati/docker-php-extension-installer` (a new
   `ARG PHP_EXTENSIONS=""` in `stubs/docker/php/Dockerfile`, gated so a
