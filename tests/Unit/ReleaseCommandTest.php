@@ -58,9 +58,21 @@ final class ReleaseCommandTest extends TestCase
      * code was previously ignored entirely, so a release could report success with a missing or
      * truncated tar. A nonexistent image tag makes `docker save` itself fail predictably, without
      * needing a real image to actually exist.
+     *
+     * Skipped, not silently "passed", when Docker itself isn't installed -- a real gap found via
+     * an independent re-audit: `docker save` against a nonexistent tag and `docker` not existing
+     * on PATH at all both make `runInteractive()` return a non-zero exit code, so this assertion
+     * held either way, but only the former is actually exercising exportImages()'s own handling
+     * of a *genuine* `docker save` failure. Without Docker, this was passing for an unrelated
+     * reason -- "the `docker` command couldn't even start" -- that proves nothing about the code
+     * under test.
      */
     public function test_export_images_fails_when_docker_save_fails(): void
     {
+        if ((new ProcessRunner())->runQuiet(['docker', '--version']) === '') {
+            self::markTestSkipped('Docker is not available -- this test needs a real `docker save` failure to verify against.');
+        }
+
         $releaseDir = sys_get_temp_dir() . '/ship-export-images-test-' . bin2hex(random_bytes(8));
         mkdir($releaseDir . '/images', recursive: true);
 
