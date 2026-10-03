@@ -1269,6 +1269,18 @@
   `_`, `-` produced it, down to a single `-` -- satisfying Docker's grammar unconditionally
   instead of special-casing every separator combination it allows.
 
+- Stopped `runQuiet()`'s timeout from crashing `ship` with a raw stack trace -- found via the same
+  independent audit. A command that actually hits its hardcoded 30s timeout (`mutagen sync
+  create` scanning a large project tree, say) threw `ProcessTimedOutException` straight out of
+  it, uncaught, crashing the whole process instead of failing with a friendly error. Every
+  existing caller already treats an empty `runQuiet()` result as "the thing isn't there"/"that
+  didn't work", so a timeout now degrades to that exact same signal.
+
+  `runQuiet()` also takes an optional per-call timeout now, so a caller expecting something
+  genuinely slower isn't stuck with the same 30s budget as `docker compose version`.
+  `MutagenSync`'s own `mutagen sync create` call -- the audit's example -- uses a 60s budget for
+  exactly that reason.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
