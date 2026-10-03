@@ -10,6 +10,7 @@ use Ship\Docker\ComposeCommand;
 use Ship\Docker\DeployPlan;
 use Ship\Docker\EnvFile;
 use Ship\Docker\MySqlUsernameGuard;
+use Ship\Docker\NginxUpstreamMismatch;
 use Ship\Docker\ProductionBuildRunner;
 use Ship\Docker\ProjectName;
 use Ship\Docker\ReleaseManifest;
@@ -76,6 +77,13 @@ final class ReleaseCommand extends Command
         }
 
         $config = ShipConfig::fromFile($this->projectRoot . '/ship.json');
+
+        // The prod-nginx image builds from this exact same published file -- a stale upstream
+        // breaks it here too, not just in dev (see NginxUpstreamMismatch's own docblock).
+        $nginxWarning = NginxUpstreamMismatch::warning($this->projectRoot, $config);
+        if ($nginxWarning !== null) {
+            $output->writeln($nginxWarning);
+        }
 
         $usernameProblems = MySqlUsernameGuard::problems($config, EnvFile::parse($envProductionPath));
         if ($usernameProblems !== []) {

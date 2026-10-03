@@ -11,6 +11,7 @@ use Ship\Docker\ComposeFileBuilder;
 use Ship\Docker\EnvFile;
 use Ship\Docker\HostUser;
 use Ship\Docker\MySqlUsernameGuard;
+use Ship\Docker\NginxUpstreamMismatch;
 use Ship\Extensions\ExtensionLoader;
 use Ship\Runtime\ProcessRunner;
 use Ship\Services\ServiceRegistry;
@@ -60,7 +61,11 @@ final class UpCommand extends Command
         }
 
         $this->warnAboutStubVersionMismatch($output);
-        $this->warnAboutNginxUpstreamMismatch($config, $output);
+
+        $nginxWarning = NginxUpstreamMismatch::warning($this->projectRoot, $config);
+        if ($nginxWarning !== null) {
+            $output->writeln($nginxWarning);
+        }
 
         $usernameProblems = MySqlUsernameGuard::problems($config, EnvFile::parse($this->projectRoot . '/.env'));
         if ($usernameProblems !== []) {
@@ -233,49 +238,6 @@ final class UpCommand extends Command
                 . 'prompt, so have your current selections (see ship.json) ready to re-pick.</comment>',
             $recordedVersion,
             $currentVersion,
-        ));
-    }
-
-    /**
-     * Renaming the app service (ship.json's serviceNames) only ever rewrites the *published*
-     * ship/nginx/default.conf at `ship init` time (see InitCommand::publishStubs()) -- a real bug
-     * found via an independent re-audit: hand-editing serviceNames afterward, without re-running
-     * `ship init`, leaves that file pointing at the *old* name while ComposeFileBuilder renames
-     * the actual compose service to the new one on every `ship up`, so nginx fails to resolve its
-     * upstream the moment the stale name no longer matches anything in the stack. This only
-     * warns, the same as warnAboutStubVersionMismatch() above and for the same reason: a project
-     * may have hand-edited this file for other reasons (see README's "Customizing the stack"),
-     * and silently overwriting it would be worse than an outdated upstream name.
-     */
-    private function warnAboutNginxUpstreamMismatch(ShipConfig $config, OutputInterface $output): void
-    {
-        $confPath = $this->projectRoot . '/ship/nginx/default.conf';
-
-        if (!is_file($confPath)) {
-            return;
-        }
-
-        $conf = (string) file_get_contents($confPath);
-
-        if (preg_match('/set \$upstream_app ([a-zA-Z0-9_.-]+):9000;/', $conf, $matches) !== 1) {
-            return;
-        }
-
-        $publishedAppName = $matches[1];
-        $currentAppName = $config->serviceNames['app'] ?? 'app';
-
-        if ($publishedAppName === $currentAppName) {
-            return;
-        }
-
-        $output->writeln(sprintf(
-            '<comment>ship: ship/nginx/default.conf still points at "%s", but ship.json\'s '
-                . 'serviceNames now renames the app service to "%s" -- nginx will fail to resolve '
-                . 'its upstream. Run `ship init` again to republish it (it re-asks every prompt, so '
-                . 'have your current selections ready to re-pick), or edit the `set $upstream_app` '
-                . 'line in that file by hand.</comment>',
-            $publishedAppName,
-            $currentAppName,
         ));
     }
 

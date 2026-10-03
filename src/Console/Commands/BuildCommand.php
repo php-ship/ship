@@ -6,6 +6,7 @@ namespace Ship\Console\Commands;
 
 use Ship\Config\ShipConfig;
 use Ship\Contracts\FrameworkAdapter;
+use Ship\Docker\NginxUpstreamMismatch;
 use Ship\Docker\ProductionBuildRunner;
 use Ship\Docker\ProjectName;
 use Ship\Extensions\ExtensionLoader;
@@ -48,6 +49,13 @@ final class BuildCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $config = ShipConfig::fromFile($this->projectRoot . '/ship.json');
+
+        // The prod-nginx image builds from this exact same published file -- a stale upstream
+        // breaks it here too, not just in dev (see NginxUpstreamMismatch's own docblock).
+        $nginxWarning = NginxUpstreamMismatch::warning($this->projectRoot, $config);
+        if ($nginxWarning !== null) {
+            $output->writeln($nginxWarning);
+        }
 
         if ($this->registry !== null && $this->frameworkAdapters !== null) {
             $registry = $this->registry;
