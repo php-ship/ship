@@ -1224,6 +1224,26 @@
   Windows, pointing at the `chmod +x`/`sh deploy-commands.sh` workarounds instead of claiming an
   executable bit that was never actually set.
 
+- Publish Garage's stub for an additional-instance-only selection too, and fix its hardcoded RPC
+  address -- found via the same independent audit. `publishStubs()` only ever checked the default
+  storage pick, so Garage selected *only* as a named `additionalServices` instance never got its
+  stub files published at all -- that instance's own `build: {context: ./ship/garage}` had
+  nothing to build from. Now also checks `additionalServices` for a `"garage"` entry.
+
+  Separately, `garage.toml`'s `rpc_public_addr` was hardcoded to the literal `"garage:3901"`,
+  correct for the default instance but wrong for any named instance, whose real compose service
+  name is never just `"garage"`. `dxflrs/garage:v2.4.1` is FROM scratch with no shell, so the
+  substitution can't happen at container boot the way SeaweedFS's identity file does -- the
+  Dockerfile now has a separate "config" stage (alpine, which has a shell) that substitutes a
+  `GARAGE_RPC_PUBLIC_ADDR` build arg into the file at build time, and only the already-substituted
+  file is copied into the real, shell-less final stage. `GarageService::composeFragment()` sets
+  that arg to the instance's own compose service name.
+
+  Verified live: with Garage selected only as an additional "archive" storage instance, `ship
+  init` now publishes `ship/garage/garage.toml`; building the Dockerfile with `--build-arg
+  GARAGE_RPC_PUBLIC_ADDR=garage-archive:3901` bakes `rpc_public_addr = "garage-archive:3901"`
+  into the image, and the container starts cleanly with it.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
