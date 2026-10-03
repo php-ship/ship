@@ -49,11 +49,12 @@ final class UpCommand extends Command
         // extension-provided service would otherwise pass `ship init`
         // (which used Application's already-loaded registry) and then
         // fail on `ship up` with an OutOfBoundsException, since this
-        // registry starts fresh with only the built-ins.
-        $warnings = (new ExtensionLoader())->load($config->extensions, $registry);
-        foreach ($warnings as $warning) {
-            $output->writeln("<comment>ship: warning: {$warning}</comment>");
-        }
+        // registry starts fresh with only the built-ins. Not re-printing
+        // the warnings here too — Application's own constructor already
+        // surfaced them once; a real bug found via an independent audit
+        // had every extension class built once there and a second time
+        // here, printing the same warning twice on every `ship up`.
+        (new ExtensionLoader())->load($config->extensions, $registry);
 
         $this->warnAboutStubVersionMismatch($output);
 

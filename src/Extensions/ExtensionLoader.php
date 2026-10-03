@@ -21,12 +21,21 @@ use Throwable;
 final class ExtensionLoader
 {
     /**
+     * One instantiation pass per class, not two — a real bug found via an independent audit: this
+     * used to return only warnings, with a separate loadFrameworkAdapters() re-instantiating every
+     * class all over again just to pick out the FrameworkAdapter ones. Every caller that needed
+     * both (Application, and ProductionBuildRunner by way of ship build/ship release) was
+     * constructing each extension class twice per run, and a constructor with a side effect (e.g.
+     * logging, a warning of its own) would fire twice too. Returning both results from this single
+     * loop removes the second pass entirely.
+     *
      * @param list<string> $extensionClasses
-     * @return list<string> human-readable warnings for anything that failed to load
+     * @return array{warnings: list<string>, frameworkAdapters: list<FrameworkAdapter>}
      */
     public function load(array $extensionClasses, ServiceRegistry $registry): array
     {
         $warnings = [];
+        $frameworkAdapters = [];
 
         foreach ($extensionClasses as $class) {
             if (!class_exists($class)) {
@@ -47,44 +56,13 @@ final class ExtensionLoader
             }
 
             if ($instance instanceof FrameworkAdapter) {
-                // FrameworkAdapters are collected by the caller (Application),
-                // not this registry, so we hand it back rather than register
-                // it here — see Application::detectFrameworkAdapters().
+                $frameworkAdapters[] = $instance;
                 continue;
             }
 
             $warnings[] = "Extension class \"{$class}\" implements neither ServiceDefinition nor FrameworkAdapter.";
         }
 
-        return $warnings;
-    }
-
-    /**
-     * Resolves just the FrameworkAdapter instances from the list; Application runs these via detect().
-     *
-     * @param list<string> $extensionClasses
-     * @return list<FrameworkAdapter>
-     */
-    public function loadFrameworkAdapters(array $extensionClasses): array
-    {
-        $adapters = [];
-
-        foreach ($extensionClasses as $class) {
-            if (!class_exists($class)) {
-                continue;
-            }
-
-            try {
-                $instance = new $class();
-            } catch (Throwable) {
-                continue;
-            }
-
-            if ($instance instanceof FrameworkAdapter) {
-                $adapters[] = $instance;
-            }
-        }
-
-        return $adapters;
+        return ['warnings' => $warnings, 'frameworkAdapters' => $frameworkAdapters];
     }
 }

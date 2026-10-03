@@ -80,14 +80,14 @@ final class ReleaseCommand extends Command
 
         $registry = new ServiceRegistry(ServiceRegistry::defaults());
 
-        $warnings = (new ExtensionLoader())->load($config->extensions, $registry);
-        foreach ($warnings as $warning) {
-            $output->writeln("<comment>ship: warning: {$warning}</comment>");
-        }
+        // Not printing these warnings here — Application's own constructor
+        // already surfaced them once; see UpCommand's own docblock for why.
+        $loaded = (new ExtensionLoader())->load($config->extensions, $registry);
 
         $result = (new ProductionBuildRunner($this->runner))->build(
             $config,
             $registry,
+            $loaded['frameworkAdapters'],
             $this->projectRoot,
             ProjectName::resolve($config, $this->projectRoot),
             $tag,

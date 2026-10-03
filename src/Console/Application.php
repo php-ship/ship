@@ -26,8 +26,8 @@ use Symfony\Component\Console\Command\Command;
 
 final class Application extends SymfonyApplication
 {
-    /** @var list<string> */
-    private array $extensionClasses = [];
+    /** @var list<FrameworkAdapter> */
+    private array $extensionFrameworkAdapters = [];
 
     public function __construct(private readonly string $projectRoot)
     {
@@ -39,9 +39,11 @@ final class Application extends SymfonyApplication
         // ship.json won't exist yet on a first-ever `ship init` run, so
         // this has to degrade gracefully rather than require the file.
         $config = $this->readConfigIfPresent();
-        $this->extensionClasses = $config === null ? [] : $config->extensions;
+        $extensionClasses = $config === null ? [] : $config->extensions;
         $appServiceName = $config === null ? 'app' : ($config->serviceNames['app'] ?? 'app');
-        $warnings = (new ExtensionLoader())->load($this->extensionClasses, $registry);
+        $loaded = (new ExtensionLoader())->load($extensionClasses, $registry);
+        $warnings = $loaded['warnings'];
+        $this->extensionFrameworkAdapters = $loaded['frameworkAdapters'];
 
         $this->registerCommand(new InitCommand($this->projectRoot, $registry));
         $this->registerCommand(new UpCommand($this->projectRoot, $runner));
@@ -95,7 +97,7 @@ final class Application extends SymfonyApplication
         $candidates = [
             new LaravelAdapter(),
             new SymfonyAdapter(),
-            ...(new ExtensionLoader())->loadFrameworkAdapters($this->extensionClasses),
+            ...$this->extensionFrameworkAdapters,
         ];
 
         return array_values(array_filter(

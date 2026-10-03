@@ -7,7 +7,6 @@ namespace Ship\Docker;
 use Ship\Config\ShipConfig;
 use Ship\Contracts\FrameworkAdapter;
 use Ship\Contracts\ShipEnvironment;
-use Ship\Extensions\ExtensionLoader;
 use Ship\Frameworks\LaravelAdapter;
 use Ship\Frameworks\SymfonyAdapter;
 use Ship\Runtime\ProcessRunner;
@@ -32,6 +31,10 @@ final class ProductionBuildRunner
     }
 
     /**
+     * @param list<FrameworkAdapter> $extensionFrameworkAdapters already-instantiated extension
+     *     FrameworkAdapters (see ExtensionLoader::load()) — the caller has already built these once
+     *     for its own registry/warnings, so this runs detect() against them directly instead of
+     *     re-instantiating every extension class a second time just to find them again.
      * @return array{
      *     composeServices: array<string, array<string, mixed>>,
      *     images: list<array{tag: string, canonicalService: string, members: list<string>}>,
@@ -40,12 +43,13 @@ final class ProductionBuildRunner
     public function build(
         ShipConfig $config,
         ServiceRegistry $registry,
+        array $extensionFrameworkAdapters,
         string $projectRoot,
         string $projectName,
         string $tagSuffix,
         OutputInterface $output,
     ): ?array {
-        $this->generateEntrypoint($config, $projectRoot);
+        $this->generateEntrypoint($config, $projectRoot, $extensionFrameworkAdapters);
 
         $composeYaml = (new ComposeFileBuilder($registry))->build($config, ShipEnvironment::Production);
         /** @var array{services: array<string, array<string, mixed>>} $parsed */
@@ -111,14 +115,16 @@ final class ProductionBuildRunner
      * Generated fresh on every `ship build`/`ship release` (not a static stub) -- its content depends
      * on which FrameworkAdapter matches the project. A build input: baked into the image by `ship/
      * Dockerfile`'s `prod` stage's own `COPY`, not something the release artifact carries separately.
+     *
+     * @param list<FrameworkAdapter> $extensionFrameworkAdapters
      */
-    private function generateEntrypoint(ShipConfig $config, string $projectRoot): void
+    private function generateEntrypoint(ShipConfig $config, string $projectRoot, array $extensionFrameworkAdapters): void
     {
         $releaseCommands = array_merge(
             [],
             ...array_map(
                 static fn (FrameworkAdapter $adapter): array => $adapter->releaseCommands(),
-                $this->detectFrameworkAdapters($projectRoot, $config->extensions),
+                $this->detectFrameworkAdapters($projectRoot, $extensionFrameworkAdapters),
             ),
         );
 
@@ -133,17 +139,19 @@ final class ProductionBuildRunner
     }
 
     /**
-     * Same detection Application/UpCommand do at boot -- duplicated since this runs standalone.
+     * Same detection Application/UpCommand do at boot -- duplicated since this runs standalone, but
+     * the extension side of it is already-instantiated FrameworkAdapters the caller handed in, not
+     * extension class names to instantiate all over again (see this class's own build() docblock).
      *
-     * @param list<string> $extensionClasses
+     * @param list<FrameworkAdapter> $extensionFrameworkAdapters
      * @return list<FrameworkAdapter>
      */
-    private function detectFrameworkAdapters(string $projectRoot, array $extensionClasses): array
+    private function detectFrameworkAdapters(string $projectRoot, array $extensionFrameworkAdapters): array
     {
         $candidates = [
             new LaravelAdapter(),
             new SymfonyAdapter(),
-            ...(new ExtensionLoader())->loadFrameworkAdapters($extensionClasses),
+            ...$extensionFrameworkAdapters,
         ];
 
         return array_values(array_filter(
