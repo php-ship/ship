@@ -353,6 +353,28 @@ final class ComposeFileBuilderTest extends TestCase
         self::assertSame('1000:1001', $dev['services']['reverb']['environment']['SHIP_HOST_USER']);
     }
 
+    /**
+     * Regression coverage for a real bug found via a third independent re-audit: Reverb and
+     * "app" share the exact same dev entrypoint and project tree, so both independently
+     * satisfying that entrypoint's own "composer.json present, vendor/autoload.php missing"
+     * condition would run `composer install` twice, concurrently, into the same vendor/.
+     * SHIP_DEV_SKIP_INSTALL tells the entrypoint to wait for "app"'s result instead -- dev only,
+     * since production bakes vendor/ into the image at build time and never runs this entrypoint
+     * logic at all.
+     */
+    public function test_reverb_is_told_to_skip_its_own_composer_install_in_dev(): void
+    {
+        $registry = new ServiceRegistry([new ReverbService()]);
+        $builder = new ComposeFileBuilder($registry);
+        $config = new ShipConfig(phpVersion: '8.4', services: ['broadcasting' => 'reverb']);
+
+        $dev = Yaml::parse($builder->build($config, ShipEnvironment::Development));
+        $prod = Yaml::parse($builder->build($config, ShipEnvironment::Production));
+
+        self::assertSame('1', $dev['services']['reverb']['environment']['SHIP_DEV_SKIP_INSTALL']);
+        self::assertArrayNotHasKey('SHIP_DEV_SKIP_INSTALL', $prod['services']['reverb']['environment']);
+    }
+
     public function test_reverb_gets_its_own_service_with_the_projects_php_version_backfilled(): void
     {
         $registry = new ServiceRegistry([new ReverbService()]);

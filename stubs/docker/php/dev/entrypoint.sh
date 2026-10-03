@@ -32,7 +32,36 @@ if [ -n "$SHIP_HOST_USER" ]; then
     export HOME=/home/ship
 fi
 
-if [ -f composer.json ] && [ ! -f vendor/autoload.php ]; then
+# A real bug found via an independent re-audit: php-fpm tolerates an empty /var/www/html (see
+# above), but anything else that's "its own long-lived program" -- an Octane server, or Reverb, a
+# *separate* container sharing this exact same SHIP_MUTAGEN-synced volume (see
+# ComposeFileBuilder::alignReverbWithApp()) -- does not. `php artisan ...` needs composer.json/
+# artisan to exist the moment it starts, and the named volume starts out genuinely empty until
+# Mutagen's first sync pass finishes, so exec'ing straight into it crashed immediately -- and kept
+# crashing every restart-policy retry until the sync eventually caught up, confirmed live. Bounded
+# (not infinite) so a genuinely broken setup still fails eventually instead of hanging forever.
+if [ "$1" != "php-fpm" ]; then
+    i=0
+    while [ ! -f composer.json ] && [ "$i" -lt 120 ]; do
+        sleep 1
+        i=$((i + 1))
+    done
+fi
+
+# SHIP_DEV_SKIP_INSTALL (set on Reverb specifically, see ComposeFileBuilder::alignReverbWithApp())
+# -- a second real bug found the same way: Reverb and "app" share this exact same volume, so both
+# this entrypoint (running as Reverb) and app's own container independently satisfying the
+# composer.json-present/vendor-missing condition below would run `composer install` *twice*,
+# concurrently, into the same vendor/ -- confirmed from reading the code, not observed live. Only
+# one real installer (app) is ever needed; every other service sharing the volume just waits for
+# its result instead of racing to produce it a second time.
+if [ -n "$SHIP_DEV_SKIP_INSTALL" ]; then
+    i=0
+    while [ ! -f vendor/autoload.php ] && [ "$i" -lt 120 ]; do
+        sleep 1
+        i=$((i + 1))
+    done
+elif [ -f composer.json ] && [ ! -f vendor/autoload.php ]; then
     if [ -n "$SHIP_HOST_USER" ] && command -v su-exec >/dev/null 2>&1; then
         su-exec "$SHIP_HOST_USER" composer install --no-interaction
     elif [ -n "$SHIP_HOST_USER" ] && command -v setpriv >/dev/null 2>&1; then

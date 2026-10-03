@@ -468,6 +468,14 @@ final class ComposeFileBuilder
      * Reverb keeps running as root in dev even with hostUser enabled, writing anything it touches
      * in the bind-mounted tree back as root-owned -- the exact problem hostUser exists to avoid.
      *
+     * A sixth, found via a third independent re-audit: Reverb and "app" share the exact same dev
+     * entrypoint script and (in SHIP_MUTAGEN mode especially, but a bind mount has the same
+     * window too) the exact same project tree -- both independently satisfying that entrypoint's
+     * own "composer.json present, vendor/autoload.php missing" condition would run `composer
+     * install` *twice*, concurrently, into the same vendor/. SHIP_DEV_SKIP_INSTALL tells the
+     * entrypoint Reverb isn't the real installer here -- see its own docblock -- and should just
+     * wait for "app"'s result instead of racing to produce it a second time.
+     *
      * @param array<string, array<string, mixed>> $services
      * @param array<string, string> $appEnv
      * @param array{uid: int, gid: int}|null $hostUser
@@ -492,7 +500,7 @@ final class ComposeFileBuilder
             ...($environment->isDevelopment() && $hostUser !== null
                 ? ['SHIP_HOST_USER' => "{$hostUser['uid']}:{$hostUser['gid']}"]
                 : []),
-            ...($environment->isDevelopment() ? [] : ['SHIP_RUN_AS' => 'www-data']),
+            ...($environment->isDevelopment() ? ['SHIP_DEV_SKIP_INSTALL' => '1'] : ['SHIP_RUN_AS' => 'www-data']),
         ];
 
         if ($environment->isDevelopment() && $mutagenSync) {
