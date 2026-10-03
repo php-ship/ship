@@ -36,6 +36,20 @@ final class RustFsServiceTest extends TestCase
         self::assertSame('${AWS_SECRET_ACCESS_KEY:-shipsecret}', $fragment['rustfs']['environment']['RUSTFS_SECRET_KEY']);
     }
 
+    /**
+     * Regression coverage for a real bug found via an independent audit: production previously
+     * used the exact same `${AWS_SECRET_ACCESS_KEY:-shipsecret}` expression as development.
+     * `docker compose` itself now refuses to run at all when no real value was set in
+     * .env.production.
+     */
+    public function test_the_secret_key_is_required_in_production_not_just_overridable(): void
+    {
+        $fragment = (new RustFsService())->composeFragment(ShipEnvironment::Production);
+
+        self::assertSame('${AWS_SECRET_ACCESS_KEY:?set a real value in .env.production}', $fragment['rustfs']['environment']['RUSTFS_SECRET_KEY']);
+        self::assertSame('${AWS_ACCESS_KEY_ID:-ship}', $fragment['rustfs']['environment']['RUSTFS_ACCESS_KEY']);
+    }
+
     public function test_the_data_volume_persists_in_both_environments(): void
     {
         $service = new RustFsService();

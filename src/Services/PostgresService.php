@@ -7,6 +7,7 @@ namespace Ship\Services;
 use Ship\Contracts\ProvidesDatabaseShell;
 use Ship\Contracts\ServiceDefinition;
 use Ship\Contracts\ShipEnvironment;
+use Ship\Docker\RequiredEnv;
 
 final class PostgresService implements ServiceDefinition, ProvidesDatabaseShell
 {
@@ -38,10 +39,11 @@ final class PostgresService implements ServiceDefinition, ProvidesDatabaseShell
                 'environment' => [
                     'POSTGRES_DB' => "\${{$prefix}DB_DATABASE:-app}",
                     'POSTGRES_USER' => "\${{$prefix}DB_USERNAME:-app}",
-                    'POSTGRES_PASSWORD' => "\${{$prefix}DB_PASSWORD:-secret}",
+                    // A friendly default in dev, but required in production -- see
+                    // RequiredEnv's own docblock and MySqlService's matching comment.
+                    'POSTGRES_PASSWORD' => RequiredEnv::expr("{$prefix}DB_PASSWORD", 'secret', $environment),
                 ],
                 // Persisted in both environments -- see MySqlService's own comment for why.
-                // $environment is otherwise unused here now -- required by ServiceDefinition regardless.
                 'volumes' => ["ship-{$name}-data:/var/lib/postgresql"],
                 'healthcheck' => [
                     'test' => ['CMD-SHELL', "pg_isready -U \${{$prefix}DB_USERNAME:-app}"],

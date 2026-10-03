@@ -7,6 +7,7 @@ namespace Ship\Services;
 use Ship\Contracts\ProvidesDatabaseShell;
 use Ship\Contracts\ServiceDefinition;
 use Ship\Contracts\ShipEnvironment;
+use Ship\Docker\RequiredEnv;
 
 final class MySqlService implements ServiceDefinition, ProvidesDatabaseShell
 {
@@ -38,17 +39,21 @@ final class MySqlService implements ServiceDefinition, ProvidesDatabaseShell
                 'environment' => [
                     'MYSQL_DATABASE' => "\${{$prefix}DB_DATABASE:-app}",
                     'MYSQL_USER' => "\${{$prefix}DB_USERNAME:-app}",
-                    'MYSQL_PASSWORD' => "\${{$prefix}DB_PASSWORD:-secret}",
+                    // A friendly default in dev, but required (docker compose itself refuses to
+                    // run at all otherwise) in production -- a real bug found via an independent
+                    // audit: every project that never set a real DB_PASSWORD in .env.production
+                    // silently shared the exact same publicly-known default, with no error or
+                    // warning. See RequiredEnv's own docblock.
+                    'MYSQL_PASSWORD' => RequiredEnv::expr("{$prefix}DB_PASSWORD", 'secret', $environment),
                     // No separate root secret to manage -- the app user's own
                     // password doubles as root's, since nothing here needs
                     // root access beyond what MySQL's own image setup uses it for.
-                    'MYSQL_ROOT_PASSWORD' => "\${{$prefix}DB_PASSWORD:-secret}",
+                    'MYSQL_ROOT_PASSWORD' => RequiredEnv::expr("{$prefix}DB_PASSWORD", 'secret', $environment),
                 ],
                 // Persisted in both environments -- a production database losing every row on
                 // the next `docker compose restart`/redeploy is a real data-loss bug, not a
                 // dev/prod distinction worth making. See docs/roadmap.md for the fix across
-                // every stateful service. $environment is otherwise unused here now --
-                // required by ServiceDefinition regardless.
+                // every stateful service.
                 'volumes' => ["ship-{$name}-data:/var/lib/mysql"],
                 'healthcheck' => [
                     // 127.0.0.1, not "localhost" -- found the hard way: "localhost" makes mysqladmin

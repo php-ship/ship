@@ -44,6 +44,21 @@ final class SiloServiceTest extends TestCase
         self::assertSame('${AWS_SECRET_ACCESS_KEY:-shipsecret}', $fragment['silo']['environment']['MINIO_ROOT_PASSWORD']);
     }
 
+    /**
+     * Regression coverage for a real bug found via an independent audit: production previously
+     * used the exact same `${AWS_SECRET_ACCESS_KEY:-shipsecret}` expression as development --
+     * worse here than for Garage/RustFS, since Silo's console is published to the host by
+     * default. `docker compose` itself now refuses to run at all when no real value was set in
+     * .env.production.
+     */
+    public function test_the_password_is_required_in_production_not_just_overridable(): void
+    {
+        $fragment = (new SiloService())->composeFragment(ShipEnvironment::Production);
+
+        self::assertSame('${AWS_SECRET_ACCESS_KEY:?set a real value in .env.production}', $fragment['silo']['environment']['MINIO_ROOT_PASSWORD']);
+        self::assertSame('${AWS_ACCESS_KEY_ID:-ship}', $fragment['silo']['environment']['MINIO_ROOT_USER']);
+    }
+
     public function test_a_named_instance_gets_its_own_endpoint_and_env_prefix(): void
     {
         $service = new SiloService();

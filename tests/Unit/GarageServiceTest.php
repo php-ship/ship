@@ -47,4 +47,20 @@ final class GarageServiceTest extends TestCase
         self::assertSame('${AWS_SECRET_ACCESS_KEY:-shipsecret}', $garageEnv['GARAGE_DEFAULT_SECRET_KEY']);
         self::assertSame('${AWS_BUCKET:-local}', $garageEnv['GARAGE_DEFAULT_BUCKET']);
     }
+
+    /**
+     * Regression coverage for a real bug found via an independent audit: production previously
+     * used the exact same `${AWS_SECRET_ACCESS_KEY:-shipsecret}` expression as development.
+     * `docker compose` itself now refuses to run at all when no real value was set in
+     * .env.production. The access key id -- access-key-ID-shaped, not secret-shaped -- stays a
+     * plain default, same reasoning DB_USERNAME is never required either.
+     */
+    public function test_the_secret_key_is_required_in_production_not_just_overridable(): void
+    {
+        $fragment = (new GarageService())->composeFragment(ShipEnvironment::Production);
+        $garageEnv = $fragment['garage']['environment'];
+
+        self::assertSame('${AWS_SECRET_ACCESS_KEY:?set a real value in .env.production}', $garageEnv['GARAGE_DEFAULT_SECRET_KEY']);
+        self::assertSame('${AWS_ACCESS_KEY_ID:-ship}', $garageEnv['GARAGE_DEFAULT_ACCESS_KEY']);
+    }
 }

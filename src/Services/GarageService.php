@@ -6,6 +6,7 @@ namespace Ship\Services;
 
 use Ship\Contracts\ServiceDefinition;
 use Ship\Contracts\ShipEnvironment;
+use Ship\Docker\RequiredEnv;
 
 /**
  * Alt driver for storage. Needs a config file present before it starts, unlike SeaweedFS -- published
@@ -50,13 +51,15 @@ final class GarageService implements ServiceDefinition
                     // are only the *defaults* -- same `${VAR:-default}` pattern every other
                     // credentialed service (MySqlService's DB_PASSWORD, ...) already uses, so a
                     // project's own .env/.env.production can override them instead of every Garage
-                    // deployment everywhere sharing one publicly-known, hardcoded credential.
+                    // deployment everywhere sharing one publicly-known, hardcoded credential. The
+                    // secret key specifically is required (not just overridable) in production --
+                    // see RequiredEnv's own docblock -- the access key id is access-key-ID-shaped,
+                    // not secret-shaped, same reasoning DB_USERNAME is never required either.
                     'GARAGE_DEFAULT_ACCESS_KEY' => "\${{$prefix}AWS_ACCESS_KEY_ID:-ship}",
-                    'GARAGE_DEFAULT_SECRET_KEY' => "\${{$prefix}AWS_SECRET_ACCESS_KEY:-shipsecret}",
+                    'GARAGE_DEFAULT_SECRET_KEY' => RequiredEnv::expr("{$prefix}AWS_SECRET_ACCESS_KEY", 'shipsecret', $environment),
                     'GARAGE_DEFAULT_BUCKET' => "\${{$prefix}AWS_BUCKET:-local}",
                 ],
                 // Persisted in both environments -- see MySqlService's own comment for why.
-                // $environment is otherwise unused here now -- required by ServiceDefinition regardless.
                 'volumes' => ["ship-{$name}-data:/data", "ship-{$name}-meta:/meta"],
                 // No shell or curl in a FROM-scratch image -- `status` is the
                 // only way to check the node is up, over its own local RPC.

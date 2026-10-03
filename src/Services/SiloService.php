@@ -6,6 +6,7 @@ namespace Ship\Services;
 
 use Ship\Contracts\ServiceDefinition;
 use Ship\Contracts\ShipEnvironment;
+use Ship\Docker\RequiredEnv;
 
 /**
  * Alt driver for storage. Silo (pgsty/silo) is a community-maintained fork of the actual MinIO
@@ -54,13 +55,14 @@ final class SiloService implements ServiceDefinition
                     // Must match environmentVariables() below exactly, or "app"
                     // authenticates with credentials Silo never provisioned. "ship"/"shipsecret"
                     // are only the *defaults* -- same `${VAR:-default}` pattern every other
-                    // credentialed service (MySqlService's DB_PASSWORD, ...) already uses. This
-                    // matters more here than for Garage/RustFS: Silo's admin console is published
-                    // to the host by default (see 'ports' below), so leaving this hardcoded would
-                    // mean every default `ship release` deploy exposes a login page with a
-                    // publicly-known credential on the open internet.
+                    // credentialed service (MySqlService's DB_PASSWORD, ...) already uses. The
+                    // password specifically is required (not just overridable) in production --
+                    // see RequiredEnv's own docblock -- and matters most here of every credentialed
+                    // service: Silo's admin console is published to the host by default (see
+                    // 'ports' below), so a missed .env.production value would otherwise expose a
+                    // login page with a publicly-known credential on the open internet.
                     'MINIO_ROOT_USER' => "\${{$prefix}AWS_ACCESS_KEY_ID:-ship}",
-                    'MINIO_ROOT_PASSWORD' => "\${{$prefix}AWS_SECRET_ACCESS_KEY:-shipsecret}",
+                    'MINIO_ROOT_PASSWORD' => RequiredEnv::expr("{$prefix}AWS_SECRET_ACCESS_KEY", 'shipsecret', $environment),
                 ],
                 // Only the console is host-published -- the S3 API itself is only ever reached by
                 // "app" over the internal "ship" network (see environmentVariables()'s
@@ -70,7 +72,6 @@ final class SiloService implements ServiceDefinition
                 // collide with the default one on the same host port.
                 'ports' => [$this->consolePortMapping($instanceName)],
                 // Persisted in both environments -- see MySqlService's own comment for why.
-                // $environment is otherwise unused here now -- required by ServiceDefinition regardless.
                 'volumes' => ["ship-{$name}-data:/data"],
                 'healthcheck' => [
                     'test' => ['CMD', 'curl', '-f', 'http://127.0.0.1:9000/minio/health/live'],

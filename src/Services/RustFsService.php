@@ -6,6 +6,7 @@ namespace Ship\Services;
 
 use Ship\Contracts\ServiceDefinition;
 use Ship\Contracts\ShipEnvironment;
+use Ship\Docker\RequiredEnv;
 
 /**
  * Alt driver for storage. Modern Rust rewrite, drop-in S3-compatible -- the actual S3 API is
@@ -57,12 +58,13 @@ final class RustFsService implements ServiceDefinition
                     // are only the *defaults* -- same `${VAR:-default}` pattern every other
                     // credentialed service (MySqlService's DB_PASSWORD, ...) already uses, so a
                     // project's own .env/.env.production can override them instead of every RustFS
-                    // deployment everywhere sharing one publicly-known, hardcoded credential.
+                    // deployment everywhere sharing one publicly-known, hardcoded credential. The
+                    // secret key specifically is required (not just overridable) in production --
+                    // see RequiredEnv's own docblock.
                     'RUSTFS_ACCESS_KEY' => "\${{$prefix}AWS_ACCESS_KEY_ID:-ship}",
-                    'RUSTFS_SECRET_KEY' => "\${{$prefix}AWS_SECRET_ACCESS_KEY:-shipsecret}",
+                    'RUSTFS_SECRET_KEY' => RequiredEnv::expr("{$prefix}AWS_SECRET_ACCESS_KEY", 'shipsecret', $environment),
                 ],
                 // Persisted in both environments -- see MySqlService's own comment for why.
-                // $environment is otherwise unused here now -- required by ServiceDefinition regardless.
                 'volumes' => ["ship-{$name}-data:/data"],
                 'healthcheck' => [
                     'test' => ['CMD', 'curl', '-f', 'http://127.0.0.1:9000/health'],

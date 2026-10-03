@@ -39,6 +39,22 @@ final class MeilisearchServiceTest extends TestCase
         self::assertNotSame([], $service->composeFragment(ShipEnvironment::Production)['meilisearch']['volumes']);
     }
 
+    /**
+     * Regression coverage for a real bug found via an independent audit: production previously
+     * used the exact same `${MEILISEARCH_KEY:-shipsearchkey}` expression as development.
+     * `docker compose` itself now refuses to run at all when no real value was set in
+     * .env.production.
+     */
+    public function test_the_master_key_is_required_in_production_not_just_overridable(): void
+    {
+        $fragment = (new MeilisearchService())->composeFragment(ShipEnvironment::Production);
+
+        self::assertSame(
+            '${MEILISEARCH_KEY:?set a real value in .env.production}',
+            $fragment['meilisearch']['environment']['MEILI_MASTER_KEY'],
+        );
+    }
+
     public function test_a_named_instance_gets_its_own_host_and_env_prefix(): void
     {
         $service = new MeilisearchService();

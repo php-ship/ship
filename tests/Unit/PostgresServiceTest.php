@@ -25,6 +25,18 @@ final class PostgresServiceTest extends TestCase
         self::assertSame($pgsqlEnv['POSTGRES_PASSWORD'], $appEnv['DB_PASSWORD']);
     }
 
+    /**
+     * Regression coverage for a real bug found via an independent audit: production previously
+     * used the exact same `${DB_PASSWORD:-secret}` expression as development. `docker compose`
+     * itself now refuses to run at all when no real value was set in .env.production.
+     */
+    public function test_the_password_is_required_in_production_not_just_overridable(): void
+    {
+        $fragment = (new PostgresService())->composeFragment(ShipEnvironment::Production);
+
+        self::assertSame('${DB_PASSWORD:?set a real value in .env.production}', $fragment['pgsql']['environment']['POSTGRES_PASSWORD']);
+    }
+
     public function test_db_shell_command_targets_the_pgsql_service(): void
     {
         $shell = (new PostgresService())->databaseShellCommand();

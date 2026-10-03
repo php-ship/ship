@@ -6,6 +6,7 @@ namespace Ship\Services;
 
 use Ship\Contracts\ServiceDefinition;
 use Ship\Contracts\ShipEnvironment;
+use Ship\Docker\RequiredEnv;
 
 final class MeilisearchService implements ServiceDefinition
 {
@@ -35,11 +36,12 @@ final class MeilisearchService implements ServiceDefinition
             $name => [
                 'image' => 'getmeili/meilisearch:v1.53',
                 'environment' => [
-                    'MEILI_MASTER_KEY' => "\${{$prefix}MEILISEARCH_KEY:-shipsearchkey}",
+                    // A friendly default in dev, but required in production -- see
+                    // RequiredEnv's own docblock and MySqlService's matching comment.
+                    'MEILI_MASTER_KEY' => RequiredEnv::expr("{$prefix}MEILISEARCH_KEY", 'shipsearchkey', $environment),
                     'MEILI_NO_ANALYTICS' => 'true',
                 ],
                 // Persisted in both environments -- see MySqlService's own comment for why.
-                // $environment is otherwise unused here now -- required by ServiceDefinition regardless.
                 'volumes' => ["ship-{$name}-data:/meili_data"],
             ],
         ];
