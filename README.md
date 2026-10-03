@@ -122,7 +122,7 @@ release`.
 |---|---|
 | `ship init` | Interactive picker for services (database, cache, runtime, ...); writes `ship.json` and publishes the `ship/` directory. Re-run it after upgrading `ship` to pick up stub changes — see `docs/roadmap.md`'s "Known gaps". |
 | `ship up` | Regenerates `ship/docker-compose.generated.yml` from `ship.json` and runs `docker compose up --build -d`. Development only — see `ship build`/`ship release` below for production. |
-| `ship build` | Builds every project-owned production image, tagged locally. See [Production releases](#production-releases). |
+| `ship build` | Builds every project-owned production image, tagged locally. Needs a real `.env.production` the moment any selected service has a required credential — see that section below. See [Production releases](#production-releases). |
 | `ship release --tag <tag>` | Builds the same images (re-tagged) and assembles the portable release artifact under `dist/ship/<tag>/`. See [Production releases](#production-releases). |
 | `ship down [--volumes]` | `docker compose down`. `--volumes` also deletes named volumes (database/storage data — use with care). |
 | `ship exec <service> <cmd...>` | Runs an arbitrary command inside a running service container. The generic escape hatch every shortcut below wraps. |
@@ -452,6 +452,12 @@ Selected services' own credentials (`DB_PASSWORD`, `MEILISEARCH_KEY`,
 compose` itself refuses to build or start anything at all if one was never
 set, rather than silently falling back to the same friendly default
 development uses — one every project that forgot would otherwise share.
+This applies to `ship build` too, not only `ship release` — it has no
+upfront `.env.production`-exists check of its own, so a project with any
+credentialed service selected and no `.env.production` at all fails with
+Compose's own `${VAR:?...}` error instead of `ship release`'s friendlier
+one. Create `.env.production` before running either once a project has a
+credentialed service, not just before releasing.
 
 ### What `ship release --tag` produces
 
