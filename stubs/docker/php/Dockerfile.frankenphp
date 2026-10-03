@@ -12,8 +12,11 @@ FROM node:${NODE_VERSION}-bookworm-slim AS node
 FROM dunglas/frankenphp:1-php${PHP_VERSION}-bookworm AS base
 
 # pdo_pgsql/pdo_mysql/redis/pcntl are all unconditional, same as the main
-# Dockerfile -- see that file's comment for why.
-RUN install-php-extensions pdo_pgsql pdo_mysql intl mbstring opcache redis pcntl
+# Dockerfile -- see that file's comment for why. redis is pinned to a specific release for the
+# same reason the main Dockerfile's REDIS_EXTENSION_VERSION is -- an unpinned extension version
+# is still an unpinned build input, even through this bundled installer.
+ARG REDIS_EXTENSION_VERSION=6.3.0
+RUN install-php-extensions pdo_pgsql pdo_mysql intl mbstring opcache redis-$REDIS_EXTENSION_VERSION pcntl
 
 # Found live, not guessed: this base image has neither ext-zip nor an unzip/7z binary, so Composer
 # can't extract a single package distributed as a zip -- which is the normal case for anything
@@ -37,9 +40,13 @@ WORKDIR /var/www/html
 
 # ---- dev -------------------------------------------------------------
 FROM base AS dev
-RUN install-php-extensions xdebug
+# Pinned to a specific release, not a bare `install-php-extensions xdebug` -- see the main
+# Dockerfile's matching ARG for why an unpinned extension version is still an unpinned build
+# input, even once the installer binary itself is already baked into the base image.
+ARG XDEBUG_EXTENSION_VERSION=3.5.3
+RUN install-php-extensions xdebug-$XDEBUG_EXTENSION_VERSION
 COPY ship/dev/php.ini /usr/local/etc/php/conf.d/99-ship-dev.ini
-COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+COPY --from=composer:2.10.3 /usr/bin/composer /usr/bin/composer
 COPY ship/dev/entrypoint.sh /usr/local/bin/ship-entrypoint
 RUN chmod +x /usr/local/bin/ship-entrypoint
 # ship.json's hostUser (opt-in, see stubs/docker/php/Dockerfile's matching, more-commented block --
@@ -68,7 +75,7 @@ ENTRYPOINT ["/usr/local/bin/ship-entrypoint"]
 
 # ---- builder -----------------------------------------------------------
 FROM base AS builder
-COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+COPY --from=composer:2.10.3 /usr/bin/composer /usr/bin/composer
 COPY composer.json composer.lock ./
 RUN composer install --no-dev --no-scripts --no-autoloader --optimize-autoloader
 COPY . .
@@ -77,10 +84,12 @@ RUN composer dump-autoload --optimize --no-dev
 # ---- assets --------------------------------------------------------------
 # See stubs/docker/php/Dockerfile's "assets" stage -- identical reasoning,
 # duplicated here rather than shared since this Dockerfile can't FROM the
-# other one (different base images entirely).
+# other one (different base images entirely), including the npm ci/npm
+# install split's own docblock there.
 FROM builder AS assets
 RUN if [ -f package.json ]; then \
-        (npm ci || npm install) && npm run build; \
+        if [ -f package-lock.json ]; then npm ci; else npm install; fi \
+        && npm run build; \
     fi
 
 # ---- prod --------------------------------------------------------------

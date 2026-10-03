@@ -27,9 +27,19 @@ RUN apk add --no-cache libpq-dev icu-dev oniguruma-dev \
 # URL, not the raw.githubusercontent.com one some older guides use -- verified live: fetching from
 # raw master prints its own "unsupported method" warning (and a deliberate sleep) instead of just
 # working, so this uses the URL the tool's own docs actually ask for.
+#
+# Pinned to a specific release tag with a checksum, not /latest/download/ with nothing verifying
+# the response at all -- a real bug found via an independent audit: "latest" is a floating target
+# that can serve a different script on two builds weeks apart with no corresponding change here,
+# and nothing was checking that whatever came back over the wire was actually that script. Bump
+# INSTALL_PHP_EXTENSIONS_VERSION and the checksum together (both published at that same release's
+# own GitHub page) when a newer version is wanted.
 ARG PHP_EXTENSIONS=""
+ARG INSTALL_PHP_EXTENSIONS_VERSION=2.12.0
+ARG INSTALL_PHP_EXTENSIONS_SHA256=3f49c71fa66c79b8b2b96bc0ce92885dafd7946f3b5a46f545b390d6f1617e2c
 RUN if [ -n "$PHP_EXTENSIONS" ]; then \
-        curl -sSLf https://github.com/mlocati/docker-php-extension-installer/releases/latest/download/install-php-extensions -o /usr/local/bin/install-php-extensions \
+        curl -sSLf "https://github.com/mlocati/docker-php-extension-installer/releases/download/${INSTALL_PHP_EXTENSIONS_VERSION}/install-php-extensions" -o /usr/local/bin/install-php-extensions \
+        && echo "${INSTALL_PHP_EXTENSIONS_SHA256}  /usr/local/bin/install-php-extensions" | sha256sum -c - \
         && chmod +x /usr/local/bin/install-php-extensions \
         && install-php-extensions $PHP_EXTENSIONS; \
     fi
@@ -51,8 +61,14 @@ RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
 # "phpredis", which needs this extension, not just a reachable redis
 # container. Cheap enough to always install rather than plumb a second
 # build arg through ComposeFileBuilder just for this.
+#
+# Pinned to a specific PECL release, not a bare `pecl install redis` -- a real bug found via an
+# independent audit: an unpinned extension version is a floating build input exactly like an
+# unpinned image tag, just one PECL's own registry controls instead of a registry like Docker
+# Hub. Bump ARG REDIS_EXTENSION_VERSION deliberately when a newer release is wanted.
+ARG REDIS_EXTENSION_VERSION=6.3.0
 RUN apk add --no-cache --virtual .build-deps-redis $PHPIZE_DEPS \
-    && pecl install redis \
+    && pecl install redis-$REDIS_EXTENSION_VERSION \
     && docker-php-ext-enable redis \
     && apk del .build-deps-redis
 
@@ -64,9 +80,11 @@ RUN apk add --no-cache --virtual .build-deps-redis $PHPIZE_DEPS \
 # support (--enable-brotli=yes) by default and aborts the whole build
 # with "Package 'libbrotlienc' not found" without it, even though
 # nothing else here uses Brotli.
+# Pinned for the same reason as REDIS_EXTENSION_VERSION above.
+ARG SWOOLE_EXTENSION_VERSION=6.2.3
 RUN if [ "$OCTANE_RUNTIME" = "swoole" ]; then \
         apk add --no-cache --virtual .build-deps $PHPIZE_DEPS linux-headers brotli-dev \
-        && pecl install swoole \
+        && pecl install swoole-$SWOOLE_EXTENSION_VERSION \
         && docker-php-ext-enable swoole \
         && apk del .build-deps; \
     fi
@@ -75,11 +93,13 @@ WORKDIR /var/www/html
 
 # ---- dev -------------------------------------------------------------
 FROM base AS dev
+# Pinned for the same reason as REDIS_EXTENSION_VERSION above.
+ARG XDEBUG_EXTENSION_VERSION=3.5.3
 RUN apk add --no-cache linux-headers $PHPIZE_DEPS \
-    && pecl install xdebug \
+    && pecl install xdebug-$XDEBUG_EXTENSION_VERSION \
     && docker-php-ext-enable xdebug
 COPY ship/dev/php.ini /usr/local/etc/php/conf.d/99-ship-dev.ini
-COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+COPY --from=composer:2.10.3 /usr/bin/composer /usr/bin/composer
 COPY ship/dev/entrypoint.sh /usr/local/bin/ship-entrypoint
 RUN chmod +x /usr/local/bin/ship-entrypoint
 # The project root is bind-mounted straight from the host in dev (see baseServices()), so
@@ -112,7 +132,7 @@ CMD ["php-fpm", "--allow-to-run-as-root"]
 
 # ---- builder -----------------------------------------------------------
 FROM base AS builder
-COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+COPY --from=composer:2.10.3 /usr/bin/composer /usr/bin/composer
 COPY composer.json composer.lock ./
 RUN composer install --no-dev --no-scripts --no-autoloader --optimize-autoloader
 COPY . .
@@ -126,9 +146,17 @@ RUN composer dump-autoload --optimize --no-dev
 # "builder" (not "base") specifically so vendor/ and the composer
 # autoloader already exist, in case any npm build step shells out to
 # artisan (Ziggy route generation, an SSR manifest, ...).
+#
+# `npm ci` only when package-lock.json actually exists, falling back to `npm install` only when
+# it doesn't -- never `npm ci || npm install` unconditionally. A real bug found via an independent
+# audit: that fallback also caught `npm ci`'s *own* lockfile-drift failure (package.json and
+# package-lock.json out of sync) and silently retried with `npm install`, which resolves and
+# writes a *new* lockfile instead -- the exact mismatch `npm ci` exists to catch, masked rather
+# than surfaced, on every single build.
 FROM builder AS assets
 RUN if [ -f package.json ]; then \
-        (npm ci || npm install) && npm run build; \
+        if [ -f package-lock.json ]; then npm ci; else npm install; fi \
+        && npm run build; \
     fi
 
 # ---- prod --------------------------------------------------------------
@@ -169,11 +197,16 @@ CMD ["php-fpm"]
 # unprivileged worker processes couldn't read what that user had just written, 403ing every
 # request with "is forbidden (13: Permission denied)". Prod keeps nginx's own default -- its files
 # are baked into the image at build time by the COPY below, at a known, consistent ownership.
-FROM nginx:alpine AS dev-nginx
+#
+# Pinned to a specific version (nginx's own "stable" branch), not the floating "alpine" tag -- a
+# real bug found via an independent audit: an unpinned build input means two `ship up`/`ship
+# build` runs weeks apart can silently get a different nginx without any corresponding change
+# here. Bump deliberately when a newer stable release is wanted.
+FROM nginx:1.30.5-alpine AS dev-nginx
 COPY ship/nginx/default.conf /etc/nginx/conf.d/default.conf
 RUN sed -i 's/^user  *nginx;/user root;/' /etc/nginx/nginx.conf
 
-FROM nginx:alpine AS prod-nginx
+FROM nginx:1.30.5-alpine AS prod-nginx
 COPY --from=assets /var/www/html/public /var/www/html/public
 COPY ship/nginx/default.conf /etc/nginx/conf.d/default.conf
 

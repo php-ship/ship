@@ -25,6 +25,21 @@ final class DuskServiceTest extends TestCase
     }
 
     /**
+     * Regression coverage for a real bug found via an independent audit: the Selenium image was
+     * pinned to the floating "4" major tag, an unpinned build input that could silently change
+     * between two `ship up` runs with no corresponding change here.
+     */
+    public function test_the_selenium_image_is_pinned_to_a_specific_version(): void
+    {
+        $fragment = (new DuskService())->composeFragment(ShipEnvironment::Development);
+
+        self::assertMatchesRegularExpression(
+            '/^selenium\/standalone-chrome:\d+\.\d+\.\d+$/',
+            $fragment['selenium']['image'],
+        );
+    }
+
+    /**
      * Dev/test tooling, not infrastructure -- a real bug found live: with no environment check at
      * all, production built and started a Selenium container too, for a browser test suite that
      * never runs there. An empty fragment is this class's own signal to ComposeFileBuilder that it

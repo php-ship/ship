@@ -40,7 +40,13 @@ final class DuskService implements ServiceDefinition
 
         return [
             'selenium' => [
-                'image' => 'selenium/standalone-chrome:4',
+                // Pinned to a specific version, not the floating "4" major tag -- a real bug
+                // found via an independent audit: an unpinned build input means two `ship up`
+                // runs weeks apart can silently pull different Selenium/Chrome builds with no
+                // corresponding change to ship.json or this file, exactly the kind of drift a
+                // Dusk test suite is sensitive to (a Chrome upgrade changing a selector's
+                // behavior, say). Bump this deliberately when a newer Selenium image is wanted.
+                'image' => 'selenium/standalone-chrome:4.49.0',
                 'shm_size' => '2gb',
             ],
         ];
