@@ -179,6 +179,84 @@ final class ShipConfigTest extends TestCase
     }
 
     /**
+     * Regression coverage for a real bug found via a second independent re-audit, confirmed
+     * live: each of these used to reach a raw constructor TypeError instead of a message naming
+     * ship.json.
+     *
+     * @return iterable<string, array{array<string, mixed>, string}>
+     */
+    public static function furtherInvalidFields(): iterable
+    {
+        yield 'publishPorts as a quoted string' => [['publishPorts' => 'false'], '"publishPorts"'];
+        yield 'hostUser as a quoted string' => [['hostUser' => 'true'], '"hostUser"'];
+        yield 'extensions as a non-list value' => [['extensions' => 'Foo'], '"extensions"'];
+        yield 'phpExtensions as a non-list value' => [['phpExtensions' => 'gd'], '"phpExtensions"'];
+        yield 'name as a non-string' => [['name' => 5], '"name"'];
+        yield 'externalNetwork as a non-string' => [['externalNetwork' => 5], '"externalNetwork"'];
+        yield 'a non-string value under services' => [['services' => ['database' => 5]], 'services."database"'];
+    }
+
+    #[DataProvider('furtherInvalidFields')]
+    public function test_from_file_rejects_further_invalid_field_shapes(array $extra, string $expectedInMessage): void
+    {
+        file_put_contents(
+            $this->projectRoot . '/ship.json',
+            json_encode(['services' => [], ...$extra]),
+        );
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage($expectedInMessage);
+
+        ShipConfig::fromFile($this->projectRoot . '/ship.json');
+    }
+
+    /**
+     * Regression coverage for a real bug found via a second independent re-audit: an
+     * additionalServices entry missing its "service" key reached an "Undefined array key"
+     * PHP warning in ComposeFileBuilder::build() instead, confirmed live, rather than a message
+     * naming ship.json at the point the config is actually loaded.
+     */
+    public function test_from_file_rejects_an_additional_service_entry_missing_the_service_key(): void
+    {
+        file_put_contents(
+            $this->projectRoot . '/ship.json',
+            json_encode(['services' => [], 'additionalServices' => [['group' => 'database', 'name' => 'analytics']]]),
+        );
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('"service"');
+
+        ShipConfig::fromFile($this->projectRoot . '/ship.json');
+    }
+
+    /**
+     * Regression coverage for a real bug found via a second independent re-audit: a top-level
+     * JSON value that isn't even an object at all -- a plain array, or a bare string -- used to
+     * either silently proceed with every field defaulted (discarding the fact the file was never
+     * ship.json-shaped) or reach a raw TypeError from validate()'s own parameter type hint,
+     * confirmed live, instead of a message naming ship.json.
+     *
+     * @return iterable<string, array{string}>
+     */
+    public static function nonObjectTopLevelValues(): iterable
+    {
+        yield 'a JSON array' => [json_encode([1, 2, 3])];
+        yield 'a bare string' => [json_encode('just a string')];
+        yield 'a bare number' => [json_encode(5)];
+    }
+
+    #[DataProvider('nonObjectTopLevelValues')]
+    public function test_from_file_rejects_a_non_object_top_level_value(string $json): void
+    {
+        file_put_contents($this->projectRoot . '/ship.json', $json);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('must be a JSON object');
+
+        ShipConfig::fromFile($this->projectRoot . '/ship.json');
+    }
+
+    /**
      * Every one of these is what a project genuinely on an old ship.json (predating a field
      * that's since been added -- nodeVersion, additionalServices) would have on disk. Silently
      * defaulting keeps `ship up` working for it without forcing a re-`ship init` just to pick up

@@ -110,6 +110,29 @@ final class ShipConfig
             );
         }
 
+        $data = json_decode((string) file_get_contents($path), associative: true, flags: JSON_THROW_ON_ERROR);
+
+        // A real gap found via an independent re-audit, confirmed live: a top-level JSON value
+        // that isn't even an object at all -- a bare string, or a JSON array like "[1,2,3]" --
+        // reached validate()'s own `array $data` parameter type hint (an uncaught TypeError for a
+        // non-array value) or, for an array-shaped-but-positional JSON array, silently proceeded
+        // with every field defaulted, discarding the fact the file was never ship.json-shaped to
+        // begin with rather than naming the problem. array_is_list() can't perfectly distinguish
+        // a JSON array from a JSON object using only-numeric string keys once both have been
+        // decoded into a PHP array the same way -- a limitation accepted here, since a real
+        // ship.json never has a reason to use numeric keys at its top level anyway.
+        //
+        // Deliberately checked (and validate() called) before the @var annotation below asserts
+        // a shape -- asserting it first, the way an earlier version of this method did, made
+        // PHPStan statically trust that shape unconditionally, flagging this exact runtime check
+        // against a non-array $data as "will always evaluate to true" even though json_decode()
+        // can genuinely return anything at runtime.
+        if (!is_array($data) || (array_is_list($data) && $data !== [])) {
+            throw new RuntimeException("ship.json must be a JSON object at {$path}, not an array or a plain value.");
+        }
+
+        self::validate($data, $path);
+
         /**
          * @var array{
          *     php?: string,
@@ -127,10 +150,6 @@ final class ShipConfig
          *     name?: ?string,
          * } $data
          */
-        $data = json_decode((string) file_get_contents($path), associative: true, flags: JSON_THROW_ON_ERROR);
-
-        self::validate($data, $path);
-
         return new self(
             phpVersion: $data['php'] ?? '8.4',
             services: $data['services'] ?? [],
@@ -248,15 +267,42 @@ final class ShipConfig
      * mode this method exists to replace -- confirmed live. `processes`/`deployCommands` had no
      * validation at all before this, of any kind.
      *
+     * A second independent re-audit reproduced several more of the same failure mode, all fixed
+     * together below: `publishPorts`/`hostUser` as a quoted `"false"` instead of a real boolean,
+     * `extensions`/`phpExtensions` as some non-list value, `name`/`externalNetwork` as a non-string
+     * (an `int`, say), a non-string value under `services`, and an `additionalServices` entry
+     * missing its `group`/`service` key entirely (previously reaching an "Undefined array key"
+     * PHP warning in `ComposeFileBuilder::build()` instead, confirmed live) -- every one of these
+     * used to reach a raw constructor `TypeError` or warning instead of a message naming
+     * ship.json.
+     *
      * @param array<string, mixed> $data
      */
     private static function validate(array $data, string $path): void
     {
-        foreach (['php', 'node'] as $key) {
+        foreach (['php', 'node', 'name', 'externalNetwork'] as $key) {
             if (isset($data[$key]) && !is_string($data[$key])) {
+                throw new RuntimeException("ship.json's \"{$key}\" must be a string at {$path}.");
+            }
+        }
+
+        foreach (['publishPorts', 'hostUser'] as $key) {
+            if (isset($data[$key]) && !is_bool($data[$key])) {
                 throw new RuntimeException(
-                    "ship.json's \"{$key}\" must be a string (e.g. \"8.4\", in quotes) at {$path}.",
+                    "ship.json's \"{$key}\" must be true or false (not a quoted string) at {$path}.",
                 );
+            }
+        }
+
+        foreach (['extensions', 'phpExtensions', 'deployCommands'] as $key) {
+            self::requireStringList($data, $key, $path);
+        }
+
+        self::requireArray($data, 'services', $path);
+
+        foreach ($data['services'] ?? [] as $group => $serviceKey) {
+            if (!is_string($serviceKey)) {
+                throw new RuntimeException("ship.json's services.\"{$group}\" must be a string at {$path}.");
             }
         }
 
@@ -274,7 +320,21 @@ final class ShipConfig
         self::requireArray($data, 'additionalServices', $path);
 
         foreach ($data['additionalServices'] ?? [] as $additional) {
-            $name = is_array($additional) ? ($additional['name'] ?? null) : null;
+            if (!is_array($additional)) {
+                throw new RuntimeException(
+                    "ship.json's additionalServices has an entry that is not an object at {$path}.",
+                );
+            }
+
+            foreach (['group', 'service'] as $field) {
+                if (!is_string($additional[$field] ?? null) || $additional[$field] === '') {
+                    throw new RuntimeException(
+                        "ship.json's additionalServices has an entry missing a \"{$field}\" at {$path}.",
+                    );
+                }
+            }
+
+            $name = $additional['name'] ?? null;
 
             if (!is_string($name) || preg_match('/^[a-z][a-z0-9_]*$/', $name) !== 1) {
                 throw new RuntimeException(
@@ -293,16 +353,6 @@ final class ShipConfig
                 );
             }
         }
-
-        self::requireArray($data, 'deployCommands', $path);
-
-        foreach ($data['deployCommands'] ?? [] as $command) {
-            if (!is_string($command)) {
-                throw new RuntimeException(
-                    "ship.json's \"deployCommands\" must be a list of strings at {$path}.",
-                );
-            }
-        }
     }
 
     /**
@@ -312,6 +362,20 @@ final class ShipConfig
     {
         if (isset($data[$key]) && !is_array($data[$key])) {
             throw new RuntimeException("ship.json's \"{$key}\" must be an array or object at {$path}.");
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    private static function requireStringList(array $data, string $key, string $path): void
+    {
+        self::requireArray($data, $key, $path);
+
+        foreach ($data[$key] ?? [] as $value) {
+            if (!is_string($value)) {
+                throw new RuntimeException("ship.json's \"{$key}\" must be a list of strings at {$path}.");
+            }
         }
     }
 
