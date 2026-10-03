@@ -60,6 +60,7 @@ final class UpCommand extends Command
         }
 
         $this->warnAboutStubVersionMismatch($output);
+        $this->warnAboutNginxUpstreamMismatch($config, $output);
 
         $usernameProblems = MySqlUsernameGuard::problems($config, EnvFile::parse($this->projectRoot . '/.env'));
         if ($usernameProblems !== []) {
@@ -96,6 +97,24 @@ final class UpCommand extends Command
             return $result;
         }
 
+        // Before ensureEveryServiceStarted(), not after -- a real bug found via an independent
+        // re-audit: Reverb (and any Octane runtime) mounts the exact same synced named volume
+        // "app"/"webserver" do in this mode (see ComposeFileBuilder::alignReverbWithApp()), which
+        // is empty until this sync's own first pass finishes. Checking "is everything running"
+        // *before* that pass had a chance to run saw Reverb crash-looping against an empty
+        // /var/www/html (no artisan, no vendor/) and failed `ship up` outright, with Mutagen's own
+        // sync -- the one thing that would have fixed it -- never even starting. Resolving
+        // "app"'s own container only needs it to *exist* (just created/started by `up --build -d`
+        // above), not already be steady-state running, so this doesn't trade one ordering problem
+        // for another -- see MutagenSync::start()'s own containerName resolution.
+        if ($mutagenSync) {
+            $result = (new MutagenSync($this->runner, $this->projectRoot, $config->serviceNames['app'] ?? 'app'))->start($output);
+
+            if ($result !== Command::SUCCESS) {
+                return $result;
+            }
+        }
+
         $result = $this->ensureEveryServiceStarted($compose, $output);
 
         if ($result !== Command::SUCCESS) {
@@ -108,18 +127,7 @@ final class UpCommand extends Command
             return $result;
         }
 
-        $result = $this->ensurePublishedPortsAreBound($output);
-
-        if ($result !== Command::SUCCESS) {
-            return $result;
-        }
-
-        // Last, not first: needs the app container already running and healthy to sync into --
-        // see MutagenSync::start()'s own docblock for why this blocks until the initial sync
-        // actually finishes rather than just firing off session creation.
-        return $mutagenSync
-            ? (new MutagenSync($this->runner, $this->projectRoot, $config->serviceNames['app'] ?? 'app'))->start($output)
-            : Command::SUCCESS;
+        return $this->ensurePublishedPortsAreBound($output);
     }
 
     /**
@@ -225,6 +233,49 @@ final class UpCommand extends Command
                 . 'prompt, so have your current selections (see ship.json) ready to re-pick.</comment>',
             $recordedVersion,
             $currentVersion,
+        ));
+    }
+
+    /**
+     * Renaming the app service (ship.json's serviceNames) only ever rewrites the *published*
+     * ship/nginx/default.conf at `ship init` time (see InitCommand::publishStubs()) -- a real bug
+     * found via an independent re-audit: hand-editing serviceNames afterward, without re-running
+     * `ship init`, leaves that file pointing at the *old* name while ComposeFileBuilder renames
+     * the actual compose service to the new one on every `ship up`, so nginx fails to resolve its
+     * upstream the moment the stale name no longer matches anything in the stack. This only
+     * warns, the same as warnAboutStubVersionMismatch() above and for the same reason: a project
+     * may have hand-edited this file for other reasons (see README's "Customizing the stack"),
+     * and silently overwriting it would be worse than an outdated upstream name.
+     */
+    private function warnAboutNginxUpstreamMismatch(ShipConfig $config, OutputInterface $output): void
+    {
+        $confPath = $this->projectRoot . '/ship/nginx/default.conf';
+
+        if (!is_file($confPath)) {
+            return;
+        }
+
+        $conf = (string) file_get_contents($confPath);
+
+        if (preg_match('/set \$upstream_app ([a-zA-Z0-9_.-]+):9000;/', $conf, $matches) !== 1) {
+            return;
+        }
+
+        $publishedAppName = $matches[1];
+        $currentAppName = $config->serviceNames['app'] ?? 'app';
+
+        if ($publishedAppName === $currentAppName) {
+            return;
+        }
+
+        $output->writeln(sprintf(
+            '<comment>ship: ship/nginx/default.conf still points at "%s", but ship.json\'s '
+                . 'serviceNames now renames the app service to "%s" -- nginx will fail to resolve '
+                . 'its upstream. Run `ship init` again to republish it (it re-asks every prompt, so '
+                . 'have your current selections ready to re-pick), or edit the `set $upstream_app` '
+                . 'line in that file by hand.</comment>',
+            $publishedAppName,
+            $currentAppName,
         ));
     }
 

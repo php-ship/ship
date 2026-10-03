@@ -153,6 +153,70 @@ final class UpCommandTest extends TestCase
     }
 
     /**
+     * Regression coverage for a real bug found via an independent re-audit: renaming the app
+     * service (ship.json's serviceNames) only ever rewrites the published ship/nginx/default.conf
+     * at `ship init` time -- hand-editing serviceNames afterward, without re-running `ship init`,
+     * left that file pointing at the old name while ComposeFileBuilder renames the actual compose
+     * service on every `ship up`, with nothing ever warning about the mismatch.
+     */
+    public function test_it_warns_when_the_published_nginx_upstream_no_longer_matches_service_names(): void
+    {
+        $projectRoot = $this->makeProjectRootWithPublishedNginxUpstream('app');
+
+        $output = new BufferedOutput();
+        $command = new UpCommand($projectRoot, new ProcessRunner());
+        $config = new ShipConfig(phpVersion: '8.4', services: [], serviceNames: ['app' => 'client-app']);
+        (new \ReflectionMethod($command, 'warnAboutNginxUpstreamMismatch'))->invoke($command, $config, $output);
+
+        (new Filesystem())->remove($projectRoot);
+
+        $written = $output->fetch();
+        self::assertStringContainsString('"app"', $written);
+        self::assertStringContainsString('"client-app"', $written);
+    }
+
+    public function test_it_stays_quiet_when_the_published_nginx_upstream_already_matches(): void
+    {
+        $projectRoot = $this->makeProjectRootWithPublishedNginxUpstream('client-app');
+
+        $output = new BufferedOutput();
+        $command = new UpCommand($projectRoot, new ProcessRunner());
+        $config = new ShipConfig(phpVersion: '8.4', services: [], serviceNames: ['app' => 'client-app']);
+        (new \ReflectionMethod($command, 'warnAboutNginxUpstreamMismatch'))->invoke($command, $config, $output);
+
+        (new Filesystem())->remove($projectRoot);
+
+        self::assertSame('', $output->fetch());
+    }
+
+    public function test_it_stays_quiet_when_no_nginx_config_was_ever_published(): void
+    {
+        $projectRoot = sys_get_temp_dir() . '/ship-up-test-' . bin2hex(random_bytes(8));
+        mkdir($projectRoot, recursive: true);
+
+        $output = new BufferedOutput();
+        $command = new UpCommand($projectRoot, new ProcessRunner());
+        $config = new ShipConfig(phpVersion: '8.4', services: [], serviceNames: ['app' => 'client-app']);
+        (new \ReflectionMethod($command, 'warnAboutNginxUpstreamMismatch'))->invoke($command, $config, $output);
+
+        (new Filesystem())->remove($projectRoot);
+
+        self::assertSame('', $output->fetch());
+    }
+
+    private function makeProjectRootWithPublishedNginxUpstream(string $appServiceName): string
+    {
+        $projectRoot = sys_get_temp_dir() . '/ship-up-test-' . bin2hex(random_bytes(8));
+        mkdir($projectRoot . '/ship/nginx', recursive: true);
+        file_put_contents(
+            $projectRoot . '/ship/nginx/default.conf',
+            "location = /index.php {\n    set \$upstream_app {$appServiceName}:9000;\n}\n",
+        );
+
+        return $projectRoot;
+    }
+
+    /**
      * FrankenPHP was excluded from hostUser once (its Debian image had no non-root setup at all),
      * raised again once that gap was closed -- this just has to no longer be special-cased:
      * whatever resolveHostUser decides for it has to match a plain Swoole config given the same
