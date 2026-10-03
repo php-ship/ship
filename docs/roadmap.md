@@ -1451,6 +1451,37 @@ equivalent for `ship.json`.
   `docker compose` itself aborted. Verified live for every check it performs, including multiple
   unrelated problems reported together in one run.
 
+A fourth independent audit, run after `ship config:test` shipped, found one more reliability gap
+in the Mutagen fix and two bugs in `ship config:test` itself.
+
+- Stopped "app" itself racing `ship up`'s own `composer install` under `SHIP_MUTAGEN` with an
+  Octane runtime selected -- with Octane, "app" is not `php-fpm`, so its own dev entrypoint raced
+  `MutagenSync::installComposerDependencies()` to install the moment `composer.json` merely
+  appeared, often before `composer.lock` had finished syncing too. Running without the lock meant
+  Composer resolved fresh versions and silently wrote a new `composer.lock` into the synced tree.
+  "app" now gets the same `SHIP_DEV_SKIP_INSTALL` signal Reverb already had, but only when
+  `SHIP_MUTAGEN` is actually active -- a plain bind mount never starts out empty, so "app" still
+  installs for itself there.
+
+  Verified live: a real Laravel + Octane/Swoole fixture under `SHIP_MUTAGEN=1` ends up with
+  `composer.lock`'s hash inside the container identical to the original, pre-ship hash,
+  `RestartCount=0`, and app's own logs show no `composer install` output at all.
+
+- Fixed `EnvFile::parse()` misreading two real `.env.production` patterns: a line written as
+  `export KEY=value` (valid shell syntax Laravel/Compose both already accept) kept `"export KEY"`
+  as the variable name verbatim, so every lookup against the real `KEY` silently saw it as never
+  set at all; a trailing `# comment` after an unquoted value was kept as part of the value
+  instead of being stripped. A literal `#` inside a *quoted* value is still kept, correctly, since
+  that's not a comment. Verified live for both fixes together.
+
+- Made `ship config:test` report every problem, not just the first per build --
+  `ComposeFileBuilder::build()` throws on the first problem it hits, so an unregistered service
+  key used to hide a bad `processes` name behind it (or vice versa), contradicting the command's
+  own "reports everything in one pass" promise. Both of `ComposeFileBuilder`'s only two failure
+  modes are environment-independent, so they're now checked directly up front, once, before
+  attempting the real build. Added `ServiceRegistry::has()` as the non-throwing complement to
+  `get()`, used by the new check.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
