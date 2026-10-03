@@ -334,6 +334,25 @@ final class ComposeFileBuilderTest extends TestCase
         self::assertArrayNotHasKey('x-ship', $dev);
     }
 
+    /**
+     * Regression coverage for a real bug found via an independent re-audit: ReverbService's own
+     * composeFragment() has no access to $hostUser, so SHIP_HOST_USER was only ever set on "app"
+     * itself -- the dev entrypoint drops anything that's "its own long-lived program" (an Octane
+     * server, or Reverb, exactly the same category) to that user before exec'ing it, *if*
+     * SHIP_HOST_USER is set; without it Reverb kept running as root in dev even with hostUser
+     * enabled, the exact problem hostUser exists to avoid.
+     */
+    public function test_reverb_gets_ship_host_user_too_when_a_host_user_is_set(): void
+    {
+        $registry = new ServiceRegistry([new ReverbService()]);
+        $builder = new ComposeFileBuilder($registry);
+        $config = new ShipConfig(phpVersion: '8.4', services: ['broadcasting' => 'reverb']);
+
+        $dev = Yaml::parse($builder->build($config, ShipEnvironment::Development, false, ['uid' => 1000, 'gid' => 1001]));
+
+        self::assertSame('1000:1001', $dev['services']['reverb']['environment']['SHIP_HOST_USER']);
+    }
+
     public function test_reverb_gets_its_own_service_with_the_projects_php_version_backfilled(): void
     {
         $registry = new ServiceRegistry([new ReverbService()]);

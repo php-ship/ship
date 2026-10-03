@@ -156,6 +156,7 @@ final class ComposeFileBuilder
             $appEnv,
             $environment,
             $mutagenSync,
+            $hostUser,
         );
 
         // Lets the commands that shell out to `docker compose exec` (see ComposeCommand::execPrefix())
@@ -458,8 +459,18 @@ final class ComposeFileBuilder
      * instead (see baseServices()'s own $devVolume). Reverb kept bind-mounting the *unsynced* host
      * tree, reading stale code "app" itself no longer saw once Mutagen's sync caught up.
      *
+     * A fifth, found via an independent re-audit of the fourth: ReverbService's own
+     * composeFragment() also has no access to $hostUser, so SHIP_HOST_USER (ship.json's hostUser,
+     * see ShipConfig) was only ever set on "app" itself, never on Reverb -- stubs/docker/php/dev/
+     * entrypoint.sh drops anything that's "its own long-lived program" (its own comment's words,
+     * written with an Octane server in mind, but Reverb is exactly the same category) to that
+     * user before exec'ing it, *if* SHIP_HOST_USER is set; without it, that branch never fires and
+     * Reverb keeps running as root in dev even with hostUser enabled, writing anything it touches
+     * in the bind-mounted tree back as root-owned -- the exact problem hostUser exists to avoid.
+     *
      * @param array<string, array<string, mixed>> $services
      * @param array<string, string> $appEnv
+     * @param array{uid: int, gid: int}|null $hostUser
      * @return array<string, array<string, mixed>>
      */
     private function alignReverbWithApp(
@@ -469,6 +480,7 @@ final class ComposeFileBuilder
         array $appEnv,
         ShipEnvironment $environment,
         bool $mutagenSync,
+        ?array $hostUser,
     ): array {
         if (!isset($services[$reverbServiceName])) {
             return $services;
@@ -477,6 +489,9 @@ final class ComposeFileBuilder
         $services[$reverbServiceName]['build']['args'] = $services[$appServiceName]['build']['args'] ?? [];
         $services[$reverbServiceName]['environment'] = [
             ...$appEnv,
+            ...($environment->isDevelopment() && $hostUser !== null
+                ? ['SHIP_HOST_USER' => "{$hostUser['uid']}:{$hostUser['gid']}"]
+                : []),
             ...($environment->isDevelopment() ? [] : ['SHIP_RUN_AS' => 'www-data']),
         ];
 
