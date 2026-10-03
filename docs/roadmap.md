@@ -1567,6 +1567,12 @@ A sixth independent audit found one trivial leftover in `EnvFile::parse()`.
   Verified live: a real `ship init` run against an existing multi-service `ship.json`, every
   prompt answered by pressing Enter, reproduces the same selections instead of wiping them.
 
+- `EnvFile::parse()` strips a leading UTF-8 BOM before parsing -- left in place, it silently
+  prepends itself to the first line's own key, so that variable is never found by any exact
+  lookup even though the file reads as correct in an editor that hides the BOM on display (most
+  do). Verified live: a real `.env.production` written with a leading BOM now passes `ship
+  config:test` cleanly.
+
 - `ship build`/`ship release` both check every `${VAR:?...}` ComposeFileBuilder's production
   output actually requires against `.env.production` before ProductionBuildRunner -- and
   therefore Docker -- is ever reached (`RequiredEnv::missingFrom()`, extracted out of
