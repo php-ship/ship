@@ -1056,6 +1056,27 @@
   (through the real `ship up`-generated compose file, not a hand-rolled one) showing the identity
   file with real credentials and the same unsigned request now returning 403.
 
+- Gave Garage a real RPC secret and admin token -- found via the same independent audit: the
+  published `garage.toml` stub hardcoded an all-zero `rpc_secret` shared by every project that
+  ever selected Garage, and the admin API (bucket/key management, reachable by anything else on
+  the "ship" network) had no token at all. Garage's own CLI reads both `GARAGE_RPC_SECRET` and
+  `GARAGE_ADMIN_TOKEN` as env vars directly, explicitly documented to override `config.toml`, so no
+  wrapper script or generated file was needed the way SeaweedFS's identity config required --
+  removed `rpc_secret` from `garage.toml` entirely and set both through the usual env var
+  mechanism, required (not just overridable) in production via `RequiredEnv`.
+
+  While verifying this live, found and fixed two more real, pre-existing bugs blocking Garage from
+  booting at all, unrelated to the audit: this image's own `--default-access-key` validates
+  minimum lengths and refuses to start otherwise -- `"ship"` (4 chars) failed an 8-character
+  minimum, and once that was raised, `"shipsecret"` (10 chars) failed a separate 16-character
+  minimum for the secret. Both defaults are now long enough.
+
+  Verified live end-to-end through the real `ship up`-generated compose file: the container now
+  reports healthy (the healthcheck's own `garage status` call picks up `GARAGE_RPC_SECRET` from
+  the container's environment automatically), an unsigned admin API request gets a 403 with
+  "Bearer token must be provided" where it previously had no gate at all, the correct token gets a
+  200, and a wrong one gets a 403.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
