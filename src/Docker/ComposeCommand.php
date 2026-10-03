@@ -17,14 +17,23 @@ final class ComposeCommand
      * next regenerates that file. Picked up explicitly: passing any -f disables Compose's own default
      * override auto-discovery outright, and ship already passes -f for its own generated file, too.
      *
+     * $includeOverride is false only for `ship build`/`ship release` (via ProductionBuildRunner) --
+     * a real bug found via an independent audit: the override file is a dev convenience (its own
+     * docblock above already says so), but every other caller picked it up unconditionally, so a
+     * project's own dev-only `build:` customization silently leaked into the production image too,
+     * and the release's own exported docker-compose.yml (built from
+     * ship/docker-compose.generated.yml alone) never matched what was actually built as a result.
+     * Omitting it from the production build entirely fixes both at once: nothing to leak, and
+     * nothing for the artifact to disagree with.
+     *
      * @return list<string>
      */
-    public static function baseArgs(string $projectRoot): array
+    public static function baseArgs(string $projectRoot, bool $includeOverride = true): array
     {
         $args = ['docker', 'compose', '-f', $projectRoot . '/ship/docker-compose.generated.yml'];
 
         $overridePath = $projectRoot . '/docker-compose.override.yml';
-        if (is_file($overridePath)) {
+        if ($includeOverride && is_file($overridePath)) {
             $args[] = '-f';
             $args[] = $overridePath;
         }

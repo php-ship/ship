@@ -78,7 +78,9 @@ final class ProductionBuildRunner
         $buildEnv = EnvFile::parse($projectRoot . '/.env.production');
 
         $result = $this->runner->runInteractive(
-            [...ComposeCommand::baseArgs($projectRoot), 'build', ...$canonicalServices],
+            // false: never docker-compose.override.yml here -- see ComposeCommand::baseArgs()'s
+            // own docblock for why a dev convenience must never silently reach a production build.
+            [...ComposeCommand::baseArgs($projectRoot, includeOverride: false), 'build', ...$canonicalServices],
             $projectRoot,
             $buildEnv === [] ? null : $buildEnv,
         );

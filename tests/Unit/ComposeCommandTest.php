@@ -49,4 +49,23 @@ final class ComposeCommandTest extends TestCase
             $args,
         );
     }
+
+    /**
+     * Regression coverage for a real bug found via an independent audit: the override file is a
+     * dev convenience, but ProductionBuildRunner's own production build picked it up
+     * unconditionally like every other caller -- a project's dev-only `build:` customization
+     * silently leaked into the production image, and the release's exported docker-compose.yml
+     * never matched what was actually built as a result.
+     */
+    public function test_include_override_false_omits_it_even_when_the_file_exists(): void
+    {
+        touch($this->tmpDir . '/docker-compose.override.yml');
+
+        $args = ComposeCommand::baseArgs($this->tmpDir, includeOverride: false);
+
+        self::assertSame(
+            ['docker', 'compose', '-f', $this->tmpDir . '/ship/docker-compose.generated.yml', '--project-directory', $this->tmpDir],
+            $args,
+        );
+    }
 }
