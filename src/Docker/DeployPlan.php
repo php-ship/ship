@@ -14,12 +14,18 @@ use Symfony\Component\Yaml\Yaml;
 final class DeployPlan
 {
     /**
-     * Services with no `build:` -- the databases, caches and the like an image pulled straight from
-     * a registry provides. These have to be up (and healthy, where they declare a healthcheck)
-     * before a deploy command runs, since nothing else starts them: the app service has no
-     * depends_on for them, and a one-off `docker compose run` only starts its own dependencies.
-     * Anything that builds from ship/Dockerfile (the app, its nginx, Reverb, extra processes) is
-     * excluded -- those are exactly what must *not* start until the deploy commands succeed.
+     * Everything except the project's own application code (the app, its nginx, Reverb, extra
+     * processes -- anything building from `ship/Dockerfile` or `ship/Dockerfile.frankenphp`,
+     * whichever target). Databases, caches, and the like an image pulled straight from a registry
+     * provides are the obvious case, but a project-owned service with its own small packaging
+     * Dockerfile for unrelated reasons (Garage's own tiny from-scratch image, say) is
+     * infrastructure here too, not application code -- a real bug found via an independent audit:
+     * the original `!isset($service['build'])` check used "has a build: at all" as a proxy for
+     * "is this the app's own code," which happened to also catch Garage, leaving a "create the
+     * bucket" deploy command to run against a Garage that was never started. Everything this
+     * returns has to be up (and healthy, where it declares a healthcheck) before a deploy command
+     * runs, since nothing else starts it: the app service has no `depends_on` for any of it, and a
+     * one-off `docker compose run` only starts its own dependencies.
      *
      * @return list<string>
      */
@@ -28,10 +34,13 @@ final class DeployPlan
         /** @var array{services?: array<string, array<string, mixed>>} $parsed */
         $parsed = Yaml::parse($composeYaml);
 
+        $appDockerfiles = ['ship/Dockerfile', 'ship/Dockerfile.frankenphp'];
         $names = [];
 
         foreach ($parsed['services'] ?? [] as $name => $service) {
-            if (!isset($service['build'])) {
+            $dockerfile = $service['build']['dockerfile'] ?? null;
+
+            if (!in_array($dockerfile, $appDockerfiles, true)) {
                 $names[] = $name;
             }
         }
