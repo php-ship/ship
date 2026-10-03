@@ -52,15 +52,21 @@ final class Application extends SymfonyApplication
         $warnings = $loaded['warnings'];
         $this->extensionFrameworkAdapters = $loaded['frameworkAdapters'];
 
+        // $registry/$this->extensionFrameworkAdapters are passed into every command below that
+        // would otherwise reload the exact same extension classes all over again -- a real bug
+        // found via an independent re-audit: removing the duplicate *warning* print (see the
+        // fwrite() below) left the duplicate *instantiation* itself in place, since Up/Build/
+        // Release/Db each still built and populated their own fresh registry independently on
+        // every real `ship` invocation. See UpCommand's own constructor docblock.
         $this->registerCommand(new InitCommand($this->projectRoot, $registry));
-        $this->registerCommand(new UpCommand($this->projectRoot, $runner));
-        $this->registerCommand(new BuildCommand($this->projectRoot, $runner));
-        $this->registerCommand(new ReleaseCommand($this->projectRoot, $runner));
+        $this->registerCommand(new UpCommand($this->projectRoot, $runner, $registry));
+        $this->registerCommand(new BuildCommand($this->projectRoot, $runner, $registry, $this->extensionFrameworkAdapters));
+        $this->registerCommand(new ReleaseCommand($this->projectRoot, $runner, $registry, $this->extensionFrameworkAdapters));
         $this->registerCommand(new DownCommand($this->projectRoot, $runner));
         $this->registerCommand(new ExecCommand($this->projectRoot, $runner));
         $this->registerCommand(new ShellCommand($this->projectRoot, $runner));
         $this->registerCommand(new LogsCommand($this->projectRoot, $runner));
-        $this->registerCommand(new DbCommand($this->projectRoot, $runner));
+        $this->registerCommand(new DbCommand($this->projectRoot, $runner, $registry));
 
         // Package-manager commands are framework-agnostic, so they're
         // always available regardless of what FrameworkAdapter matches.

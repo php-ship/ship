@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ship\Console\Commands;
 
 use Ship\Config\ShipConfig;
+use Ship\Contracts\FrameworkAdapter;
 use Ship\Docker\ComposeCommand;
 use Ship\Docker\DeployPlan;
 use Ship\Docker\EnvFile;
@@ -35,9 +36,19 @@ use Symfony\Component\Yaml\Yaml;
 #[AsCommand(name: 'release', description: 'Build the portable production release artifact')]
 final class ReleaseCommand extends Command
 {
+    /**
+     * $registry/$frameworkAdapters, when given (Application passes its own already-populated
+     * ones), are used as-is instead of this command loading every extension class all over
+     * again -- see UpCommand's matching constructor docblock for why. Left optional so
+     * constructing this directly -- every existing test does -- still works unchanged.
+     *
+     * @param list<FrameworkAdapter>|null $frameworkAdapters
+     */
     public function __construct(
         private readonly string $projectRoot,
         private readonly ProcessRunner $runner,
+        private readonly ?ServiceRegistry $registry = null,
+        private readonly ?array $frameworkAdapters = null,
     ) {
         parent::__construct();
     }
@@ -78,16 +89,21 @@ final class ReleaseCommand extends Command
             return Command::FAILURE;
         }
 
-        $registry = new ServiceRegistry(ServiceRegistry::defaults());
-
-        // Not printing these warnings here — Application's own constructor
-        // already surfaced them once; see UpCommand's own docblock for why.
-        $loaded = (new ExtensionLoader())->load($config->extensions, $registry);
+        if ($this->registry !== null && $this->frameworkAdapters !== null) {
+            $registry = $this->registry;
+            $frameworkAdapters = $this->frameworkAdapters;
+        } else {
+            $registry = new ServiceRegistry(ServiceRegistry::defaults());
+            // Not printing these warnings here — Application's own constructor
+            // already surfaced them once; see UpCommand's own docblock for why.
+            $loaded = (new ExtensionLoader())->load($config->extensions, $registry);
+            $frameworkAdapters = $loaded['frameworkAdapters'];
+        }
 
         $result = (new ProductionBuildRunner($this->runner))->build(
             $config,
             $registry,
-            $loaded['frameworkAdapters'],
+            $frameworkAdapters,
             $this->projectRoot,
             ProjectName::resolve($config, $this->projectRoot),
             $tag,

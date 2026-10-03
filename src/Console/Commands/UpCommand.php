@@ -31,9 +31,19 @@ use Symfony\Component\Yaml\Yaml;
 #[AsCommand(name: 'up', description: 'Build and start the development environment')]
 final class UpCommand extends Command
 {
+    /**
+     * $registry, when given (Application passes its own already-populated one), is used as-is
+     * instead of this command loading every extension class all over again -- a real bug found
+     * via an independent re-audit: removing the duplicate *warning* print earlier left the
+     * duplicate *instantiation* itself in place, since this still built and populated its own
+     * fresh registry on every real `ship up` regardless. Left optional (not required) so
+     * constructing this directly -- every existing test does -- still works unchanged, building
+     * its own registry exactly as before.
+     */
     public function __construct(
         private readonly string $projectRoot,
         private readonly ProcessRunner $runner,
+        private readonly ?ServiceRegistry $registry = null,
     ) {
         parent::__construct();
     }
@@ -42,19 +52,12 @@ final class UpCommand extends Command
     {
         $config = ShipConfig::fromFile($this->projectRoot . '/ship.json');
 
-        $registry = new ServiceRegistry(ServiceRegistry::defaults());
-
-        // Same extension loading Application does at boot — needed here
-        // too, independently, because a project whose ship.json selects an
-        // extension-provided service would otherwise pass `ship init`
-        // (which used Application's already-loaded registry) and then
-        // fail on `ship up` with an OutOfBoundsException, since this
-        // registry starts fresh with only the built-ins. Not re-printing
-        // the warnings here too — Application's own constructor already
-        // surfaced them once; a real bug found via an independent audit
-        // had every extension class built once there and a second time
-        // here, printing the same warning twice on every `ship up`.
-        (new ExtensionLoader())->load($config->extensions, $registry);
+        if ($this->registry !== null) {
+            $registry = $this->registry;
+        } else {
+            $registry = new ServiceRegistry(ServiceRegistry::defaults());
+            (new ExtensionLoader())->load($config->extensions, $registry);
+        }
 
         $this->warnAboutStubVersionMismatch($output);
 

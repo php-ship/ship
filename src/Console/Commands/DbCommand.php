@@ -19,9 +19,16 @@ use Symfony\Component\Console\Output\OutputInterface;
 #[AsCommand(name: 'db', description: "Open a selected database's interactive client shell")]
 final class DbCommand extends Command
 {
+    /**
+     * $registry, when given (Application passes its own already-populated one), is used as-is
+     * instead of this command loading every extension class all over again -- see UpCommand's
+     * matching constructor docblock for why. Left optional so constructing this directly --
+     * every existing test does -- still works unchanged.
+     */
     public function __construct(
         private readonly string $projectRoot,
         private readonly ProcessRunner $runner,
+        private readonly ?ServiceRegistry $registry = null,
     ) {
         parent::__construct();
     }
@@ -69,8 +76,12 @@ final class DbCommand extends Command
             $instanceName = $additional['name'];
         }
 
-        $registry = new ServiceRegistry(ServiceRegistry::defaults());
-        (new ExtensionLoader())->load($config->extensions, $registry);
+        if ($this->registry !== null) {
+            $registry = $this->registry;
+        } else {
+            $registry = new ServiceRegistry(ServiceRegistry::defaults());
+            (new ExtensionLoader())->load($config->extensions, $registry);
+        }
         $service = $registry->get($databaseKey);
 
         if (!$service instanceof ProvidesDatabaseShell) {

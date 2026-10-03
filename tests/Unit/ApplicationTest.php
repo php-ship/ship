@@ -101,6 +101,32 @@ final class ApplicationTest extends TestCase
     }
 
     /**
+     * Regression coverage for a real bug found via an independent re-audit: removing the
+     * duplicate *warning* print (see Application's own fwrite() docblock) left the duplicate
+     * *instantiation* itself in place -- UpCommand/BuildCommand/ReleaseCommand/DbCommand each
+     * still built and populated their own fresh ServiceRegistry independently on every real
+     * `ship` invocation, instantiating every extension class a second time. Application now
+     * passes its own already-populated registry into all four, exactly as it already did for
+     * InitCommand -- same object, not an equivalent copy, which is what proves no second
+     * instantiation pass happened.
+     */
+    public function test_up_build_release_and_db_commands_share_applications_own_registry(): void
+    {
+        $application = new Application($this->projectRoot);
+
+        /** @var InitCommand $init */
+        $init = $application->find('init');
+        $initRegistry = (new \ReflectionProperty($init, 'registry'))->getValue($init);
+
+        foreach (['up', 'build', 'release', 'db'] as $commandName) {
+            $command = $application->find($commandName);
+            $registry = (new \ReflectionProperty($command, 'registry'))->getValue($command);
+
+            self::assertSame($initRegistry, $registry, "\"{$commandName}\" does not share Application's registry.");
+        }
+    }
+
+    /**
      * `ship composer`/`ship npm` (and any framework-adapter proxy, e.g. `artisan`) must target
      * ship.json's configured app service name, not a literal "app" -- a project that renamed its
      * own app service (see ShipConfig::$serviceNames's own docblock) would otherwise have every
