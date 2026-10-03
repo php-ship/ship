@@ -1172,6 +1172,27 @@
   and `ship exec app php -v` immediately afterward still correctly reports the running dev
   container (Xdebug installed, confirming it's the dev image).
 
+- Extension classes were constructed twice per run, and their warnings printed twice on `ship
+  up`/`build`/`release` -- found via the same independent audit. `ExtensionLoader::load()` and a
+  separate `loadFrameworkAdapters()` each independently instantiated every class listed in
+  `ship.json`'s `extensions` array, so any extension implementing `FrameworkAdapter` was built
+  once by each method within the same `Application` boot, and `ProductionBuildRunner`'s own
+  `detectFrameworkAdapters()` built it a third time on `ship build`/`ship release`. A third-party
+  extension whose constructor has any side effect (logging, a network call, anything) would have
+  run it that many times per invocation.
+
+  `load()` now resolves warnings and `FrameworkAdapter` instances in a single pass, returning
+  both; `loadFrameworkAdapters()` is gone. `ProductionBuildRunner::build()` takes the
+  already-resolved list from its caller instead of re-instantiating every class itself.
+
+  Separately, `Application`'s constructor always printed every warning to STDERR, and
+  `UpCommand`/`BuildCommand`/`ReleaseCommand` each loaded the extensions again for their own
+  fresh `ServiceRegistry` and printed the same warning a second time via `$output`. Those three
+  commands no longer re-print what `Application` already surfaced once.
+
+  Verified live: a `ship.json` extension class that doesn't exist now prints exactly one
+  `ship: warning: ...` line on both `ship up` and `ship build`, not two.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`

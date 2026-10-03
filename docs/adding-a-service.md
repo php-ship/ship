@@ -166,4 +166,5 @@ from for a new framework. Three methods:
 
 Like `ServiceDefinition`, a third-party adapter doesn't need to fork this
 package — list its FQCN in `ship.json`'s `extensions` array the same way,
-and `ExtensionLoader::loadFrameworkAdapters()` picks it up.
+and `ExtensionLoader::load()` picks it up alongside any `ServiceDefinition`
+extensions, in the same pass.
