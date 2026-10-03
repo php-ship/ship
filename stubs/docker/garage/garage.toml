@@ -6,7 +6,10 @@ replication_factor = 1
 
 rpc_bind_addr = "[::]:3901"
 rpc_public_addr = "garage:3901"
-rpc_secret = "0000000000000000000000000000000000000000000000000000000000000000"
+# No rpc_secret here -- GarageService's own GARAGE_RPC_SECRET env var supplies it instead (Garage's
+# own --rpc-secret/GARAGE_RPC_SECRET explicitly overrides this file's value when set, confirmed via
+# `garage --help`), so a real per-project secret is possible without baking one into this stub,
+# which every project that ever selects Garage shares unmodified.
 
 [s3_api]
 s3_region = "garage"
