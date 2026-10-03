@@ -187,4 +187,64 @@ final class ShipConfigTest extends TestCase
         self::assertStringEndsWith("\n", $written);
         self::assertStringContainsString("\n    \"php\": \"8.4\",\n", $written);
     }
+
+    public function test_try_from_file_returns_null_when_the_file_does_not_exist(): void
+    {
+        self::assertNull(ShipConfig::tryFromFile($this->projectRoot . '/ship.json'));
+    }
+
+    public function test_try_from_file_returns_null_for_malformed_json(): void
+    {
+        file_put_contents($this->projectRoot . '/ship.json', '{not valid json');
+
+        self::assertNull(ShipConfig::tryFromFile($this->projectRoot . '/ship.json'));
+    }
+
+    /**
+     * Regression coverage for a real bug found via an independent re-audit: fromFile() validates
+     * and throws on the first invalid field it finds, which InitCommand::readExistingConfig()'s
+     * own try/catch treated as "nothing to preserve at all" -- one bad serviceNames value
+     * reintroduced the exact data-loss bug the preservation fix exists to prevent. tryFromFile()
+     * preserves a field that's merely the wrong *format* (not the wrong *type*) as-is instead of
+     * dropping it -- silently discarding it here would just be a second, quieter way to lose a
+     * hand-edited value with no error at all; fromFile()'s own validation still catches it for
+     * real, with a clear and actionable error, the next time anything actually uses the config.
+     */
+    public function test_try_from_file_preserves_a_field_that_fails_formatting_rules_as_is(): void
+    {
+        $path = $this->projectRoot . '/ship.json';
+        file_put_contents($path, json_encode([
+            'php' => '8.4',
+            'services' => [],
+            'serviceNames' => ['app' => 'Not A Valid Name!'],
+            'phpExtensions' => ['gd'],
+            'name' => 'acme-api',
+        ]));
+
+        $config = ShipConfig::tryFromFile($path);
+
+        self::assertNotNull($config);
+        self::assertSame(['app' => 'Not A Valid Name!'], $config->serviceNames);
+        self::assertSame(['gd'], $config->phpExtensions);
+        self::assertSame('acme-api', $config->name);
+    }
+
+    public function test_try_from_file_filters_non_string_entries_out_of_list_and_map_fields(): void
+    {
+        $path = $this->projectRoot . '/ship.json';
+        file_put_contents($path, json_encode([
+            'php' => '8.4',
+            'services' => [],
+            'extensions' => ['Real\\Extension', 123, null],
+            'serviceNames' => ['app' => 'client-app', 'webserver' => 42],
+            'publishPorts' => 'not-a-bool',
+        ]));
+
+        $config = ShipConfig::tryFromFile($path);
+
+        self::assertNotNull($config);
+        self::assertSame(['Real\\Extension'], $config->extensions);
+        self::assertSame(['app' => 'client-app'], $config->serviceNames);
+        self::assertTrue($config->publishPorts);
+    }
 }

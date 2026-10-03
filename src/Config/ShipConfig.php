@@ -149,6 +149,85 @@ final class ShipConfig
     }
 
     /**
+     * Best-effort read for `InitCommand::readExistingConfig()` -- preserving whatever's already
+     * there across a re-run matters more here than validating it. A real bug found via an
+     * independent re-audit of that very fix: `readExistingConfig()` calls `fromFile()`, which now
+     * validates (see this class's own `validate()`) and throws on the first invalid field it
+     * finds -- one bad `serviceNames` value reintroduced the exact data-loss bug the preservation
+     * fix exists to prevent, discarding every *other* hand-edited field right along with it.
+     * `fromFile()`'s own strict validate-then-throw behavior is still exactly right for the
+     * operational path (`ship up`/`build`/`release` actually using the config) -- this is a
+     * separate, deliberately lenient reader only `readExistingConfig()` uses.
+     *
+     * Only filters by *type* (a list is actually a list of strings, a map is actually
+     * string-keyed with string values, ...), not by `validate()`'s own stricter *format* checks
+     * (a compose-name regex, say) -- a value that's merely the wrong shape for `fromFile()`'s
+     * validation is still preserved as-is and written straight back to ship.json. The next
+     * operational use (`ship up`, say) still validates it for real and fails with a clear,
+     * actionable error then, exactly where fixing it actually matters; silently dropping it here
+     * instead would be a second, quieter way to lose a hand-edited value with no error at all.
+     * Only a field whose JSON *type* is fundamentally incompatible (a string where an object was
+     * expected, say) has nothing meaningful left to preserve, so that one is dropped. Null only
+     * when the file doesn't exist or isn't even valid JSON at all -- nothing short of that is
+     * worth discarding wholesale.
+     *
+     * `phpVersion`/`services` are given harmless placeholders, not real validation, since
+     * `readExistingConfig()`'s only caller never reads them back off this object at all --
+     * `ship init`'s own fresh prompts always supply both, every run.
+     */
+    public static function tryFromFile(string $path): ?self
+    {
+        if (!is_file($path)) {
+            return null;
+        }
+
+        try {
+            $data = json_decode((string) file_get_contents($path), associative: true, flags: JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return null;
+        }
+
+        if (!is_array($data)) {
+            return null;
+        }
+
+        return new self(
+            phpVersion: '8.4',
+            services: [],
+            extensions: self::filterStringList($data['extensions'] ?? null),
+            additionalServices: [],
+            serviceNames: self::filterStringMap($data['serviceNames'] ?? null),
+            externalNetwork: is_string($data['externalNetwork'] ?? null) ? $data['externalNetwork'] : null,
+            phpExtensions: self::filterStringList($data['phpExtensions'] ?? null),
+            publishPorts: is_bool($data['publishPorts'] ?? null) ? $data['publishPorts'] : true,
+            deployCommands: self::filterStringList($data['deployCommands'] ?? null),
+            processes: self::filterStringMap($data['processes'] ?? null),
+            hostUser: is_bool($data['hostUser'] ?? null) ? $data['hostUser'] : false,
+            name: is_string($data['name'] ?? null) ? $data['name'] : null,
+        );
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function filterStringList(mixed $value): array
+    {
+        return is_array($value) ? array_values(array_filter($value, 'is_string')) : [];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private static function filterStringMap(mixed $value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+
+        return array_filter($value, static fn (mixed $v, mixed $k): bool => is_string($k) && is_string($v), ARRAY_FILTER_USE_BOTH);
+    }
+
+    /**
      * Two real gaps found via an independent audit: `"php": 8.4` (a bare JSON number, an easy
      * hand-edit mistake -- the quotes around the string are easy to drop) previously reached the
      * constructor's own strict `string $phpVersion` type unchecked, surfacing as a raw

@@ -104,22 +104,20 @@ final class InitCommand extends Command
      * `ship up` itself tells users to do it after a stub-version mismatch; losing `publishPorts:
      * false` alone silently re-exposes ports a project turned off deliberately. Null (not an
      * exception) when there's nothing to preserve yet -- a first-ever `ship init` -- or the
-     * existing file is malformed, since a broken ship.json is exactly what re-running `ship init`
-     * might be trying to fix in the first place.
+     * existing file isn't even valid JSON, since a broken ship.json is exactly what re-running
+     * `ship init` might be trying to fix in the first place.
+     *
+     * Uses ShipConfig::tryFromFile(), not fromFile() -- a real bug found via an independent
+     * re-audit of this very fix: fromFile() validates and throws on the first invalid field it
+     * finds (e.g. one bad serviceNames value), which this method's own try/catch then treated as
+     * "nothing to preserve," reintroducing the exact data-loss bug being fixed here, just behind a
+     * new trigger. tryFromFile() preserves a field that's merely the wrong format as-is instead of
+     * throwing or discarding it -- see its own docblock for why that's the right tradeoff
+     * specifically here.
      */
     private function readExistingConfig(): ?ShipConfig
     {
-        $path = $this->projectRoot . '/ship.json';
-
-        if (!is_file($path)) {
-            return null;
-        }
-
-        try {
-            return ShipConfig::fromFile($path);
-        } catch (\Throwable) {
-            return null;
-        }
+        return ShipConfig::tryFromFile($this->projectRoot . '/ship.json');
     }
 
     /**

@@ -71,6 +71,36 @@ final class InitCommandReadExistingConfigTest extends TestCase
         self::assertNull($this->invoke());
     }
 
+    /**
+     * Regression coverage for a real bug found via an independent re-audit of the fix above:
+     * readExistingConfig() used to call ShipConfig::fromFile(), which validates and throws on the
+     * first invalid field it finds (serviceNames.app here, which fails the compose-name regex) --
+     * caught by this method's own try/catch and treated as "nothing to preserve," reintroducing
+     * the exact data-loss bug being fixed, just behind a new trigger (a validation failure instead
+     * of a JSON syntax error). One field failing fromFile()'s own stricter format check must not
+     * discard every *other* hand-edited field right along with it -- or itself: it's preserved
+     * as-is here too (see ShipConfig::tryFromFile()'s own docblock for why).
+     */
+    public function test_one_invalid_field_does_not_discard_every_other_hand_edited_field(): void
+    {
+        file_put_contents($this->projectRoot . '/ship.json', json_encode([
+            'php' => '8.4',
+            'services' => [],
+            'serviceNames' => ['app' => 'Not A Valid Name!'],
+            'phpExtensions' => ['gd'],
+            'publishPorts' => false,
+            'name' => 'acme-api',
+        ]));
+
+        $existing = $this->invoke();
+
+        self::assertNotNull($existing);
+        self::assertSame(['app' => 'Not A Valid Name!'], $existing->serviceNames);
+        self::assertSame(['gd'], $existing->phpExtensions);
+        self::assertFalse($existing->publishPorts);
+        self::assertSame('acme-api', $existing->name);
+    }
+
     private function invoke(): ?ShipConfig
     {
         $command = new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults()));
