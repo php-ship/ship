@@ -1244,6 +1244,18 @@
   GARAGE_RPC_PUBLIC_ADDR=garage-archive:3901` bakes `rpc_public_addr = "garage-archive:3901"`
   into the image, and the container starts cleanly with it.
 
+- Switch Reverb to the synced named volume when Mutagen is active -- found via the same
+  independent audit: `ReverbService`'s own `composeFragment()` has no access to `$mutagenSync`,
+  so its dev volume was always the raw bind mount (`.:/var/www/html`), even when `SHIP_MUTAGEN`
+  is active and "app"/"webserver" both switch to the synced named volume instead. Reverb kept
+  bind-mounting the unsynced host tree, reading stale code "app" itself no longer saw once
+  Mutagen's sync caught up.
+
+  `alignReverbWithApp()` -- already the one place that backfills what `ReverbService` can't
+  compute on its own (env vars, `SHIP_RUN_AS`, build args) -- now also overrides Reverb's
+  `volumes` to the same `ship-app-sync` named volume "app"/"webserver" use, whenever Mutagen is
+  active.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
