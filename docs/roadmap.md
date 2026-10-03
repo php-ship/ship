@@ -1281,6 +1281,24 @@
   `MutagenSync`'s own `mutagen sync create` call -- the audit's example -- uses a 60s budget for
   exactly that reason.
 
+- Hardened `.github/workflows/ci.yml` -- found via the same independent audit. No top-level
+  `permissions:` block meant this workflow ran with whatever the repo-wide default token
+  permissions happened to be, never scoped down to what it actually uses (read-only checkout, no
+  pushes/releases/PR comments); added `permissions: {contents: read}`.
+
+  `actions/checkout@v4` and `shivammathur/setup-php@v2` were pinned by a mutable tag, not a
+  commit -- either repository's maintainer (or anyone who compromised their account) could point
+  that tag at different code without this repo ever changing. Both are now pinned to the exact
+  commit the tag currently resolves to, with a version comment for readability.
+
+  The Mutagen release tarball was fetched over plain HTTPS with nothing verifying the response
+  was actually what Mutagen's maintainer published. Now downloads and checks against the
+  release's own published `SHA256SUMS` file -- not a hardcoded hash that would go stale the
+  moment `MUTAGEN_VERSION` is bumped.
+
+  Verified live: the checksum step actually verifies the real v0.18.1 tarball successfully; the
+  edited workflow file still parses as valid YAML.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
