@@ -1482,6 +1482,31 @@ in the Mutagen fix and two bugs in `ship config:test` itself.
   attempting the real build. Added `ServiceRegistry::has()` as the non-throwing complement to
   `get()`, used by the new check.
 
+A fifth independent audit, run after the fourth round's fixes, found one more `EnvFile` parsing
+gap and one more narrow edge of the Mutagen composer-install race.
+
+- Fixed `EnvFile::parse()` misreading a *quoted* value followed by a comment --
+  `KEY="three" # note` was still misread as the literal `"three" # note`, quotes and comment
+  both included. The previous fix's quote-stripping only matched when the closing quote was the
+  value's very last character, which a trailing comment makes false, so neither path applied at
+  all. `DB_USERNAME="root" # comment` would have escaped `MySqlUsernameGuard` entirely. Now finds
+  the closing quote explicitly and only ever comment-strips what comes after it.
+
+- Closed a narrow `php-fpm` double-install window under an interrupted-and-retried Mutagen sync:
+  if a previous `ship up` synced the tree (`composer.json` already present) but was interrupted
+  before installing, then `ship down` (without `--volumes`) and a fresh `ship up`, the new
+  container's entrypoint ran for the first time against a volume that already had
+  `composer.json` -- firing the composer-install branch immediately regardless of `$1`, racing
+  `ship up`'s own install exactly like the already-fixed Octane case. `SHIP_DEV_SKIP_INSTALL` now
+  skips that branch entirely whenever it's set, `php-fpm` included -- it just never *waits* for
+  `php-fpm` specifically, which still starts immediately and tolerates emptiness as always.
+
+  Verified live: simulated the interrupted state directly (removed `vendor/` from an
+  already-synced volume, recreated just the app container), confirmed the fresh container's
+  entrypoint doesn't attempt its own install and starts `php-fpm` immediately regardless, then
+  confirmed a real `ship up` run afterward still completes the one correct install, with
+  `composer.lock`'s hash unchanged throughout and `RestartCount=0`.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
