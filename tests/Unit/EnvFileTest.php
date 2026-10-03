@@ -81,6 +81,31 @@ final class EnvFileTest extends TestCase
         self::assertSame(['APP_NAME' => 'Acme # Inc'], EnvFile::parse($path));
     }
 
+    /**
+     * Regression coverage for a real bug found via a fifth independent re-audit, confirmed live:
+     * a *quoted* value followed by a comment -- `KEY="three" # note` -- was still misread as the
+     * literal `"three" # note`, quotes and comment included. The old quote-stripping only ever
+     * matched when the closing quote was the value's very last character, which a trailing
+     * comment makes false, so neither the comment-stripping nor the quote-stripping path applied
+     * at all. The real-world effect: DB_USERNAME="root" # comment would have escaped
+     * MySqlUsernameGuard entirely, and a value handed to `docker compose build` for `${VAR}`
+     * interpolation would have been wrong (though not the containers Compose itself starts,
+     * which read the file directly rather than through this reader).
+     */
+    public function test_it_strips_a_trailing_comment_after_a_quoted_values_closing_quote(): void
+    {
+        $path = $this->writeTempEnv("C=\"three\" # note\nDB_USERNAME=\"root\" # a comment\n");
+
+        self::assertSame(['C' => 'three', 'DB_USERNAME' => 'root'], EnvFile::parse($path));
+    }
+
+    public function test_an_unterminated_quote_falls_back_to_the_raw_value(): void
+    {
+        $path = $this->writeTempEnv('UNTERMINATED="oops' . "\n");
+
+        self::assertSame(['UNTERMINATED' => '"oops'], EnvFile::parse($path));
+    }
+
     private function writeTempEnv(string $contents): string
     {
         $path = sys_get_temp_dir() . '/ship-env-file-test-' . bin2hex(random_bytes(8));

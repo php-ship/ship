@@ -47,22 +47,31 @@ final class EnvFile
             // A second real bug found the same way: a trailing ` # comment` was kept as part of
             // the value verbatim instead of being stripped, corrupting it outright (the "comment"
             // isn't a comment to anything reading this value afterward). Only for an *unquoted*
-            // value -- a quoted one (handled below) may legitimately contain a literal "#", and
-            // the closing quote itself is the actual end of the value, not wherever "#" happens
-            // to appear.
-            if ($value !== '' && $value[0] !== '"' && $value[0] !== "'") {
+            // value -- a quoted one may legitimately contain a literal "#", and the closing quote
+            // itself is the actual end of the value, not wherever "#" happens to appear.
+            //
+            // A third, found via a fifth independent re-audit of the second: a *quoted* value
+            // followed by a comment -- `KEY="three" # note` -- still wasn't handled right. The
+            // quote-stripping below only ever matched when the closing quote was the value's very
+            // *last* character, which a trailing comment makes false, so the whole thing (quotes,
+            // comment, and all) fell through as one literal string instead of either path
+            // applying. Finding the closing quote explicitly (not just checking the end of the
+            // string) and only ever comment-stripping what comes *after* it fixes both at once.
+            if ($value !== '' && ($value[0] === '"' || $value[0] === "'")) {
+                $quote = $value[0];
+                $closing = strpos($value, $quote, 1);
+
+                // An unterminated quote has nothing real to close on -- left as the raw,
+                // already-trimmed value, the same lenient fallback this always had.
+                if ($closing !== false) {
+                    $value = substr($value, 1, $closing - 1);
+                }
+            } else {
                 $hashPos = strpos($value, ' #');
 
                 if ($hashPos !== false) {
                     $value = rtrim(substr($value, 0, $hashPos));
                 }
-            }
-
-            if (strlen($value) >= 2 && (
-                ($value[0] === '"' && str_ends_with($value, '"'))
-                || ($value[0] === "'" && str_ends_with($value, "'"))
-            )) {
-                $value = substr($value, 1, -1);
             }
 
             if ($key !== '') {
