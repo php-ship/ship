@@ -606,7 +606,7 @@ final class ComposeFileBuilderTest extends TestCase
         }
     }
 
-    public function test_app_and_webserver_load_an_optional_env_file_for_real_production_secrets(): void
+    public function test_app_loads_an_optional_env_file_for_real_production_secrets(): void
     {
         $builder = new ComposeFileBuilder($this->registry());
         $config = new ShipConfig(phpVersion: '8.4', services: []);
@@ -614,7 +614,24 @@ final class ComposeFileBuilderTest extends TestCase
         $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Production));
 
         self::assertSame([['path' => '.env', 'required' => false]], $parsed['services']['app']['env_file']);
-        self::assertSame([['path' => '.env', 'required' => false]], $parsed['services']['webserver']['env_file']);
+    }
+
+    /**
+     * Regression coverage for a real bug found via a seventh independent audit: "webserver"
+     * (nginx) served a byte-for-byte static config -- no envsubst, no runtime variable of its own
+     * -- yet got the same env_file: as "app", so every app secret in .env/.env.production (DB
+     * credentials, API keys, ...) was readable inside the nginx container too, for no actual use.
+     * A reverse proxy serving static files and forwarding to php-fpm has no legitimate need for
+     * any of them.
+     */
+    public function test_webserver_does_not_load_the_apps_env_file(): void
+    {
+        $builder = new ComposeFileBuilder($this->registry());
+        $config = new ShipConfig(phpVersion: '8.4', services: []);
+
+        $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Production));
+
+        self::assertArrayNotHasKey('env_file', $parsed['services']['webserver']);
     }
 
     public function test_an_additional_named_instance_gets_its_own_compose_service_and_prefixed_env_vars(): void

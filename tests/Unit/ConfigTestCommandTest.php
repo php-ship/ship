@@ -144,7 +144,10 @@ final class ConfigTestCommandTest extends TestCase
     {
         (new ShipConfig(phpVersion: '8.4', services: ['database' => 'mysql']))
             ->toFile($this->projectRoot . '/ship.json');
-        file_put_contents($this->projectRoot . '/.env.production', "DB_PASSWORD=a-real-secret\n");
+        file_put_contents(
+            $this->projectRoot . '/.env.production',
+            "DB_PASSWORD=a-real-secret\nDB_ROOT_PASSWORD=a-different-real-secret\n",
+        );
 
         $exitCode = $this->runCommand();
 

@@ -45,10 +45,14 @@ final class MySqlService implements ServiceDefinition, ProvidesDatabaseShell
                     // silently shared the exact same publicly-known default, with no error or
                     // warning. See RequiredEnv's own docblock.
                     'MYSQL_PASSWORD' => RequiredEnv::expr("{$prefix}DB_PASSWORD", 'secret', $environment),
-                    // No separate root secret to manage -- the app user's own
-                    // password doubles as root's, since nothing here needs
-                    // root access beyond what MySQL's own image setup uses it for.
-                    'MYSQL_ROOT_PASSWORD' => RequiredEnv::expr("{$prefix}DB_PASSWORD", 'secret', $environment),
+                    // A separate secret from the app user's own DB_PASSWORD, not the same value
+                    // doubling as both -- "app" only ever authenticates as MYSQL_USER, never as
+                    // root, so the app container has no legitimate reason to even know the root
+                    // password (it's never in environmentVariables() below). Reusing DB_PASSWORD
+                    // for both meant a leaked app credential (a debug page, a logged query, a
+                    // compromised app container) handed over full MySQL admin access too, not
+                    // just the app's own scoped schema.
+                    'MYSQL_ROOT_PASSWORD' => RequiredEnv::expr("{$prefix}DB_ROOT_PASSWORD", 'rootsecret', $environment),
                 ],
                 // Persisted in both environments -- a production database losing every row on
                 // the next `docker compose restart`/redeploy is a real data-loss bug, not a

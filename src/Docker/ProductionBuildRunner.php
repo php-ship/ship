@@ -49,6 +49,12 @@ final class ProductionBuildRunner
         string $tagSuffix,
         OutputInterface $output,
     ): ?array {
+        // Re-applied here, not just at `ship init` time -- this is the actual moment `docker
+        // compose build`'s `COPY . .` runs, so a project whose .dockerignore was hand-edited,
+        // reverted, or never existed because `ship init` ran before this guard did would
+        // otherwise bake .env/auth.json/.npmrc straight into the image with nothing to catch it.
+        DockerignoreGuard::ensure($projectRoot);
+
         $this->generateEntrypoint($config, $projectRoot, $extensionFrameworkAdapters);
 
         $composeYaml = (new ComposeFileBuilder($registry))->build($config, ShipEnvironment::Production, projectName: $projectName);

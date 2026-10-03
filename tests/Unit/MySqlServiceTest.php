@@ -32,7 +32,22 @@ final class MySqlServiceTest extends TestCase
         $fragment = (new MySqlService())->composeFragment(ShipEnvironment::Production);
 
         self::assertSame('${DB_PASSWORD:?set a real value in .env.production}', $fragment['mysql']['environment']['MYSQL_PASSWORD']);
-        self::assertSame('${DB_PASSWORD:?set a real value in .env.production}', $fragment['mysql']['environment']['MYSQL_ROOT_PASSWORD']);
+        self::assertSame('${DB_ROOT_PASSWORD:?set a real value in .env.production}', $fragment['mysql']['environment']['MYSQL_ROOT_PASSWORD']);
+    }
+
+    /**
+     * Regression coverage for a real bug found via a seventh independent audit: the root password
+     * reused the exact same DB_PASSWORD value as the app user's own credential, so a leaked app
+     * credential handed over full MySQL admin access too. "app" never needs it -- it only ever
+     * authenticates as MYSQL_USER -- so it has no business appearing in environmentVariables().
+     */
+    public function test_the_root_password_is_a_separate_secret_from_the_app_users_own_password(): void
+    {
+        $service = new MySqlService();
+        $mysqlEnv = $service->composeFragment(ShipEnvironment::Development)['mysql']['environment'];
+
+        self::assertNotSame($mysqlEnv['MYSQL_PASSWORD'], $mysqlEnv['MYSQL_ROOT_PASSWORD']);
+        self::assertArrayNotHasKey('DB_ROOT_PASSWORD', $service->environmentVariables());
     }
 
     public function test_db_shell_command_targets_the_mysql_service(): void

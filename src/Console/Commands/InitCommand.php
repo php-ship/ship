@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ship\Console\Commands;
 
 use Ship\Config\ShipConfig;
+use Ship\Docker\DockerignoreGuard;
 use Ship\Services\ServiceRegistry;
 use Ship\Support\ShipVersion;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -372,7 +373,7 @@ final class InitCommand extends Command
 
     /**
      * Copies the Dockerfile, php.ini overlays, and (conditionally) the nginx/garage config into the actual
-     * project's ship folder; ensures .dockerignore excludes .env (see ensureDockerignoreExcludesEnv()).
+     * project's ship folder; ensures .dockerignore excludes .env (see DockerignoreGuard).
      *
      * @param array<string, string> $selected
      * @param list<array{group: string, service: string, name: string}> $additionalServices
@@ -436,51 +437,8 @@ final class InitCommand extends Command
             file_put_contents($target . '/.ship-version', $version . "\n");
         }
 
-        $this->ensureDockerignoreExcludesEnv();
+        DockerignoreGuard::ensure($this->projectRoot);
         $this->ensureGitignoreExcludesDist();
-    }
-
-    /**
-     * A real security fix: the builder stage's `COPY . .` would bake .env, and any secrets in it, straight
-     * into the image without this -- recoverable later via `docker history` even after a following step
-     * deletes it, since layers are additive. Merged into any existing .dockerignore, not overwritten.
-     *
-     * `**`-prefixed, not bare `.env`/`.env.*` -- confirmed live, not assumed: a bare pattern only
-     * matches at the build context *root*, not recursively, so a nested file (most importantly
-     * `dist/ship/<tag>/.env`, `ship release`'s own copy of `.env.production`) was NOT excluded by
-     * the un-prefixed form, and landed readable inside the very next image built in that same
-     * project -- an actual production secret leak, not a theoretical one. `/dist/ship` -- not the
-     * bare `/dist` a real re-audit of this exact fix flagged -- is excluded for the same reason:
-     * that's specifically `ship release`'s own generated output (see ReleaseCommand's own
-     * `$releaseDir`), images and all, carried forward release after release, never a build input.
-     * A bare `/dist` instead silently dropped a project's *own* `dist/` -- a separate build tool's
-     * real output the image might legitimately need to `COPY . .` in -- from the build context
-     * entirely, with no error, confirmed in a real build.
-     */
-    private function ensureDockerignoreExcludesEnv(): void
-    {
-        $path = $this->projectRoot . '/.dockerignore';
-        $required = [
-            '**/.env',
-            '**/.env.*',
-            '!**/.env.example',
-            '.git',
-            'node_modules',
-            'vendor',
-            '/dist/ship',
-        ];
-
-        $fileLines = is_file($path) ? file($path, FILE_IGNORE_NEW_LINES) : [];
-        $existing = $fileLines === false ? [] : $fileLines;
-        $missing = array_values(array_diff($required, $existing));
-
-        if ($missing === []) {
-            return;
-        }
-
-        $header = $existing === [] ? "# Added by `ship init` -- keeps secrets and build noise out of the\n# Docker build context.\n" : "\n# Added by `ship init`:\n";
-
-        file_put_contents($path, $header . implode("\n", $missing) . "\n", FILE_APPEND);
     }
 
     /**

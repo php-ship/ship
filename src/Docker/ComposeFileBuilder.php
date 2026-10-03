@@ -793,7 +793,6 @@ final class ComposeFileBuilder
                 'ports' => ['${APP_PORT:-80}:80'],
                 'depends_on' => ['app'],
                 'networks' => ['ship'],
-                'env_file' => self::OPTIONAL_ENV_FILE,
             ];
         }
 
