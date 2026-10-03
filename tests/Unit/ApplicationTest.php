@@ -8,11 +8,27 @@ use PHPUnit\Framework\TestCase;
 use Ship\Config\ShipConfig;
 use Ship\Console\Application;
 use Ship\Console\Commands\InitCommand;
+use Ship\Support\ShipVersion;
 use Ship\Tests\Fixtures\DatabaseServiceWithoutShell;
 use Symfony\Component\Filesystem\Filesystem;
 
 final class ApplicationTest extends TestCase
 {
+    /**
+     * Regression coverage for a real bug found via an independent audit: this was hardcoded to
+     * the literal "0.1.0-dev" forever, so `ship --version` never reflected whatever was actually
+     * installed. ShipVersion::current() reads real Composer metadata (confirmed to return
+     * "dev-main", not null, in this checkout), so this fails if the hardcoded literal ever creeps
+     * back in.
+     */
+    public function test_the_cli_version_comes_from_shipversion_not_a_hardcoded_literal(): void
+    {
+        $application = new Application(sys_get_temp_dir());
+
+        self::assertSame(ShipVersion::current(), $application->getVersion());
+        self::assertNotSame('0.1.0-dev', $application->getVersion());
+    }
+
     private string $projectRoot;
 
     protected function setUp(): void

@@ -26,9 +26,9 @@ final class ShellCommand extends Command
     protected function configure(): void
     {
         // No literal 'app' default -- a project can rename its own app service (ship.json's
-        // appName, see ShipConfig), so a hardcoded fallback here would target a service that
-        // doesn't exist there. Null means "not given", resolved against ship.json in
-        // buildCommand() instead, once an actual project root is available.
+        // serviceNames['app'], see ShipConfig), so a hardcoded fallback here would target a
+        // service that doesn't exist there. Null means "not given", resolved against ship.json
+        // in buildCommand() instead, once an actual project root is available.
         $this->addArgument('service', InputArgument::OPTIONAL, 'Compose service name');
     }
 
@@ -55,8 +55,7 @@ final class ShellCommand extends Command
     /**
      * Falls back to the literal "app" whenever ship.json can't answer -- no project yet (`ship
      * shell` before `ship init`, or in a test with no fixture at all), or one that's malformed --
-     * same graceful degrade Application::readExtensionClassesIfConfigured() already uses for the
-     * same reason.
+     * same graceful degrade Application::readConfigIfPresent() already uses for the same reason.
      */
     private function defaultAppServiceName(): string
     {

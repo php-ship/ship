@@ -21,6 +21,7 @@ use Ship\Frameworks\LaravelAdapter;
 use Ship\Frameworks\SymfonyAdapter;
 use Ship\Runtime\ProcessRunner;
 use Ship\Services\ServiceRegistry;
+use Ship\Support\ShipVersion;
 use Symfony\Component\Console\Application as SymfonyApplication;
 use Symfony\Component\Console\Command\Command;
 
@@ -31,7 +32,13 @@ final class Application extends SymfonyApplication
 
     public function __construct(private readonly string $projectRoot)
     {
-        parent::__construct('ship', '0.1.0-dev');
+        // ShipVersion::current() (Composer's own InstalledVersions) is the real installed
+        // version -- a real bug found via an independent audit: this was hardcoded to the
+        // literal "0.1.0-dev" forever, so `ship --version` never reflected whatever was actually
+        // installed. Still falls back to that literal when InstalledVersions can't answer at all
+        // (running straight from a git checkout with no Composer metadata, same case
+        // ShipVersion::current()'s own callers already degrade gracefully for).
+        parent::__construct('ship', ShipVersion::current() ?? '0.1.0-dev');
 
         $runner = new ProcessRunner();
         $registry = new ServiceRegistry(ServiceRegistry::defaults());
