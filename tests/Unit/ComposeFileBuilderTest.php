@@ -238,6 +238,26 @@ final class ComposeFileBuilderTest extends TestCase
     }
 
     /**
+     * Regression coverage for a real bug found via an independent audit: Compose interpolates a
+     * bare $VAR in a command string itself (against the host's own environment, not the
+     * container's), so a process command referencing a real shell variable had it silently
+     * blanked out before the container's shell ever ran it. $$ escapes it through as a literal.
+     */
+    public function test_a_dollar_sign_in_a_process_command_survives_composes_own_interpolation(): void
+    {
+        $builder = new ComposeFileBuilder($this->registry());
+        $config = new ShipConfig(
+            phpVersion: '8.4',
+            services: [],
+            processes: ['worker' => 'php artisan queue:work --queue=$QUEUE'],
+        );
+
+        $prod = Yaml::parse($builder->build($config, ShipEnvironment::Production));
+
+        self::assertSame(['sh', '-c', 'php artisan queue:work --queue=$$QUEUE'], $prod['services']['worker']['command']);
+    }
+
+    /**
      * Compose's default 10s grace period SIGKILLs Horizon or a queue worker mid-job.
      */
     public function test_a_process_gets_a_long_stop_grace_period_and_runs_as_www_data(): void

@@ -401,7 +401,14 @@ final class ComposeFileBuilder
 
             $services[$name] = [
                 'build' => $app['build'],
-                'command' => ['sh', '-c', $command],
+                // $$, not $ -- a real bug found via an independent audit: Compose interpolates a
+                // bare $VAR in a command string itself (against the host's own environment, not
+                // the container's), so a project's own command referencing a real shell variable
+                // (e.g. "php artisan horizon --queue=$QUEUE") silently had it blanked out before
+                // the container's shell ever ran it. A project writing this expects a shell
+                // command, not a Compose-interpolated string, so every literal "$" is escaped
+                // here rather than asking every processes entry to know Compose's own syntax.
+                'command' => ['sh', '-c', str_replace('$', '$$', $command)],
                 'env_file' => $app['env_file'],
                 'environment' => [...($app['environment'] ?? []), 'SHIP_RUN_AS' => 'www-data'],
                 'networks' => $app['networks'],
