@@ -1567,6 +1567,16 @@ A sixth independent audit found one trivial leftover in `EnvFile::parse()`.
   Verified live: a real `ship init` run against an existing multi-service `ship.json`, every
   prompt answered by pressing Enter, reproduces the same selections instead of wiping them.
 
+- `MutagenSync::start()` no longer swallows two failures. `mutagen sync create`'s own result is
+  checked (`ProcessRunner::runQuietWithResult()`, which captures the exit code and both output
+  streams) rather than discarded -- a real failure (the daemon not running, a stale session, a bad
+  Docker endpoint) now fails fast with the real cause instead of falling through to a 120-second
+  polling loop that was never going to succeed. `installComposerDependencies()`'s own exit code is
+  checked too -- a failed `composer install` inside the container no longer reports `ship up` as
+  successful. Verified live against the real `mutagen` binary: a sync create against a nonexistent
+  container returns exit 1 with a specific "container does not exist" stderr message, exactly what
+  the new check surfaces instead of a 120-second wait.
+
 - `EnvFile::parse()` strips a leading UTF-8 BOM before parsing -- left in place, it silently
   prepends itself to the first line's own key, so that variable is never found by any exact
   lookup even though the file reads as correct in an editor that hides the BOM on display (most
