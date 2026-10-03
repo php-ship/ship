@@ -1373,6 +1373,39 @@ gaps:
   of `ship release`'s friendlier one. The README described `ship build` as a dependency-free
   standalone check, which stopped being accurate once production credentials became required.
 
+- Stopped a single invalid `ship.json` field from erasing every other one --
+  `InitCommand::readExistingConfig()` calls `ShipConfig::fromFile()`, which validates and throws
+  on the first invalid field it finds; this method's own `try`/`catch` treated that as "nothing
+  to preserve at all," reintroducing the exact data-loss bug the original preservation fix exists
+  to prevent, just behind a new trigger. `ShipConfig::tryFromFile()` is a new, deliberately
+  lenient reader used only here: it filters each field by *type*, not by `fromFile()`'s own
+  stricter *format* checks -- a field that's merely the wrong format is preserved as-is and
+  written straight back to `ship.json`, since silently dropping it would just be a second,
+  quieter way to lose it with no error at all.
+
+- Validated `serviceNames`/`additionalServices`/`processes`/`deployCommands` types -- a non-array
+  value for any of the first two used to reach a raw `foreach()` PHP warning followed by an
+  uncaught constructor `TypeError`, confirmed live, instead of a clean message naming `ship.json`.
+  `processes`/`deployCommands` had no validation at all before this.
+
+- Escaped credentials before embedding them in SeaweedFS's identity JSON -- the raw
+  `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` values went straight into the `printf %s`
+  placeholders with no JSON escaping, so a secret containing a literal `"` or `\` produced
+  invalid JSON, breaking S3 auth entirely. Each credential is now piped through `sed` (not `jq`
+  -- confirmed live this image has the former) to escape both characters first. Verified live
+  both ways: the unescaped version of this exact command genuinely fails to parse for such a
+  credential; the fixed version produces valid JSON that round-trips it exactly.
+
+- Pinned the Garage Dockerfile's `alpine:3` config stage too -- the one floating tag the earlier
+  build-input-pinning pass missed, since that file was only written afterward. Verified live to
+  still build successfully pinned to `alpine:3.24.2`.
+
+- Made the `docker save` failure test skip honestly, not pass for the wrong reason, when Docker
+  isn't installed at all -- `docker save` against a nonexistent tag and `docker` missing from
+  `PATH` entirely both make the test's assertion hold, but only the former actually exercises
+  `exportImages()`'s own handling of a genuine failure. Now checks `docker --version` first and
+  skips with a clear message otherwise.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
