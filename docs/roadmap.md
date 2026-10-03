@@ -1112,6 +1112,18 @@
   `interval` x `retries`, plus a small buffer), so the wait is never shorter than Docker's own
   patience for it, whatever a service's healthcheck happens to be configured with.
 
+- Validated `ship.json`'s `php`/`node` versions and service names -- found via the same
+  independent audit: `"php": 8.4` (a bare JSON number) previously reached the constructor's own
+  strict `string $phpVersion` type unchecked, surfacing as a raw TypeError instead of a message
+  naming `ship.json` at all. `serviceNames`/`additionalServices` names also went straight into
+  generated compose keys (and, for `additionalServices`, an env var prefix) with no validation,
+  unlike `processes` names, which already get exactly this check.
+
+  Fixed with a single `validate()` step in `ShipConfig::fromFile()`: `php`/`node` must be strings,
+  `serviceNames` values reuse `processes`'s own regex (a compose key only, so a hyphen is fine),
+  and `additionalServices` names reuse `ship init`'s own interactive prompt validation (also an
+  env var prefix, so no hyphen).
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
