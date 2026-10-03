@@ -1088,6 +1088,18 @@
   application code that must not start until deploy commands succeed -- everything else, Garage
   included, is infrastructure.
 
+- Fixed `docker-compose.override.yml` leaking into production builds -- found via the same
+  independent audit: the override file is a dev convenience (see `ComposeCommand::baseArgs()`'s
+  own docblock), but `ProductionBuildRunner`'s production build picked it up unconditionally like
+  every other caller. A project's dev-only `build:` customization silently leaked into the
+  production image, and the release's own exported `docker-compose.yml` (built from
+  `ship/docker-compose.generated.yml` alone) never matched what was actually built as a result.
+
+  Fixed with a new `includeOverride` parameter on `baseArgs()`, defaulting to `true` (every
+  existing caller unaffected) except `ProductionBuildRunner`'s own call, which now passes `false`.
+  Omitting it from the build entirely fixes both problems at once: nothing to leak, and nothing
+  for the artifact to disagree with.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`

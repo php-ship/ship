@@ -742,7 +742,9 @@ To add your own services, or override anything ship's generated file sets,
 add a `docker-compose.override.yml` at your project root — the same file
 name and merge behavior [Docker Compose itself documents](https://docs.docker.com/compose/how-tos/multiple-compose-files/merge/).
 Every `ship` command that shells out to `docker compose` picks it up
-automatically if it exists:
+automatically if it exists — except `ship build`/`ship release`,
+deliberately: it's a dev convenience, and a dev-only `build:` override
+has no business silently reaching a production image or release artifact.
 
 ```yaml
 # docker-compose.override.yml
