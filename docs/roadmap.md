@@ -1133,6 +1133,24 @@
   shell command, not a Compose-interpolated string, so every literal `$` is now escaped to `$$`
   automatically rather than asking every entry to know Compose's own syntax.
 
+- Fail clearly when `DB_USERNAME=root` would crash MySQL outright -- found via the same
+  independent audit, confirmed against the official image's own documented behavior: `mysql`'s
+  entrypoint refuses to start at all when `MYSQL_USER=root`, crashing the whole container.
+  `DB_USERNAME=root` is a real value to find in a project's own `.env` -- Laravel's own stock
+  default for years before the framework's sqlite-first skeleton.
+
+  ship can't catch this inside `ComposeFileBuilder` itself -- `MYSQL_USER` is set to the Compose
+  expression `${DB_USERNAME:-app}`, never the actual resolved value, which only exists once a
+  real `.env`/`.env.production` is read. Added `Ship\Docker\MySqlUsernameGuard`, checked in
+  `UpCommand` (reading `.env`, since `ship up` actually starts the container) and `ReleaseCommand`
+  (reading `.env.production`, since `ship` itself is never present later to catch this once a
+  release ships to a server with no `ship` installed at all).
+
+  Verified live: the official `mysql:9.7` image really does crash with exactly that error given
+  `MYSQL_USER=root`; `ship up` with `DB_USERNAME=root` in `.env` now fails immediately with a
+  specific, actionable message instead of attempting to boot at all; and a legitimate username
+  proceeds normally.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
