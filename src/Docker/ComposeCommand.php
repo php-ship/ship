@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ship\Docker;
 
+use Symfony\Component\Yaml\Exception\ParseException;
 use Symfony\Component\Yaml\Yaml;
 
 /**
@@ -81,8 +82,18 @@ final class ComposeCommand
             return $prefix;
         }
 
-        /** @var array{x-ship?: array{hostUser?: string, appService?: string}} $parsed */
-        $parsed = Yaml::parse($contents);
+        // A hand-edit, an interrupted write, or a stale file from a different ship version could
+        // all leave this genuinely malformed -- same fallback as "doesn't exist"/"no marker"
+        // above, not a raw ParseException crashing `ship exec`/`shell`/`composer`/`npm` outright
+        // over a --user prefix that's a convenience, not something any of those commands actually
+        // need to run at all.
+        try {
+            /** @var array{x-ship?: array{hostUser?: string, appService?: string}} $parsed */
+            $parsed = Yaml::parse($contents);
+        } catch (ParseException) {
+            return $prefix;
+        }
+
         $marker = $parsed['x-ship'] ?? [];
 
         if (isset($marker['hostUser'], $marker['appService']) && $marker['appService'] === $service) {

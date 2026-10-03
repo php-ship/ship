@@ -8,11 +8,23 @@ $autoloadPaths = [
     __DIR__ . '/../../../autoload.php',       // installed as a dependency
 ];
 
+$autoloaded = false;
+
 foreach ($autoloadPaths as $path) {
     if (file_exists($path)) {
         require $path;
+        $autoloaded = true;
         break;
     }
+}
+
+// Without this, falling through to `new Application()` below with no autoloader ever required
+// fails with a raw "Class \"Ship\Console\Application\" not found" fatal error -- technically
+// correct, but it names a class nobody running this script typed, instead of the actual, fixable
+// cause (composer install was never run, or this checkout/install is broken some other way).
+if (!$autoloaded) {
+    fwrite(STDERR, "ship: no Composer autoloader found -- run `composer install` first.\n");
+    exit(1);
 }
 
 use Ship\Console\Application;

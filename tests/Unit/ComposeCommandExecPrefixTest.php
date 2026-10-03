@@ -67,4 +67,20 @@ final class ComposeCommandExecPrefixTest extends TestCase
 
         self::assertNotContains('--user', $prefix);
     }
+
+    /**
+     * Regression coverage for a real bug found via a seventh independent audit: a hand-edit, an
+     * interrupted write, or a stale file from a different ship version could all leave this
+     * genuinely malformed, which previously threw a raw ParseException straight out of
+     * execPrefix() -- crashing `ship exec`/`shell`/`composer`/`npm` outright over a --user prefix
+     * that's a convenience, not something any of them actually need to run at all.
+     */
+    public function test_malformed_yaml_falls_back_to_no_user_instead_of_throwing(): void
+    {
+        $this->generated("services:\n  app: {}\nx-ship:\n  this is not: [valid, yaml");
+
+        $prefix = ComposeCommand::execPrefix($this->projectRoot, 'app');
+
+        self::assertSame('exec', $prefix[array_key_last($prefix)]);
+    }
 }
