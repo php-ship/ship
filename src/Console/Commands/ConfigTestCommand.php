@@ -11,6 +11,7 @@ use Ship\Docker\EnvFile;
 use Ship\Docker\MySqlUsernameGuard;
 use Ship\Docker\NginxUpstreamMismatch;
 use Ship\Docker\ProjectName;
+use Ship\Docker\RequiredEnv;
 use Ship\Extensions\ExtensionLoader;
 use Ship\Services\ServiceRegistry;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -201,25 +202,13 @@ final class ConfigTestCommand extends Command
      * ComposeFileBuilder only ever emits the `${VAR:?message}` *expression*, never the actual
      * resolved value, which only exists once a real .env.production is read (see RequiredEnv's
      * own docblock) -- so a missing credential is still valid YAML and never surfaces on its own.
-     * `ship build` has no upfront check for this at all; `ship release` only checks that
-     * .env.production exists, not that every variable Compose will actually require is in it.
      * This simulates what `docker compose` itself would refuse to do at that point, without
-     * needing Docker to find out.
+     * needing Docker to find out -- `ship build`/`ship release` run the same check (see
+     * RequiredEnv::missingFrom()) before ever invoking Docker too, not just this command.
      */
     private function checkRequiredProductionEnv(string $compose, OutputInterface $output): void
     {
-        if (preg_match_all('/\$\{([A-Za-z_][A-Za-z0-9_]*):\?/', $compose, $matches) === 0) {
-            return;
-        }
-
-        $env = EnvFile::parse($this->projectRoot . '/.env.production');
-        $missing = [];
-
-        foreach (array_unique($matches[1]) as $var) {
-            if (($env[$var] ?? '') === '') {
-                $missing[] = $var;
-            }
-        }
+        $missing = RequiredEnv::missingFrom($compose, EnvFile::parse($this->projectRoot . '/.env.production'));
 
         if ($missing === []) {
             return;

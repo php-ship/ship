@@ -28,4 +28,27 @@ final class RequiredEnvTest extends TestCase
             RequiredEnv::expr('DB_PASSWORD', 'secret', ShipEnvironment::Production),
         );
     }
+
+    public function test_missing_from_finds_every_required_variable_not_set(): void
+    {
+        $compose = 'DB_PASSWORD: ${DB_PASSWORD:?set a real value}' . "\n"
+            . 'DB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?set a real value}';
+
+        self::assertSame(
+            ['DB_PASSWORD', 'DB_ROOT_PASSWORD'],
+            RequiredEnv::missingFrom($compose, ['DB_PASSWORD' => '']),
+        );
+    }
+
+    public function test_missing_from_is_empty_once_every_required_variable_is_set(): void
+    {
+        $compose = 'DB_PASSWORD: ${DB_PASSWORD:?set a real value}';
+
+        self::assertSame([], RequiredEnv::missingFrom($compose, ['DB_PASSWORD' => 'real-secret']));
+    }
+
+    public function test_missing_from_is_empty_when_nothing_is_required_at_all(): void
+    {
+        self::assertSame([], RequiredEnv::missingFrom('APP_KEY: ${APP_KEY:-}', []));
+    }
 }

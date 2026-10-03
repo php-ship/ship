@@ -6,7 +6,9 @@ namespace Ship\Console\Commands;
 
 use Ship\Config\ShipConfig;
 use Ship\Contracts\FrameworkAdapter;
+use Ship\Contracts\ShipEnvironment;
 use Ship\Docker\ComposeCommand;
+use Ship\Docker\ComposeFileBuilder;
 use Ship\Docker\DeployPlan;
 use Ship\Docker\EnvFile;
 use Ship\Docker\MySqlUsernameGuard;
@@ -14,6 +16,7 @@ use Ship\Docker\NginxUpstreamMismatch;
 use Ship\Docker\ProductionBuildRunner;
 use Ship\Docker\ProjectName;
 use Ship\Docker\ReleaseManifest;
+use Ship\Docker\RequiredEnv;
 use Ship\Extensions\ExtensionLoader;
 use Ship\Runtime\ProcessRunner;
 use Ship\Services\ServiceRegistry;
@@ -108,12 +111,32 @@ final class ReleaseCommand extends Command
             $frameworkAdapters = $loaded['frameworkAdapters'];
         }
 
+        $projectName = ProjectName::resolve($config, $this->projectRoot);
+
+        // Found here, before Docker is ever invoked, not left to surface as a raw `docker compose
+        // build` interpolation error once ProductionBuildRunner actually runs -- same check
+        // ConfigTestCommand's own dry run already makes (see RequiredEnv::missingFrom()), just not
+        // run at all here before this, the exact gap that method's own docblock used to describe.
+        $prodCompose = (new ComposeFileBuilder($registry))->build($config, ShipEnvironment::Production, projectName: $projectName);
+        $missingEnv = RequiredEnv::missingFrom($prodCompose, EnvFile::parse($envProductionPath));
+        if ($missingEnv !== []) {
+            $output->writeln(sprintf(
+                '<error>ship: %s %s required but not set in .env.production -- `docker compose '
+                    . 'build` will refuse to run at all until %s.</error>',
+                implode(', ', $missingEnv),
+                count($missingEnv) === 1 ? 'is' : 'are',
+                count($missingEnv) === 1 ? 'it is' : 'they are',
+            ));
+
+            return Command::FAILURE;
+        }
+
         $result = (new ProductionBuildRunner($this->runner))->build(
             $config,
             $registry,
             $frameworkAdapters,
             $this->projectRoot,
-            ProjectName::resolve($config, $this->projectRoot),
+            $projectName,
             $tag,
             $output,
         );

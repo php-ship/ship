@@ -33,4 +33,31 @@ final class RequiredEnv
             ? "\${{$var}:-{$devDefault}}"
             : "\${{$var}:?set a real value in .env.production}";
     }
+
+    /**
+     * Every `${VAR:?...}` this class's own expr() wrote into $composeYaml, that $env doesn't
+     * actually set -- what `docker compose build`/`up` would themselves refuse to run over, found
+     * here instead, without needing Docker installed or running at all to find out. Used by
+     * `ConfigTestCommand` (reports every one found, continuing past it) and by `ship
+     * build`/`release` (fail fast on the first one found, before ever invoking Docker) alike.
+     *
+     * @param array<string, string> $env
+     * @return list<string>
+     */
+    public static function missingFrom(string $composeYaml, array $env): array
+    {
+        if (preg_match_all('/\$\{([A-Za-z_][A-Za-z0-9_]*):\?/', $composeYaml, $matches) === 0) {
+            return [];
+        }
+
+        $missing = [];
+
+        foreach (array_unique($matches[1]) as $var) {
+            if (($env[$var] ?? '') === '') {
+                $missing[] = $var;
+            }
+        }
+
+        return $missing;
+    }
 }
