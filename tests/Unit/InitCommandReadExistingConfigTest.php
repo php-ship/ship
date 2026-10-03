@@ -64,6 +64,32 @@ final class InitCommandReadExistingConfigTest extends TestCase
         self::assertSame('acme-api', $existing->name);
     }
 
+    /**
+     * Regression coverage for a real bug found via a seventh independent audit: readExistingConfig()
+     * hardcoded services/additionalServices to [] on the theory that InitCommand's own prompts
+     * always supply both fresh -- true of the *value* written to ship.json, but not of the
+     * prompts' own defaults, which now read this object back to avoid resetting every group to
+     * "None" on a second `ship init` run. Hardcoding either to [] here silently fed every prompt
+     * that "nothing is currently selected" default regardless of what ship.json actually had.
+     */
+    public function test_it_reads_services_and_additional_services_too(): void
+    {
+        (new ShipConfig(
+            phpVersion: '8.4',
+            services: ['database' => 'mysql'],
+            additionalServices: [['group' => 'cache', 'service' => 'redis', 'name' => 'queue']],
+        ))->toFile($this->projectRoot . '/ship.json');
+
+        $existing = $this->invoke();
+
+        self::assertNotNull($existing);
+        self::assertSame(['database' => 'mysql'], $existing->services);
+        self::assertSame(
+            [['group' => 'cache', 'service' => 'redis', 'name' => 'queue']],
+            $existing->additionalServices,
+        );
+    }
+
     public function test_it_returns_null_for_a_malformed_ship_json_instead_of_throwing(): void
     {
         file_put_contents($this->projectRoot . '/ship.json', '{not valid json');

@@ -38,6 +38,8 @@ final class InitCommand extends Command
         $io = new SymfonyStyle($input, $output);
         $io->title('ship init');
 
+        $existing = $this->readExistingConfig();
+
         $selected = [];
 
         foreach ($this->groups() as $group => $label) {
@@ -55,19 +57,28 @@ final class InitCommand extends Command
                 array_map(static fn ($s) => $s->label(), $options),
             )];
 
-            $answer = $this->select($io, $input, "Select a {$label}", $choices);
+            // Defaults to this group's existing selection (if any, and if it's still a valid
+            // choice) so re-running `ship init` on a project that already has a ship.json doesn't
+            // silently reset every group to "None" the moment the user just accepts each prompt's
+            // own default -- confirmed live: without this, a second `ship init` run dropped a
+            // project's already-selected database/cache/etc. entirely unless every prompt was
+            // re-answered by hand.
+            $default = $existing->services[$group] ?? self::NONE;
+            if (!isset($choices[$default])) {
+                $default = self::NONE;
+            }
+
+            $answer = $this->select($io, $input, "Select a {$label}", $choices, $default);
 
             if ($answer !== self::NONE) {
                 $selected[$group] = $answer;
             }
         }
 
-        $additionalServices = $this->promptForAdditionalInstances($io, $input);
+        $additionalServices = $this->promptForAdditionalInstances($io, $input, $existing->additionalServices ?? []);
 
         $phpVersion = $io->ask('PHP version', '8.4');
         $nodeVersion = $io->ask('Node.js version', '24');
-
-        $existing = $this->readExistingConfig();
 
         $config = new ShipConfig(
             phpVersion: (string) $phpVersion,
@@ -191,10 +202,20 @@ final class InitCommand extends Command
      *
      * @return list<array{group: string, service: string, name: string}>
      */
-    private function promptForAdditionalInstances(SymfonyStyle $io, InputInterface $input): array
+    /**
+     * $existing (ship.json's current additionalServices, if any) is kept as-is, not re-prompted
+     * for -- re-running `ship init` has no interactive way to edit or remove one of these, so
+     * silently starting from an empty list every time discarded every previously-added instance
+     * the moment the project's ship.json was regenerated, confirmed live. Removing one is still
+     * possible by hand-editing ship.json directly, same as serviceNames/phpExtensions/etc.
+     *
+     * @param list<array{group: string, service: string, name: string}> $existing
+     * @return list<array{group: string, service: string, name: string}>
+     */
+    private function promptForAdditionalInstances(SymfonyStyle $io, InputInterface $input, array $existing = []): array
     {
-        $additional = [];
-        $usedNames = [];
+        $additional = $existing;
+        $usedNames = array_map(static fn (array $a): string => $a['name'], $existing);
 
         while ($io->confirm(
             $additional === []

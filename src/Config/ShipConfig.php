@@ -190,9 +190,11 @@ final class ShipConfig
      * when the file doesn't exist or isn't even valid JSON at all -- nothing short of that is
      * worth discarding wholesale.
      *
-     * `phpVersion`/`services` are given harmless placeholders, not real validation, since
-     * `readExistingConfig()`'s only caller never reads them back off this object at all --
-     * `ship init`'s own fresh prompts always supply both, every run.
+     * `phpVersion` is given a harmless placeholder, not real validation, since
+     * `readExistingConfig()`'s only caller (`ship init`) always re-prompts for it fresh. `services`
+     * and `additionalServices` are read for real, though -- InitCommand's own prompts now default
+     * to whatever's already selected here, so dropping them the same way `phpVersion` is dropped
+     * would feed every group prompt a `None` default no matter what ship.json already has.
      */
     public static function tryFromFile(string $path): ?self
     {
@@ -212,9 +214,9 @@ final class ShipConfig
 
         return new self(
             phpVersion: '8.4',
-            services: [],
+            services: self::filterStringMap($data['services'] ?? null),
             extensions: self::filterStringList($data['extensions'] ?? null),
-            additionalServices: [],
+            additionalServices: self::filterAdditionalServices($data['additionalServices'] ?? null),
             serviceNames: self::filterStringMap($data['serviceNames'] ?? null),
             externalNetwork: is_string($data['externalNetwork'] ?? null) ? $data['externalNetwork'] : null,
             phpExtensions: self::filterStringList($data['phpExtensions'] ?? null),
@@ -244,6 +246,36 @@ final class ShipConfig
         }
 
         return array_filter($value, static fn (mixed $v, mixed $k): bool => is_string($k) && is_string($v), ARRAY_FILTER_USE_BOTH);
+    }
+
+    /**
+     * Same lenient, type-only filtering as filterStringList()/filterStringMap() -- an entry
+     * missing one of its three fields, or with a non-string one, has nothing meaningful left to
+     * preserve, so it's dropped rather than written back half-formed. Format (e.g. "name"'s own
+     * charset) is still fromFile()'s job, not this one -- see tryFromFile()'s own docblock.
+     *
+     * @return list<array{group: string, service: string, name: string}>
+     */
+    private static function filterAdditionalServices(mixed $value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+
+        $filtered = [];
+
+        foreach ($value as $entry) {
+            if (
+                is_array($entry)
+                && is_string($entry['group'] ?? null)
+                && is_string($entry['service'] ?? null)
+                && is_string($entry['name'] ?? null)
+            ) {
+                $filtered[] = ['group' => $entry['group'], 'service' => $entry['service'], 'name' => $entry['name']];
+            }
+        }
+
+        return $filtered;
     }
 
     /**

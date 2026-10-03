@@ -274,4 +274,66 @@ final class InitCommandServiceSelectionTest extends TestCase
         self::assertSame('analytics', $additional[0]['name']);
         self::assertStringContainsString('can only contain lowercase letters', $tester->getDisplay());
     }
+
+    /**
+     * Regression coverage for a real bug found via a seventh independent audit, confirmed live:
+     * every group prompt always defaulted to "None" regardless of ship.json's existing
+     * selections, so re-running `ship init` on a project that already has one -- exactly what
+     * `ship up` itself tells users to do after a stub-version mismatch -- silently dropped the
+     * database/cache/etc. selection the moment the user just accepted each prompt's own default
+     * instead of retyping every choice by hand.
+     */
+    public function test_re_running_init_defaults_each_group_to_its_existing_selection(): void
+    {
+        file_put_contents(
+            $this->projectRoot . '/ship.json',
+            json_encode(['php' => '8.4', 'services' => ['database' => 'mysql']]),
+        );
+
+        $this->runInit(['', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
+
+        self::assertSame('mysql', $this->shipJson()['services']['database']);
+    }
+
+    /**
+     * A group's existing selection is only offered as a default when it's still a real choice --
+     * e.g. an extension that provided it was removed from ship.json since -- rather than handed
+     * to select() as a default it doesn't recognize.
+     */
+    public function test_a_stale_existing_selection_no_longer_offered_falls_back_to_none(): void
+    {
+        file_put_contents(
+            $this->projectRoot . '/ship.json',
+            json_encode(['php' => '8.4', 'services' => ['database' => 'no-longer-registered']]),
+        );
+
+        $this->runInit(['', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
+
+        self::assertArrayNotHasKey('database', $this->shipJson()['services']);
+    }
+
+    /**
+     * Regression coverage for the same audit: additionalServices has no interactive way to edit
+     * or remove an existing entry, so re-running `ship init` rebuilt the list from scratch every
+     * time -- confirmed live that declining to add anything new ("no" to the first prompt) still
+     * silently discarded every instance a previous `ship init` run had already added.
+     */
+    public function test_re_running_init_keeps_existing_additional_instances_without_re_prompting(): void
+    {
+        file_put_contents(
+            $this->projectRoot . '/ship.json',
+            json_encode([
+                'php' => '8.4',
+                'services' => [],
+                'additionalServices' => [['group' => 'database', 'service' => 'mysql', 'name' => 'analytics']],
+            ]),
+        );
+
+        $this->runInit(['None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'no']);
+
+        $additional = $this->shipJson()['additionalServices'];
+
+        self::assertCount(1, $additional);
+        self::assertSame(['group' => 'database', 'service' => 'mysql', 'name' => 'analytics'], $additional[0]);
+    }
 }
