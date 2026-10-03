@@ -1567,6 +1567,16 @@ A sixth independent audit found one trivial leftover in `EnvFile::parse()`.
   Verified live: a real `ship init` run against an existing multi-service `ship.json`, every
   prompt answered by pressing Enter, reproduces the same selections instead of wiping them.
 
+- Both php.ini stubs set `upload_max_filesize`/`post_max_size` to `100M`, matching
+  `ship/nginx/default.conf`'s own `client_max_body_size` -- previously neither set either at all,
+  so nginx happily forwarded a request that large to php-fpm, which then silently rejected it at
+  PHP's own much smaller stock default, emptying `$_FILES`/`$_POST` with nothing visible to the
+  end user short of a PHP error log. Both php.ini stubs also set `expose_php=Off`, and
+  `default.conf` sets `server_tokens off;` -- neither nginx nor PHP needs to advertise its exact
+  version in every response, a smaller, specific CVE search target than the bare product name.
+  Verified live: a real dev image reports `upload_max_filesize`/`post_max_size` as `100M` and
+  `expose_php` as `Off`; a real nginx container's `Server` header reads "nginx" with no version.
+
 - `MutagenSync::start()` no longer swallows two failures. `mutagen sync create`'s own result is
   checked (`ProcessRunner::runQuietWithResult()`, which captures the exit code and both output
   streams) rather than discarded -- a real failure (the daemon not running, a stale session, a bad
