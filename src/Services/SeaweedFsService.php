@@ -59,10 +59,21 @@ final class SeaweedFsService implements ServiceDefinition
                 // container's own shell ever ran -- the identity file was generated with both
                 // credentials blank. `$$` passes a literal `$AWS_...` through for the shell to
                 // resolve instead, confirmed live against the real generated compose file.
+                //
+                // Escaped through sed before being substituted in -- a real bug found via an
+                // independent re-audit: the raw credential values went straight into the `%s`
+                // placeholders with no JSON escaping at all, so a secret containing a literal `"`
+                // or `\` (nothing stops a real password manager or RequiredEnv-required
+                // .env.production value from generating one) produced invalid JSON, breaking S3
+                // auth entirely rather than just granting the wrong credential. sed, not jq --
+                // confirmed live this image has the former, not the latter.
                 'command' => [
-                    'mkdir -p /etc/seaweedfs && printf \'{"identities":[{"name":"ship","credentials":'
+                    'mkdir -p /etc/seaweedfs'
+                        . ' && ACCESS_KEY_ESC=$$(printf \'%s\' "$$AWS_ACCESS_KEY_ID" | sed \'s/\\\\/\\\\\\\\/g; s/"/\\\\"/g\')'
+                        . ' && SECRET_KEY_ESC=$$(printf \'%s\' "$$AWS_SECRET_ACCESS_KEY" | sed \'s/\\\\/\\\\\\\\/g; s/"/\\\\"/g\')'
+                        . ' && printf \'{"identities":[{"name":"ship","credentials":'
                         . '[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin","Read","Write","List",'
-                        . '"Tagging"]}]}\' "$$AWS_ACCESS_KEY_ID" "$$AWS_SECRET_ACCESS_KEY" > /etc/seaweedfs/s3_identity.json'
+                        . '"Tagging"]}]}\' "$$ACCESS_KEY_ESC" "$$SECRET_KEY_ESC" > /etc/seaweedfs/s3_identity.json'
                         . ' && exec weed server -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3_identity.json -dir=/data',
                 ],
                 'environment' => [

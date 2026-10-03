@@ -67,6 +67,25 @@ final class SeaweedFsServiceTest extends TestCase
         self::assertStringContainsString('"$$AWS_SECRET_ACCESS_KEY"', $script);
     }
 
+    /**
+     * Regression coverage for a real bug found via an independent re-audit, confirmed live: the
+     * raw credential values went straight into the printf %s placeholders with no JSON escaping
+     * at all, so a secret containing a literal '"' or '\' (nothing stops a real password manager
+     * or a RequiredEnv-required .env.production value from generating one) produced invalid JSON
+     * -- verified live that the unescaped version of this exact command genuinely fails to parse.
+     * sed now escapes both characters first.
+     */
+    public function test_the_identity_file_escapes_credentials_through_sed_before_embedding_them(): void
+    {
+        $script = (new SeaweedFsService())->composeFragment(ShipEnvironment::Development)['seaweedfs']['command'][0];
+
+        self::assertStringContainsString("sed 's/\\\\/\\\\\\\\/g; s/\"/\\\\\"/g'", $script);
+        // The escaped variables, not the raw ones, must be what actually lands in the JSON --
+        // otherwise the sed step above would be dead code that never reaches the printf at all.
+        self::assertStringContainsString('"$$ACCESS_KEY_ESC"', $script);
+        self::assertStringContainsString('"$$SECRET_KEY_ESC"', $script);
+    }
+
     public function test_the_secret_key_is_required_in_production_not_just_overridable(): void
     {
         $fragment = (new SeaweedFsService())->composeFragment(ShipEnvironment::Production);
