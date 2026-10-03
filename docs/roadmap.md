@@ -1541,6 +1541,13 @@ A sixth independent audit found one trivial leftover in `EnvFile::parse()`.
   `environment:` always winning over `env_file:` would otherwise hand to the app regardless of
   what `.env.production` actually sets.
 
+- Both production Dockerfiles drop `node_modules` once the `assets` stage's `npm run build`
+  finishes, instead of copying it into `prod` along with `public/build` -- it's a build
+  dependency, not a runtime one, since Vite's output is static files the webserver serves
+  directly with no Node process involved afterward. Verified live: a real `ship build` app image
+  has no `node_modules` while `public/build`, `vendor`, and the app code are all still present and
+  the app still boots.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
