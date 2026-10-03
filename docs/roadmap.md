@@ -1406,6 +1406,51 @@ gaps:
   `exportImages()`'s own handling of a genuine failure. Now checks `docker --version` first and
   skips with a clear message otherwise.
 
+A third independent audit found one real reliability gap (the Mutagen/Reverb fix two rounds ago
+was incomplete), several more `ship.json` validation gaps, and one more command that needed the
+nginx-staleness warning. The user also asked for a `ship config:test` command, `nginx -t`'s
+equivalent for `ship.json`.
+
+- Made the dev entrypoint wait for real files before exec'ing a non-`php-fpm` command -- php-fpm
+  tolerates an empty `/var/www/html` (it just 404s), but anything else that's its own long-lived
+  program (an Octane server, or Reverb, a separate container sharing the exact same
+  `SHIP_MUTAGEN`-synced volume) does not, and crashed immediately against the volume's
+  genuinely-empty initial state -- crashing every restart-policy retry until Mutagen's sync
+  caught up. The entrypoint now waits (bounded) for `composer.json` to exist first.
+
+  A second, related bug found by reading the code: Reverb and "app" share this exact same
+  volume, so both independently running `composer install` the moment `vendor/autoload.php` was
+  missing raced to write into it concurrently. A new `SHIP_DEV_SKIP_INSTALL` env var, set on
+  Reverb's dev environment only, tells the entrypoint to wait for "app"'s result instead.
+
+  Verified live end to end with a real Laravel + Reverb + MySQL + Redis fixture under
+  `SHIP_MUTAGEN=1`: both `app` and `reverb` show `RestartCount=0` -- Reverb never crashed even
+  once, started cleanly on its first attempt, never ran its own `composer install`, and the full
+  stack (migrations, HTTP) works.
+
+- Closed the remaining `ship.json` validation gaps: `publishPorts`/`hostUser` as a quoted string
+  instead of a real boolean, `extensions`/`phpExtensions` as a non-list value,
+  `name`/`externalNetwork` as a non-string, a non-string value under `services`, an
+  `additionalServices` entry missing its `group`/`service` key, and a top-level JSON value that
+  isn't even an object at all -- every one of these used to reach a raw constructor `TypeError`
+  or PHP warning instead of a message naming `ship.json`, confirmed live for each case.
+
+- Extracted the nginx-upstream-mismatch check (see the earlier entry on
+  `warnAboutNginxUpstreamMismatch()`) into a shared `Ship\Docker\NginxUpstreamMismatch` class and
+  wired it into `ship build`/`ship release` too, not just `ship up` -- they build the exact same
+  prod-nginx image from the exact same stale file, so a rename can ship a webserver that can't
+  reach the app either. Verified live: `ship build` now prints the warning before attempting the
+  Docker build.
+
+- Added `ship config:test` -- `ship.json`'s equivalent of `nginx -t`. Checks everything that's
+  actually checkable statically (validation, both compose builds, a production-required env var
+  missing from `.env.production`, a stale nginx upstream, `DB_USERNAME=root`) and reports every
+  problem found in one pass, not just the first. No Docker involved --
+  `ComposeFileBuilder::build()` is pure PHP. Specifically closes a gap neither `ship build` nor
+  `ship release` ever covered: a missing required production credential was never caught until
+  `docker compose` itself aborted. Verified live for every check it performs, including multiple
+  unrelated problems reported together in one run.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
