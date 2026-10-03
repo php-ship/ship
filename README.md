@@ -439,6 +439,12 @@ same way a dev project's `.env` already is. `ship release` fails with a
 clear error if `.env.production` doesn't exist — there's no silent
 "production ran with no config" failure mode.
 
+Selected services' own credentials (`DB_PASSWORD`, `MEILISEARCH_KEY`,
+`AWS_SECRET_ACCESS_KEY`, ...) are *required* here, not just read: `docker
+compose` itself refuses to build or start anything at all if one was never
+set, rather than silently falling back to the same friendly default
+development uses — one every project that forgot would otherwise share.
+
 ### What `ship release --tag` produces
 
 ```text

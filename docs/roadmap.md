@@ -1013,6 +1013,28 @@
   resolved app service name into the published config when it differs from `app` -- a no-op for
   the overwhelming majority of projects that never touch `serviceNames`.
 
+- Fixed a real credentials bug found via the same independent audit: `${DB_PASSWORD:-secret}`,
+  `shipsearchkey`, and `ship`/`shipsecret` all used the exact same `${VAR:-default}` expression in
+  both environments, so a `.env.production` that forgot (or never had) a real value silently
+  shared the same publicly-known default every such project would -- with no error, warning, or
+  way to notice short of reading the generated compose file by hand.
+
+  Added `Ship\Docker\RequiredEnv::expr()`, applied to MySQL/Postgres's `DB_PASSWORD`,
+  Meilisearch's master key, and Garage/RustFS/Silo's secret access key -- never the access key id
+  itself, or `DB_USERNAME`: access-key/username-shaped values stay plain defaults, same as
+  everywhere else. A friendly `${VAR:-default}` in development, but `${VAR:?...}` in production,
+  verified live against a minimal compose file both ways: `docker compose` itself refuses to run
+  at all when the real value was never set, with a clear, actionable error naming the variable.
+  Matters most for Silo, whose admin console is published to the host by default -- a missed
+  `.env.production` value there would otherwise expose a login page with a publicly-known
+  credential on the open internet.
+
+  The app-facing side (`DB_PASSWORD`, etc. in `environmentVariables()`) deliberately keeps its
+  plain default rather than gaining the same check: that method has no `$environment` parameter,
+  and doesn't need one here -- Compose interpolates an entire generated file as one pass, so a
+  single `:?` anywhere in it aborts the whole command before any service, the app included, ever
+  starts.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
