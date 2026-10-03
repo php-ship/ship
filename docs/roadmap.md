@@ -1213,6 +1213,17 @@
   composer copy, and the `npm ci` branch) completes successfully; the pinned nginx tag resolves
   and pulls.
 
+- Warn when `deploy-commands.sh`'s executable bit can't actually be set -- found via the same
+  independent audit: `chmod()` on it is a real, working executable-bit set on Linux/macOS, but a
+  silent no-op on Windows, since NTFS has no Unix executable bit for it to set at all. `ship
+  release` has no requirement to run on Linux/macOS specifically, so a release built on a Windows
+  dev machine shipped a `deploy-commands.sh` that was never actually executable once copied to
+  the server, with nothing telling the operator why `./deploy-commands.sh` would fail there.
+
+  `ReleaseCommand` now warns explicitly when `deployCommands` is set and `PHP_OS_FAMILY` is
+  Windows, pointing at the `chmod +x`/`sh deploy-commands.sh` workarounds instead of claiming an
+  executable bit that was never actually set.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`

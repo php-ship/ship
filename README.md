@@ -491,6 +491,12 @@ server (`scp`, a CI artifact upload, a DevOps handoff) and running those
 few commands is on you; what `ship` guarantees is that the artifact itself
 needs nothing else once it's there.
 
+Built `ship release` on Windows: `deploy-commands.sh`'s executable bit
+can't actually be set there (NTFS has no Unix executable bit for `chmod()`
+to set), and `ship` warns about this when it applies. Either
+`chmod +x deploy-commands.sh` on the server first, or run it as
+`sh deploy-commands.sh` instead of `./deploy-commands.sh`.
+
 ### CI/CD
 
 The same commands, the same artifact — CI is not a third release format:
