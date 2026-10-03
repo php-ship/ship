@@ -148,15 +148,18 @@ RUN composer dump-autoload --optimize --no-dev
 # artisan (Ziggy route generation, an SSR manifest, ...).
 #
 # `npm ci` only when package-lock.json actually exists, falling back to `npm install` only when
-# it doesn't -- never `npm ci || npm install` unconditionally. A real bug found via an independent
-# audit: that fallback also caught `npm ci`'s *own* lockfile-drift failure (package.json and
-# package-lock.json out of sync) and silently retried with `npm install`, which resolves and
-# writes a *new* lockfile instead -- the exact mismatch `npm ci` exists to catch, masked rather
-# than surfaced, on every single build.
+# it doesn't -- never `npm ci || npm install` unconditionally, which would also catch `npm ci`'s
+# own lockfile-drift failure (package.json and package-lock.json out of sync) and silently retry
+# with `npm install`, masking the exact mismatch `npm ci` exists to catch.
+#
+# node_modules is removed once the build finishes, not copied into "prod" below -- it's a build
+# dependency, not a runtime one: Vite's own output in public/build is static files the webserver
+# serves directly, with no Node process involved at any point after this stage.
 FROM builder AS assets
 RUN if [ -f package.json ]; then \
         if [ -f package-lock.json ]; then npm ci; else npm install; fi \
-        && npm run build; \
+        && npm run build \
+        && rm -rf node_modules; \
     fi
 
 # ---- prod --------------------------------------------------------------
