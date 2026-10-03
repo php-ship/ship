@@ -7,6 +7,7 @@ namespace Ship\Docker;
 use Ship\Config\ShipConfig;
 use Ship\Contracts\ShipEnvironment;
 use Ship\Services\ServiceRegistry;
+use Ship\Services\SupportsNamedInstances;
 use Symfony\Component\Yaml\Yaml;
 
 final class ComposeFileBuilder
@@ -50,6 +51,10 @@ final class ComposeFileBuilder
         ?string $projectName = null,
     ): string {
         $serviceNames = $config->serviceNames;
+
+        $this->assertNoServiceNameCollisions($config->services, $serviceNames);
+        $this->assertUniqueAdditionalServiceNames($config->additionalServices);
+        $this->assertAdditionalServicesSupportNamedInstances($config->additionalServices);
 
         $compose = [
             ...($projectName !== null ? ['name' => $projectName] : []),
@@ -363,6 +368,89 @@ final class ComposeFileBuilder
         }
 
         return $renamed;
+    }
+
+    /**
+     * "app", "webserver", and every selected service's own default compose key (the same string
+     * as $services's own value -- see ShipConfig::$services's docblock: always the default
+     * instance, which SupportsNamedInstances resolves to key() unchanged) all have to end up with
+     * distinct final names once serviceNames is applied, or renameFragmentKeys()/applyService()
+     * silently keep only one of two same-named fragments. Checked as one pass over every
+     * candidate's resolved name rather than per-field, since a collision can involve any two of
+     * them (two serviceNames entries renamed to the same target, or one renamed onto a name
+     * another selected service already has by default).
+     *
+     * @param array<string, string> $services
+     * @param array<string, string> $serviceNames
+     */
+    private function assertNoServiceNameCollisions(array $services, array $serviceNames): void
+    {
+        $seenAs = [];
+
+        foreach ([...['app', 'webserver'], ...array_values($services)] as $defaultKey) {
+            $finalKey = $serviceNames[$defaultKey] ?? $defaultKey;
+
+            if (isset($seenAs[$finalKey])) {
+                throw new \InvalidArgumentException(
+                    "ship.json: \"{$seenAs[$finalKey]}\" and \"{$defaultKey}\" both end up named "
+                        . "\"{$finalKey}\" -- check serviceNames for a rename that collides with "
+                        . 'another selected service\'s own name.',
+                );
+            }
+
+            $seenAs[$finalKey] = $defaultKey;
+        }
+    }
+
+    /**
+     * Each additionalServices entry's own "name" becomes both its compose service suffix and its
+     * env var prefix (see SupportsNamedInstances) -- two entries sharing one silently let the
+     * second's compose fragment and env vars overwrite the first's rather than coexisting as two
+     * actually-distinct instances.
+     *
+     * @param list<array{group: string, service: string, name: string}> $additionalServices
+     */
+    private function assertUniqueAdditionalServiceNames(array $additionalServices): void
+    {
+        $seen = [];
+
+        foreach ($additionalServices as $additional) {
+            $name = $additional['name'];
+
+            if (isset($seen[$name])) {
+                throw new \InvalidArgumentException(
+                    "ship.json additionalServices: \"{$name}\" is used more than once -- each entry "
+                        . 'needs its own unique name.',
+                );
+            }
+
+            $seen[$name] = true;
+        }
+    }
+
+    /**
+     * Only a service using the SupportsNamedInstances trait actually varies its compose fragment
+     * and env vars by $instanceName -- one that doesn't (e.g. ReverbService: only one broadcasting
+     * server ever makes sense per project) silently reuses its own default compose key and env var
+     * names regardless of the "name" given here, colliding with that service's own default
+     * instance instead of becoming a genuinely second one. Checked via class_uses() rather than an
+     * interface method: ServiceDefinition is implemented by third-party extensions too (see
+     * docs/adding-a-service.md), so adding a required method there would break every one of them.
+     *
+     * @param list<array{group: string, service: string, name: string}> $additionalServices
+     */
+    private function assertAdditionalServicesSupportNamedInstances(array $additionalServices): void
+    {
+        foreach ($additionalServices as $additional) {
+            $service = $this->registry->get($additional['service']);
+
+            if (!in_array(SupportsNamedInstances::class, class_uses($service), true)) {
+                throw new \InvalidArgumentException(
+                    "ship.json additionalServices: \"{$additional['service']}\" doesn't support more "
+                        . 'than one instance -- only its default selection (or none) can be used.',
+                );
+            }
+        }
     }
 
     /**

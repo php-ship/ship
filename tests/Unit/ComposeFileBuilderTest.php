@@ -664,4 +664,70 @@ final class ComposeFileBuilderTest extends TestCase
         self::assertArrayNotHasKey('QUEUE_CACHE_STORE', $parsed['services']['app']['environment']);
         self::assertSame('redis-queue', $parsed['services']['app']['environment']['QUEUE_REDIS_HOST']);
     }
+
+    public function test_renaming_two_services_to_the_same_name_is_rejected(): void
+    {
+        $builder = new ComposeFileBuilder($this->registry());
+        $config = new ShipConfig(
+            phpVersion: '8.4',
+            services: [],
+            serviceNames: ['app' => 'shared', 'webserver' => 'shared'],
+        );
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('both end up named "shared"');
+
+        $builder->build($config, ShipEnvironment::Production);
+    }
+
+    public function test_renaming_app_to_an_already_selected_services_own_name_is_rejected(): void
+    {
+        $registry = new ServiceRegistry([new MySqlService()]);
+        $builder = new ComposeFileBuilder($registry);
+        $config = new ShipConfig(
+            phpVersion: '8.4',
+            services: ['database' => 'mysql'],
+            serviceNames: ['app' => 'mysql'],
+        );
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('both end up named "mysql"');
+
+        $builder->build($config, ShipEnvironment::Production);
+    }
+
+    public function test_two_additional_services_sharing_a_name_is_rejected(): void
+    {
+        $registry = new ServiceRegistry([new MySqlService(), new PostgresService()]);
+        $builder = new ComposeFileBuilder($registry);
+        $config = new ShipConfig(
+            phpVersion: '8.4',
+            services: [],
+            additionalServices: [
+                ['group' => 'database', 'service' => 'mysql', 'name' => 'dup'],
+                ['group' => 'database', 'service' => 'pgsql', 'name' => 'dup'],
+            ],
+        );
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('"dup" is used more than once');
+
+        $builder->build($config, ShipEnvironment::Production);
+    }
+
+    public function test_an_additional_instance_of_a_service_without_named_instance_support_is_rejected(): void
+    {
+        $registry = new ServiceRegistry([new ReverbService()]);
+        $builder = new ComposeFileBuilder($registry);
+        $config = new ShipConfig(
+            phpVersion: '8.4',
+            services: [],
+            additionalServices: [['group' => 'broadcasting', 'service' => 'reverb', 'name' => 'second']],
+        );
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('"reverb" doesn\'t support more than one instance');
+
+        $builder->build($config, ShipEnvironment::Production);
+    }
 }
