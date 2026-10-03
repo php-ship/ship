@@ -377,6 +377,35 @@ final class ComposeFileBuilderTest extends TestCase
         );
     }
 
+    /**
+     * Regression coverage for a real bug found via an independent audit: ReverbService's own
+     * composeFragment() has no access to $mutagenSync, so its dev volume was always the raw bind
+     * mount even when SHIP_MUTAGEN is active and "app"/"webserver" both switched to the synced
+     * named volume instead -- Reverb kept reading the unsynced host tree directly.
+     */
+    public function test_reverb_uses_the_synced_named_volume_when_mutagen_is_active(): void
+    {
+        $registry = new ServiceRegistry([new ReverbService()]);
+        $builder = new ComposeFileBuilder($registry);
+
+        $config = new ShipConfig(phpVersion: '8.4', services: ['broadcasting' => 'reverb']);
+        $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Development, mutagenSync: true));
+
+        self::assertSame(['ship-app-sync:/var/www/html'], $parsed['services']['reverb']['volumes']);
+        self::assertSame($parsed['services']['app']['volumes'], $parsed['services']['reverb']['volumes']);
+    }
+
+    public function test_reverb_keeps_the_bind_mount_when_mutagen_is_not_active(): void
+    {
+        $registry = new ServiceRegistry([new ReverbService()]);
+        $builder = new ComposeFileBuilder($registry);
+
+        $config = new ShipConfig(phpVersion: '8.4', services: ['broadcasting' => 'reverb']);
+        $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Development, mutagenSync: false));
+
+        self::assertSame(['.:/var/www/html'], $parsed['services']['reverb']['volumes']);
+    }
+
     public function test_reverb_keeps_its_own_dockerfile_even_when_app_overrides_its_own(): void
     {
         $registry = new ServiceRegistry([new OctaneFrankenPhpService(), new ReverbService()]);

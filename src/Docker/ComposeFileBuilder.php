@@ -149,6 +149,7 @@ final class ComposeFileBuilder
             $serviceNames['reverb'] ?? 'reverb',
             $appEnv,
             $environment,
+            $mutagenSync,
         );
 
         // Lets the commands that shell out to `docker compose exec` (see ComposeCommand::execPrefix())
@@ -445,6 +446,12 @@ final class ComposeFileBuilder
      * too, not just production -- but SHIP_RUN_AS only in production, matching every other
      * service that sets it.
      *
+     * A fourth, found the same way: ReverbService's own composeFragment() also has no access to
+     * $mutagenSync, so its dev volume was always the raw bind mount (`.:/var/www/html`), even when
+     * SHIP_MUTAGEN is active and "app"/"webserver" both switched to the synced named volume
+     * instead (see baseServices()'s own $devVolume). Reverb kept bind-mounting the *unsynced* host
+     * tree, reading stale code "app" itself no longer saw once Mutagen's sync caught up.
+     *
      * @param array<string, array<string, mixed>> $services
      * @param array<string, string> $appEnv
      * @return array<string, array<string, mixed>>
@@ -455,6 +462,7 @@ final class ComposeFileBuilder
         string $reverbServiceName,
         array $appEnv,
         ShipEnvironment $environment,
+        bool $mutagenSync,
     ): array {
         if (!isset($services[$reverbServiceName])) {
             return $services;
@@ -465,6 +473,10 @@ final class ComposeFileBuilder
             ...$appEnv,
             ...($environment->isDevelopment() ? [] : ['SHIP_RUN_AS' => 'www-data']),
         ];
+
+        if ($environment->isDevelopment() && $mutagenSync) {
+            $services[$reverbServiceName]['volumes'] = ['ship-app-sync:/var/www/html'];
+        }
 
         return $services;
     }
