@@ -1299,6 +1299,24 @@
   Verified live: the checksum step actually verifies the real v0.18.1 tarball successfully; the
   edited workflow file still parses as valid YAML.
 
+- Housekeeping from the same independent audit: `Application`'s version was hardcoded to the
+  literal `"0.1.0-dev"` forever instead of using `ShipVersion::current()` (Composer's own
+  `InstalledVersions`), which already exists for exactly this purpose -- `ship --version` never
+  reflected whatever was actually installed. Falls back to the same literal when
+  `InstalledVersions` can't answer at all (running from a git checkout with no Composer
+  metadata).
+
+  `ShellCommand`'s docblocks referenced a nonexistent `ship.json` field (`"appName"` -- the real
+  field is `serviceNames['app']`) and a nonexistent `Application` method
+  (`"readExtensionClassesIfConfigured()"` -- the real method is `readConfigIfPresent()`).
+
+  Deleted `stubs/docker/nginx/Dockerfile`: confirmed via grep to be referenced nowhere -- nginx
+  now builds through `ship/Dockerfile`'s own `dev-nginx`/`prod-nginx` targets instead, and only
+  `default.conf` from this directory is ever published.
+
+  (The `composer.lock` sub-point from the same audit item is moot: this library doesn't commit a
+  lock file at all.)
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
