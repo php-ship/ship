@@ -110,9 +110,10 @@ final class ComposeFileBuilder
             // composer install and any non-php-fpm command as. Numeric, so it doesn't depend on
             // whatever name the image gave the user.
             ...($hostUser !== null ? ['SHIP_HOST_USER' => "{$hostUser['uid']}:{$hostUser['gid']}"] : []),
-            // Only set at all when Dusk is selected -- Selenium (a separate container) reaches the
-            // app over the "ship" network, not via whatever host-reachable URL a real browser or
-            // artisan command would use, and DuskService itself has no visibility into which
+            // Only set at all when Dusk is selected *and* this is Development -- Selenium (a
+            // separate container, itself dev-only, see DuskService::composeFragment()) reaches
+            // the app over the "ship" network, not via whatever host-reachable URL a real browser
+            // or artisan command would use, and DuskService itself has no visibility into which
             // service ("app" or "webserver") is the real HTTP entrypoint (depends on whether an
             // Octane runtime was *also* selected -- the same check every Octane*Service::removes()
             // already makes). Everywhere else, this used to unconditionally overwrite whatever
@@ -121,7 +122,12 @@ final class ComposeFileBuilder
             // a project with a genuine APP_URL (a custom port, a real domain, ...) had every
             // user-facing link (queued emails, signed URLs, artisan output) silently rewritten to
             // an internal Docker hostname no browser outside the container can resolve.
-            ...(($config->services['testing'] ?? null) === 'dusk' ? [
+            //
+            // A second real bug found via an independent re-audit of that very fix: ship.json's
+            // "testing": "dusk" selection doesn't vary by environment, so this block still fired
+            // in *production* too -- the exact same unwanted overwrite the comment above already
+            // describes, just reintroduced for any project that happens to have Dusk selected.
+            ...($environment->isDevelopment() && ($config->services['testing'] ?? null) === 'dusk' ? [
                 'APP_URL' => sprintf(
                     'http://%s',
                     isset($compose['services'][$webserverServiceName]) ? $webserverServiceName : $appServiceName,

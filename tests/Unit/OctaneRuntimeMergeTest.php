@@ -99,6 +99,25 @@ final class OctaneRuntimeMergeTest extends TestCase
     }
 
     /**
+     * Regression coverage for a real bug found via an independent re-audit: ship.json's
+     * "testing": "dusk" selection doesn't vary by environment, so this block still fired in
+     * *production* too, overwriting a project's own real, host-reachable APP_URL there -- the
+     * exact overwrite the test above already guards against, just reintroduced for production.
+     * DuskService itself already contributes nothing in production (see its own
+     * composeFragment()), so this should match that and inject nothing either.
+     */
+    public function test_app_url_is_not_injected_in_production_even_when_dusk_is_selected(): void
+    {
+        $registry = new ServiceRegistry([new DuskService()]);
+        $builder = new ComposeFileBuilder($registry);
+
+        $config = new ShipConfig(phpVersion: '8.4', services: ['testing' => 'dusk']);
+        $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Production));
+
+        self::assertArrayNotHasKey('APP_URL', $parsed['services']['app']['environment']);
+    }
+
+    /**
      * Regression test for a real bug reported from live use: baseServices() sets "app".networks to
      * ["ship"], then applyService() defaults every fragment missing its own networks key to ["ship"]
      * too (see its own docblock) -- Octane's fragment for "app" doesn't set one, so
