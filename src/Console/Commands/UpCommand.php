@@ -8,7 +8,9 @@ use Ship\Config\ShipConfig;
 use Ship\Contracts\ShipEnvironment;
 use Ship\Docker\ComposeCommand;
 use Ship\Docker\ComposeFileBuilder;
+use Ship\Docker\EnvFile;
 use Ship\Docker\HostUser;
+use Ship\Docker\MySqlUsernameGuard;
 use Ship\Extensions\ExtensionLoader;
 use Ship\Runtime\ProcessRunner;
 use Ship\Services\ServiceRegistry;
@@ -54,6 +56,18 @@ final class UpCommand extends Command
         }
 
         $this->warnAboutStubVersionMismatch($output);
+
+        $usernameProblems = MySqlUsernameGuard::problems($config, EnvFile::parse($this->projectRoot . '/.env'));
+        if ($usernameProblems !== []) {
+            $output->writeln(sprintf(
+                '<error>ship: %s is set to "root" in .env -- the official mysql image\'s own '
+                    . 'entrypoint refuses to start at all with that value (it\'s reserved for '
+                    . 'MYSQL_ROOT_PASSWORD, not MYSQL_USER). Pick a different username.</error>',
+                implode(', ', $usernameProblems),
+            ));
+
+            return Command::FAILURE;
+        }
 
         $mutagenSync = MutagenSync::isEnabled();
 

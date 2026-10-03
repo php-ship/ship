@@ -6,6 +6,8 @@ namespace Ship\Console\Commands;
 
 use Ship\Config\ShipConfig;
 use Ship\Docker\DeployPlan;
+use Ship\Docker\EnvFile;
+use Ship\Docker\MySqlUsernameGuard;
 use Ship\Docker\ProductionBuildRunner;
 use Ship\Docker\ProjectName;
 use Ship\Docker\ReleaseManifest;
@@ -62,6 +64,19 @@ final class ReleaseCommand extends Command
         }
 
         $config = ShipConfig::fromFile($this->projectRoot . '/ship.json');
+
+        $usernameProblems = MySqlUsernameGuard::problems($config, EnvFile::parse($envProductionPath));
+        if ($usernameProblems !== []) {
+            $output->writeln(sprintf(
+                '<error>ship: %s is set to "root" in .env.production -- the official mysql image\'s '
+                    . 'own entrypoint refuses to start at all with that value (it\'s reserved for '
+                    . 'MYSQL_ROOT_PASSWORD, not MYSQL_USER). Pick a different username.</error>',
+                implode(', ', $usernameProblems),
+            ));
+
+            return Command::FAILURE;
+        }
+
         $registry = new ServiceRegistry(ServiceRegistry::defaults());
 
         $warnings = (new ExtensionLoader())->load($config->extensions, $registry);
