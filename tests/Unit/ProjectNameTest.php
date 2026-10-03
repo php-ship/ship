@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ship\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Ship\Config\ShipConfig;
 use Ship\Docker\ProjectName;
@@ -41,5 +42,38 @@ final class ProjectNameTest extends TestCase
         $config = new ShipConfig(phpVersion: '8.4', services: [], name: '!!!');
 
         self::assertSame('ship-app', ProjectName::resolve($config, '/anything'));
+    }
+
+    /**
+     * Regression coverage for a real bug found via an independent audit, confirmed live
+     * (`docker build -t foo..bar-app:local` fails outright with "invalid reference format"):
+     * Docker's actual grammar only allows a *single* separator between alphanumeric runs, never
+     * two or more literal dots/underscores in a row. "foo..bar" is already entirely within the
+     * allowed character set, so the old single-pass sanitizer let it straight through.
+     */
+    public function test_consecutive_separator_characters_are_collapsed_to_one(): void
+    {
+        $config = new ShipConfig(phpVersion: '8.4', services: [], name: 'foo..bar');
+
+        self::assertSame('foo-bar', ProjectName::resolve($config, '/anything'));
+    }
+
+    /**
+     * @return iterable<string, array{string, string}>
+     */
+    public static function invalidSeparatorRuns(): iterable
+    {
+        yield 'double dot' => ['foo..bar', 'foo-bar'];
+        yield 'triple underscore' => ['foo___bar', 'foo-bar'];
+        yield 'mixed dot and underscore' => ['foo._bar', 'foo-bar'];
+        yield 'dot immediately after a collapsed run' => ['foo!!.bar', 'foo-bar'];
+    }
+
+    #[DataProvider('invalidSeparatorRuns')]
+    public function test_every_invalid_separator_run_is_collapsed_to_one_hyphen(string $name, string $expected): void
+    {
+        $config = new ShipConfig(phpVersion: '8.4', services: [], name: $name);
+
+        self::assertSame($expected, ProjectName::resolve($config, '/anything'));
     }
 }
