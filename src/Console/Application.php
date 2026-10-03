@@ -6,6 +6,7 @@ namespace Ship\Console;
 
 use Ship\Config\ShipConfig;
 use Ship\Console\Commands\BuildCommand;
+use Ship\Console\Commands\ConfigTestCommand;
 use Ship\Console\Commands\DbCommand;
 use Ship\Console\Commands\DownCommand;
 use Ship\Console\Commands\ExecCommand;
@@ -67,6 +68,7 @@ final class Application extends SymfonyApplication
         $this->registerCommand(new ShellCommand($this->projectRoot, $runner));
         $this->registerCommand(new LogsCommand($this->projectRoot, $runner));
         $this->registerCommand(new DbCommand($this->projectRoot, $runner, $registry));
+        $this->registerCommand(new ConfigTestCommand($this->projectRoot, $registry));
 
         // Package-manager commands are framework-agnostic, so they're
         // always available regardless of what FrameworkAdapter matches.

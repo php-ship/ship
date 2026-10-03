@@ -50,7 +50,7 @@ final class ApplicationTest extends TestCase
     {
         $application = new Application($this->projectRoot);
 
-        foreach (['init', 'up', 'down', 'exec', 'shell', 'logs', 'db', 'composer', 'npm'] as $name) {
+        foreach (['init', 'up', 'down', 'exec', 'shell', 'logs', 'db', 'composer', 'npm', 'config:test'] as $name) {
             self::assertTrue($application->has($name), "Expected \"{$name}\" to be registered.");
         }
     }
