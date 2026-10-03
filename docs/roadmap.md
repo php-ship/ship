@@ -1256,6 +1256,19 @@
   `volumes` to the same `ship-app-sync` named volume "app"/"webserver" use, whenever Mutagen is
   active.
 
+- Collapse consecutive separators so `ProjectName` always produces a valid tag -- found via the
+  same independent audit, confirmed live (`docker build -t foo..bar-app:local` fails outright with
+  "invalid reference format"). Docker's actual grammar for an image name component is
+  `[a-z0-9]+((\.|_|__|-+)[a-z0-9]+)*` -- a single separator between two alphanumeric runs, never
+  two or more literal dots/underscores in a row. `ProjectName::sanitize()` only ever touched
+  characters outside `[a-z0-9._-]`, so an input like `"foo..bar"` (already entirely within that
+  set) passed straight through and still broke `docker build`/`docker save` later with the exact
+  opaque error this class exists to avoid.
+
+  A second pass now collapses any run of two or more separator characters, whatever mix of `.`,
+  `_`, `-` produced it, down to a single `-` -- satisfying Docker's grammar unconditionally
+  instead of special-casing every separator combination it allows.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
