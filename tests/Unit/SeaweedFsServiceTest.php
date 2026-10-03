@@ -31,11 +31,29 @@ final class SeaweedFsServiceTest extends TestCase
     public function test_app_credentials_match_what_seaweedfs_is_provisioned_with(): void
     {
         $service = new SeaweedFsService();
+        $fragment = $service->composeFragment(ShipEnvironment::Development);
         $appEnv = $service->environmentVariables();
 
-        self::assertSame('ship', $appEnv['AWS_ACCESS_KEY_ID']);
-        self::assertSame('shipsecret', $appEnv['AWS_SECRET_ACCESS_KEY']);
+        self::assertSame($fragment['seaweedfs']['environment']['AWS_ACCESS_KEY_ID'], $appEnv['AWS_ACCESS_KEY_ID']);
+        self::assertSame($fragment['seaweedfs']['environment']['AWS_SECRET_ACCESS_KEY'], $appEnv['AWS_SECRET_ACCESS_KEY']);
         self::assertStringContainsString('seaweedfs', $appEnv['AWS_ENDPOINT']);
+    }
+
+    /**
+     * Regression coverage for a real bug found via a seventh independent audit, confirmed by
+     * reading the code: environmentVariables() -- the side "app" actually gets, since
+     * environment: always wins over env_file: -- hardcoded the literal "ship"/"shipsecret"
+     * instead of the same Compose expression composeFragment() uses, so "app" always
+     * authenticated with the dev placeholder regardless of what .env.production actually set.
+     * Every other credentialed service (Garage, RustFS, Silo) already gets this right.
+     */
+    public function test_app_credentials_are_expressions_not_hardcoded_literals(): void
+    {
+        $appEnv = (new SeaweedFsService())->environmentVariables();
+
+        self::assertSame('${AWS_ACCESS_KEY_ID:-ship}', $appEnv['AWS_ACCESS_KEY_ID']);
+        self::assertSame('${AWS_SECRET_ACCESS_KEY:-shipsecret}', $appEnv['AWS_SECRET_ACCESS_KEY']);
+        self::assertSame('${AWS_BUCKET:-local}', $appEnv['AWS_BUCKET']);
     }
 
     public function test_the_data_volume_persists_in_both_environments(): void

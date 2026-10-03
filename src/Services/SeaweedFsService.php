@@ -108,13 +108,22 @@ final class SeaweedFsService implements ServiceDefinition
         // Generic AWS SDK-standard names, not framework-specific, so any
         // S3 client (Laravel's Storage facade, aws-sdk-php directly,
         // Flysystem, ...) can consume them the same way.
+        //
+        // The credentials are Compose expressions here, not literals -- environment: always wins
+        // over env_file:, so a hardcoded "ship"/"shipsecret" would reach the app container
+        // regardless of what .env.production actually sets, same bug RequiredEnv's own docblock
+        // already covers for every other credentialed service. Same `:-default` composeFragment()
+        // itself uses, not RequiredEnv::expr()'s `:?` -- this method has no $environment to vary
+        // by (see that docblock for why it doesn't need one): Compose interpolates the whole file
+        // in one pass, so composeFragment()'s own `:?` already aborts the entire command before
+        // this fallback would ever be reached for real in production.
         return [
             "{$prefix}AWS_ENDPOINT" => "http://{$name}:8333",
             "{$prefix}AWS_USE_PATH_STYLE_ENDPOINT" => 'true',
             "{$prefix}AWS_DEFAULT_REGION" => 'us-east-1',
-            "{$prefix}AWS_ACCESS_KEY_ID" => 'ship',
-            "{$prefix}AWS_SECRET_ACCESS_KEY" => 'shipsecret',
-            "{$prefix}AWS_BUCKET" => 'local',
+            "{$prefix}AWS_ACCESS_KEY_ID" => "\${{$prefix}AWS_ACCESS_KEY_ID:-ship}",
+            "{$prefix}AWS_SECRET_ACCESS_KEY" => "\${{$prefix}AWS_SECRET_ACCESS_KEY:-shipsecret}",
+            "{$prefix}AWS_BUCKET" => "\${{$prefix}AWS_BUCKET:-local}",
         ];
     }
 
