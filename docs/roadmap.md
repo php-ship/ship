@@ -1151,6 +1151,27 @@
   specific, actionable message instead of attempting to boot at all; and a legitimate username
   proceeds normally.
 
+- Stopped `ship build`/`ship release` from overwriting the dev compose file -- found via the same
+  independent audit: `ProductionBuildRunner` wrote to the exact same
+  `ship/docker-compose.generated.yml` file `ship up` itself generates and every dev command
+  (`ship exec`, `ship shell`, `ship composer`, `ship npm`) reads. Running either production command
+  after `ship up` silently left the dev compose file overwritten with a production one until the
+  next `ship up` regenerated it -- during which those commands would all target the wrong
+  environment, `hostUser`'s `--user` flag included, since production never sets the `x-ship`
+  marker.
+
+  Fixed with a new `ComposeCommand::PRODUCTION_COMPOSE_FILE` constant
+  (`ship/docker-compose.production.yml`) and an optional `$composeFile` parameter on
+  `baseArgs()`, defaulting to the dev file so every existing caller is unaffected.
+  `ProductionBuildRunner` now writes and reads its own file explicitly; `ReleaseCommand`'s two
+  reads follow it too.
+
+  Verified live: after `ship up`, `ship build` now produces a *separate*
+  `ship/docker-compose.production.yml` (`target: prod`/`prod-nginx`) while
+  `ship/docker-compose.generated.yml` stays byte-for-byte the dev one (`target: dev`/`dev-nginx`),
+  and `ship exec app php -v` immediately afterward still correctly reports the running dev
+  container (Xdebug installed, confirming it's the dev image).
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
