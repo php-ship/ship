@@ -5,6 +5,15 @@ on:
     branches: [main]
   pull_request:
 
+# Least privilege: this workflow only ever reads the checkout and runs tests/builds -- it never
+# pushes a commit, creates a release, or comments on a PR, so the default (often much broader,
+# write-heavy) token permissions a workflow gets when this block is omitted entirely are never
+# needed. A real finding from an independent audit: no permissions: block at all here meant every
+# job ran with whatever the repo-wide default happened to be, not the minimum this workflow
+# actually uses.
+permissions:
+  contents: read
+
 jobs:
   test:
     name: PHP ${{ matrix.php }} — ${{ matrix.os }}
@@ -16,10 +25,10 @@ jobs:
         php: ['8.2', '8.3', '8.4']
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Setup PHP
-        uses: shivammathur/setup-php@v2
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
         with:
           php-version: ${{ matrix.php }}
           coverage: none
@@ -40,10 +49,10 @@ jobs:
     name: Docker build (dev + prod)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Setup PHP
-        uses: shivammathur/setup-php@v2
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
         with:
           php-version: '8.4'
           coverage: none
@@ -285,13 +294,20 @@ jobs:
       - name: Install Mutagen
         run: |
           MUTAGEN_VERSION=v0.18.1
-          curl -sL -o /tmp/mutagen.tar.gz "https://github.com/mutagen-io/mutagen/releases/download/${MUTAGEN_VERSION}/mutagen_linux_amd64_${MUTAGEN_VERSION}.tar.gz"
+          TARBALL="mutagen_linux_amd64_${MUTAGEN_VERSION}.tar.gz"
+          curl -sL -o "/tmp/${TARBALL}" "https://github.com/mutagen-io/mutagen/releases/download/${MUTAGEN_VERSION}/${TARBALL}"
+          # Verified against the checksums the release itself publishes (not a hardcoded hash
+          # that would go stale the moment MUTAGEN_VERSION above is bumped) -- a real finding
+          # from an independent audit: this download had nothing verifying it was actually the
+          # file Mutagen's maintainer published, over a plain, unauthenticated HTTPS GET.
+          curl -sL -o /tmp/SHA256SUMS "https://github.com/mutagen-io/mutagen/releases/download/${MUTAGEN_VERSION}/SHA256SUMS"
+          (cd /tmp && grep "${TARBALL}" SHA256SUMS | sha256sum -c -)
           mkdir -p "$HOME/.local/mutagen"
           # Both files end up in the same directory deliberately -- Mutagen looks for
           # mutagen-agents.tar.gz alongside wherever its own binary lives, verified directly
           # (undocumented in --help) rather than assumed, since ship's own maintainer hit exactly
           # this "unable to locate agent bundle" failure from an install that only had the binary.
-          tar -xzf /tmp/mutagen.tar.gz -C "$HOME/.local/mutagen"
+          tar -xzf "/tmp/${TARBALL}" -C "$HOME/.local/mutagen"
           echo "$HOME/.local/mutagen" >> "$GITHUB_PATH"
 
       - name: Create a fixture Laravel app for Mutagen sync
