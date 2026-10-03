@@ -1567,6 +1567,13 @@ A sixth independent audit found one trivial leftover in `EnvFile::parse()`.
   Verified live: a real `ship init` run against an existing multi-service `ship.json`, every
   prompt answered by pressing Enter, reproduces the same selections instead of wiping them.
 
+- Three small robustness fixes. `bin/ship` prints a clear message and exits 1 instead of a raw
+  fatal error when neither autoload path exists. `ComposeCommand::execPrefix()` falls back to no
+  `--user` prefix instead of throwing when the generated compose file is malformed (a hand-edit,
+  an interrupted write, a stale file from a different ship version) -- none of `ship
+  exec`/`shell`/`composer`/`npm` actually need that prefix to run at all. CI's test matrix now
+  includes PHP 8.5 alongside 8.2/8.3/8.4, matching composer.json's own `^8.2` constraint.
+
 - Both php.ini stubs set `upload_max_filesize`/`post_max_size` to `100M`, matching
   `ship/nginx/default.conf`'s own `client_max_body_size` -- previously neither set either at all,
   so nginx happily forwarded a request that large to php-fpm, which then silently rejected it at
