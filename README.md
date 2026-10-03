@@ -259,7 +259,10 @@ plain, readable JSON document:
   and get a 60s stop grace period so Horizon or a worker can finish its job
   instead of being SIGKILLed after Compose's default 10s. Production only —
   in development you run these yourself (`ship artisan horizon`) against the
-  bind-mounted code.
+  bind-mounted code. Write it as a plain shell command, `$VAR` references
+  included — `ship` escapes every `$` for you so Compose's own interpolation
+  never sees (and silently blanks out) a variable meant for the container's
+  shell instead.
 
 Host-side port collisions (running more than one `ship` project, or
 another tool already using a default port) are handled with environment

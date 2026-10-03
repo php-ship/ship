@@ -1124,6 +1124,15 @@
   and `additionalServices` names reuse `ship init`'s own interactive prompt validation (also an
   env var prefix, so no hyphen).
 
+- Escaped `$` in `ship.json`'s `processes` commands -- found via the same independent audit, the
+  same bug class fixing SeaweedFS's own identity config hit earlier this session: Compose
+  interpolates a bare `$VAR` in a command string itself (against the host's own environment, not
+  the container's) the same way it does `${VAR}`. A `processes` command referencing a real shell
+  variable (e.g. `"php artisan queue:work --queue=$QUEUE"`) had it silently blanked out before the
+  container's shell ever ran it. A project writing a `processes` entry expects to write a plain
+  shell command, not a Compose-interpolated string, so every literal `$` is now escaped to `$$`
+  automatically rather than asking every entry to know Compose's own syntax.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
