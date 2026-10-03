@@ -87,7 +87,11 @@ final class MutagenSync
             // own docblock) and covers a first attempt that created the session successfully but
             // was interrupted before installing, leaving a project stuck re-running `ship up` with
             // no other way to retry just this part.
-            $this->installComposerDependencies();
+            if ($this->installComposerDependencies() !== Command::SUCCESS) {
+                $output->writeln('<error>ship: composer install failed inside the "app" container -- see the output above.</error>');
+
+                return Command::FAILURE;
+            }
 
             return Command::SUCCESS;
         }
@@ -116,7 +120,7 @@ final class MutagenSync
         // entrypoint's existing composer-install-if-missing fallback); node_modules/ needs the
         // same `ship npm install` a fresh bind-mount project would too -- no regression either way,
         // since bind-mount mode never auto-installs it now either.
-        $this->runner->runQuiet([
+        $create = $this->runner->runQuietWithResult([
             'mutagen', 'sync', 'create',
             '--name', $this->sessionName(),
             '--label', $this->labelSelector(),
@@ -128,10 +132,29 @@ final class MutagenSync
             "docker://{$containerName}" . self::APP_SYNC_PATH,
         ], timeoutSeconds: self::CREATE_TIMEOUT_SECONDS);
 
+        // Checked here, not left to fall through to the polling loop below -- a real error (the
+        // Mutagen daemon not running, a stale session from a killed `ship up` holding the name, a
+        // bad Docker endpoint) means that loop was never going to see "Watching" no matter how
+        // long it waited, so it previously burned the full SYNC_TIMEOUT_SECONDS before reporting a
+        // generic timeout that said nothing about the real, already-known cause.
+        if ($create['exitCode'] !== 0) {
+            $output->writeln(sprintf(
+                '<error>ship: `mutagen sync create` failed: %s</error>',
+                $create['errorOutput'] !== '' ? $create['errorOutput'] : ($create['output'] !== '' ? $create['output'] : 'unknown error'),
+            ));
+
+            return Command::FAILURE;
+        }
+
         for ($elapsed = 0; $elapsed < self::SYNC_TIMEOUT_SECONDS; $elapsed += self::POLL_INTERVAL_SECONDS) {
             if ($this->isWatching()) {
                 $output->writeln('<info>ship: Mutagen sync is up and watching for changes.</info>');
-                $this->installComposerDependencies();
+
+                if ($this->installComposerDependencies() !== Command::SUCCESS) {
+                    $output->writeln('<error>ship: composer install failed inside the "app" container -- see the output above.</error>');
+
+                    return Command::FAILURE;
+                }
 
                 return Command::SUCCESS;
             }
@@ -160,9 +183,9 @@ final class MutagenSync
      * there, persisted in the named volume same as everything else written inside the container --
      * costs nothing beyond one quick `docker compose exec`.
      */
-    private function installComposerDependencies(): void
+    private function installComposerDependencies(): int
     {
-        $this->runner->runInteractive([
+        return $this->runner->runInteractive([
             ...ComposeCommand::baseArgs($this->projectRoot),
             'exec', '-T', $this->appServiceName,
             'sh', '-c', 'if [ -f composer.json ] && [ ! -f vendor/autoload.php ]; then composer install --no-interaction; fi',

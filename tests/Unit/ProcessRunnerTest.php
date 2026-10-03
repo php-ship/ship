@@ -73,4 +73,31 @@ final class ProcessRunnerTest extends TestCase
 
         self::assertSame('done', $output);
     }
+
+    /**
+     * Regression coverage for a real bug found via a seventh independent audit: MutagenSync's own
+     * `mutagen sync create` call discarded its result entirely, so a real failure (confirmed live
+     * against the actual `mutagen` binary: a nonexistent container gives exit 1 and a specific
+     * "container does not exist" stderr message) fell straight through to a 120-second polling
+     * loop that was never going to succeed, instead of failing fast with the real cause.
+     */
+    public function test_run_quiet_with_result_captures_exit_code_and_both_streams(): void
+    {
+        $result = (new ProcessRunner())->runQuietWithResult([
+            'php', '-r', 'echo "out"; fwrite(STDERR, "err"); exit(3);',
+        ]);
+
+        self::assertSame(3, $result['exitCode']);
+        self::assertSame('out', $result['output']);
+        self::assertSame('err', $result['errorOutput']);
+    }
+
+    public function test_run_quiet_with_result_reports_a_negative_exit_code_on_timeout_instead_of_throwing(): void
+    {
+        $result = (new ProcessRunner())->runQuietWithResult(['php', '-r', 'sleep(5);'], timeoutSeconds: 0.2);
+
+        self::assertSame(-1, $result['exitCode']);
+        self::assertSame('', $result['output']);
+        self::assertSame('', $result['errorOutput']);
+    }
 }

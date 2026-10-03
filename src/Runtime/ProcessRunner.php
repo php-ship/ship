@@ -70,4 +70,32 @@ final class ProcessRunner
 
         return trim($process->getOutput());
     }
+
+    /**
+     * Like runQuiet(), but for a caller that actually needs to tell "succeeded with no output"
+     * apart from "failed", or show *why* a failure happened -- runQuiet()'s own "empty string"
+     * convention can't distinguish either, which is exactly right for every caller that only ever
+     * treats "the thing isn't there" and "that didn't work" as the same signal, but wrong for one
+     * (MutagenSync's own `mutagen sync create`) that needs to fail fast on a real error instead of
+     * silently falling through to a timeout loop that was never going to succeed.
+     *
+     * @param list<string> $command
+     * @return array{exitCode: int, output: string, errorOutput: string}
+     */
+    public function runQuietWithResult(array $command, ?string $cwd = null, float $timeoutSeconds = 30): array
+    {
+        $process = new Process($command, $cwd, timeout: $timeoutSeconds);
+
+        try {
+            $exitCode = $process->run();
+        } catch (ProcessTimedOutException) {
+            return ['exitCode' => -1, 'output' => '', 'errorOutput' => ''];
+        }
+
+        return [
+            'exitCode' => $exitCode,
+            'output' => trim($process->getOutput()),
+            'errorOutput' => trim($process->getErrorOutput()),
+        ];
+    }
 }
