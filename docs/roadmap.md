@@ -1524,6 +1524,21 @@ A sixth independent audit found one trivial leftover in `EnvFile::parse()`.
   escaped-quote case, an escaped backslash, and a single-quoted value containing a literal
   backslash.
 
+- Every generated compose file carries a top-level `name:` (`ComposeFileBuilder::build()`'s own
+  `$projectName`, resolved via `ProjectName::resolve()` from the source project root, not
+  `dist/ship/<tag>`) -- every named volume and the default network alias are keyed off it, so two
+  differently-pathed checkouts sharing a basename, or the same project released under different
+  tag directories, never collide. `ship.json`'s own `name` makes this independent of any
+  directory path at all. Verified live: the same compose file written into two differently-named
+  directories resolves to the identical project name and network alias via `docker compose
+  config`; a real `ship build` writes the correct `name:` into the production compose file.
+
+- SeaweedFS's app-facing `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_BUCKET` are Compose
+  expressions (`${VAR:-default}`), matching the identity-file-generating server side and every
+  other credentialed storage service (Garage, RustFS, Silo) -- not hardcoded literals, which
+  `environment:` always winning over `env_file:` would otherwise hand to the app regardless of
+  what `.env.production` actually sets.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
