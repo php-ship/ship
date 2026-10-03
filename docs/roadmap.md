@@ -1317,6 +1317,62 @@
   (The `composer.lock` sub-point from the same audit item is moot: this library doesn't commit a
   lock file at all.)
 
+A second, independent re-audit of the fixes above found eight more real issues -- two still open
+from the first list, four new regressions the first round's own fixes introduced, and two smaller
+gaps:
+
+- Gated Dusk's `APP_URL` override on `isDevelopment()`, not just the `ship.json` pick --
+  `"testing": "dusk"` doesn't vary by environment, so this block still fired in production too,
+  overwriting a project's own real, host-reachable `APP_URL` there.
+
+- Stopped the extension double-instantiation at its actual root cause: `Application` builds one
+  registry and passes it into `UpCommand`/`BuildCommand`/`ReleaseCommand`/`DbCommand` now
+  (exactly as it already did for `InitCommand`), instead of each of them building and populating
+  their own fresh one independently on every real `ship` invocation. The first round's fix only
+  ever removed the duplicate *warning*, leaving the duplicate *instantiation* itself in place.
+
+- Added `location ~ \.php$ { return 404; }` after the exact-match front-controller rule --
+  restricting PHP execution to `/index.php` left every *other* `.php` file under `public/`
+  falling through to `try_files`, which served it statically as raw source instead of running
+  it. A source-disclosure bug in place of the arbitrary-execution one being fixed, not an
+  improvement on it. Verified live with a real nginx container.
+
+- Fixed a genuine chicken-and-egg deadlock the Mutagen volume-alignment fix introduced: Reverb
+  mounts the same synced named volume "app"/"webserver" do in `SHIP_MUTAGEN` mode, which is empty
+  until Mutagen's own first sync pass finishes -- but that pass used to run *after*
+  `ensureEveryServiceStarted()`, which saw Reverb crash-looping against an empty
+  `/var/www/html` and failed `ship up` outright before Mutagen ever got a chance to fix it.
+  `UpCommand` now starts the Mutagen sync immediately once `docker compose up` succeeds, before
+  any of the ensure* checks, resolving "app"'s container name only requires it to exist (just
+  started), not already be steady-state running.
+
+  Verified live end to end: a real Laravel + Reverb + MySQL + Redis fixture with
+  `SHIP_MUTAGEN=1` now completes `ship up` successfully, with Reverb's own log showing "Starting
+  server on 0.0.0.0:8080" instead of crash-looping.
+
+- Narrowed `.dockerignore`'s exclusion to `/dist/ship`, not the whole `dist/` -- a bare `/dist`
+  excluded a project's *entire* `dist/` directory from the build context, not just `ship
+  release`'s own output, silently dropping a project's own build inputs kept there with no
+  error. `.gitignore` already correctly used the narrower pattern; `.dockerignore` now matches
+  it. Verified live in a real `docker build`.
+
+- Added `warnAboutNginxUpstreamMismatch()`: renaming the app service only ever rewrote the
+  published `ship/nginx/default.conf` at `ship init` time, so hand-editing `serviceNames`
+  afterward without re-running `ship init` left nginx pointing at a name the compose file no
+  longer has, with nothing ever warning about it. Same pattern as
+  `warnAboutStubVersionMismatch()` -- warns, never silently rewrites.
+
+- Gave Reverb `SHIP_HOST_USER` too, not just "app", when `hostUser` is set -- the dev entrypoint
+  drops anything that's "its own long-lived program" (an Octane server, or Reverb, the same
+  category) to that user before exec'ing it, *if* that variable is set; without it Reverb kept
+  running as root in dev even with `hostUser` enabled.
+
+- Documented (no code change) that `ship build` needs a real `.env.production` the moment any
+  selected service has a required production credential, same as `ship release` -- it has no
+  upfront existence check of its own, so it fails with Compose's own `${VAR:?...}` error instead
+  of `ship release`'s friendlier one. The README described `ship build` as a dependency-free
+  standalone check, which stopped being accurate once production credentials became required.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
