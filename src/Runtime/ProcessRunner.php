@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ship\Runtime;
 
+use Symfony\Component\Process\Exception\ProcessTimedOutException;
 use Symfony\Component\Process\Process;
 
 /**
@@ -44,12 +45,28 @@ final class ProcessRunner
     /**
      * Runs a command and captures its output instead of streaming it, e.g. `docker compose version`.
      *
+     * $timeoutSeconds is overridable (default 30) for a caller expecting a genuinely slower
+     * command -- `mutagen sync create` scanning a large project tree before it even returns, say
+     * -- without raising the budget for every other caller too.
+     *
+     * A real bug found via an independent audit: a command that actually hits the timeout used to
+     * throw ProcessTimedOutException straight out of here, uncaught -- crashing the whole `ship`
+     * process with a raw stack trace instead of a friendly error. Every existing caller already
+     * treats an empty result as "the thing isn't there"/"that didn't work" (see MutagenSync's own
+     * docblock), so a timeout now degrades to that exact same signal instead of a new failure mode
+     * none of them were ever written to expect.
+     *
      * @param list<string> $command
      */
-    public function runQuiet(array $command, ?string $cwd = null): string
+    public function runQuiet(array $command, ?string $cwd = null, float $timeoutSeconds = 30): string
     {
-        $process = new Process($command, $cwd, timeout: 30);
-        $process->run();
+        $process = new Process($command, $cwd, timeout: $timeoutSeconds);
+
+        try {
+            $process->run();
+        } catch (ProcessTimedOutException) {
+            return '';
+        }
 
         return trim($process->getOutput());
     }

@@ -28,6 +28,11 @@ final class MutagenSync
     private const APP_SYNC_PATH = '/var/www/html';
     private const SYNC_TIMEOUT_SECONDS = 120;
     private const POLL_INTERVAL_SECONDS = 1;
+    // Session *creation* only has to scan the local tree and register the session -- the actual
+    // sync-to-"Watching" wait is the separate, longer SYNC_TIMEOUT_SECONDS poll loop below -- but a
+    // very large project tree (even with vendor/node_modules excluded, the scan still walks
+    // everything to apply those ignore rules) can still outrun runQuiet()'s own 30s default.
+    private const CREATE_TIMEOUT_SECONDS = 60;
 
     public function __construct(
         private readonly ProcessRunner $runner,
@@ -121,7 +126,7 @@ final class MutagenSync
             '--ignore', 'node_modules',
             $this->projectRoot,
             "docker://{$containerName}" . self::APP_SYNC_PATH,
-        ]);
+        ], timeoutSeconds: self::CREATE_TIMEOUT_SECONDS);
 
         for ($elapsed = 0; $elapsed < self::SYNC_TIMEOUT_SECONDS; $elapsed += self::POLL_INTERVAL_SECONDS) {
             if ($this->isWatching()) {

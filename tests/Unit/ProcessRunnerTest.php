@@ -52,4 +52,25 @@ final class ProcessRunnerTest extends TestCase
 
         self::assertSame(realpath($cwd), realpath($output));
     }
+
+    /**
+     * Regression coverage for a real bug found via an independent audit: a command that actually
+     * hits the timeout used to throw ProcessTimedOutException straight out of runQuiet(),
+     * uncaught -- crashing the whole `ship` process with a raw stack trace. A genuinely slow
+     * command (sleeps longer than a deliberately tiny timeout) now degrades to the same empty
+     * string every other runQuiet() failure already produces, instead of throwing.
+     */
+    public function test_run_quiet_returns_an_empty_string_instead_of_throwing_on_timeout(): void
+    {
+        $output = (new ProcessRunner())->runQuiet(['php', '-r', 'sleep(5);'], timeoutSeconds: 0.2);
+
+        self::assertSame('', $output);
+    }
+
+    public function test_run_quiet_accepts_a_longer_timeout_for_a_slow_command(): void
+    {
+        $output = (new ProcessRunner())->runQuiet(['php', '-r', 'usleep(100000); echo "done";'], timeoutSeconds: 5);
+
+        self::assertSame('done', $output);
+    }
 }
