@@ -1567,6 +1567,17 @@ A sixth independent audit found one trivial leftover in `EnvFile::parse()`.
   Verified live: a real `ship init` run against an existing multi-service `ship.json`, every
   prompt answered by pressing Enter, reproduces the same selections instead of wiping them.
 
+- `ship build`/`ship release` both check every `${VAR:?...}` ComposeFileBuilder's production
+  output actually requires against `.env.production` before ProductionBuildRunner -- and
+  therefore Docker -- is ever reached (`RequiredEnv::missingFrom()`, extracted out of
+  `ConfigTestCommand`'s own equivalent dry-run check, which now calls the same method). Previously
+  a missing credential surfaced as a raw `docker compose build` interpolation error instead,
+  assuming Docker was even installed to produce one. `ship build` reads `.env.production`
+  leniently (a project with nothing credentialed selected doesn't need the file to exist at all);
+  `ship release` already requires it to exist for its own release artifact. Verified live: both
+  commands fail in under half a second with a specific "DB_PASSWORD, DB_ROOT_PASSWORD are
+  required" message, no Docker invoked and no release directory written.
+
 - Every published development port (Vite's dev server, the app/webserver port, Mailpit's web UI,
   Reverb, Octane's HTTP/HTTPS ports, Silo's console) binds `127.0.0.1` only, not every interface
   -- a bare `HOST:CONTAINER` mapping is reachable from anything else on the same network, or the
