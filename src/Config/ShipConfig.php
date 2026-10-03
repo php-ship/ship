@@ -129,6 +129,8 @@ final class ShipConfig
          */
         $data = json_decode((string) file_get_contents($path), associative: true, flags: JSON_THROW_ON_ERROR);
 
+        self::validate($data, $path);
+
         return new self(
             phpVersion: $data['php'] ?? '8.4',
             services: $data['services'] ?? [],
@@ -144,6 +146,52 @@ final class ShipConfig
             hostUser: $data['hostUser'] ?? false,
             name: $data['name'] ?? null,
         );
+    }
+
+    /**
+     * Two real gaps found via an independent audit: `"php": 8.4` (a bare JSON number, an easy
+     * hand-edit mistake -- the quotes around the string are easy to drop) previously reached the
+     * constructor's own strict `string $phpVersion` type unchecked, surfacing as a raw
+     * "Argument #1 ($phpVersion) must be of type string, float given" TypeError instead of a
+     * message naming ship.json at all. And `serviceNames`/`additionalServices` names went
+     * straight into generated compose keys (and, for `additionalServices`, a `.env`-style env var
+     * prefix) with no validation at all -- unlike `processes` names, which already get exactly
+     * this check in `ComposeFileBuilder::addProcessServices()`. The regexes themselves aren't new:
+     * `serviceNames` reuses `processes`'s own (a compose key only, so a hyphen is fine);
+     * `additionalServices` reuses `ship init`'s own interactive prompt validation (also an env var
+     * prefix, so no hyphen -- a `.env` file's own KEY=VALUE syntax doesn't allow one).
+     *
+     * @param array<string, mixed> $data
+     */
+    private static function validate(array $data, string $path): void
+    {
+        foreach (['php', 'node'] as $key) {
+            if (isset($data[$key]) && !is_string($data[$key])) {
+                throw new RuntimeException(
+                    "ship.json's \"{$key}\" must be a string (e.g. \"8.4\", in quotes) at {$path}.",
+                );
+            }
+        }
+
+        foreach ($data['serviceNames'] ?? [] as $group => $serviceName) {
+            if (!is_string($serviceName) || preg_match('/^[a-z][a-z0-9_-]*$/', $serviceName) !== 1) {
+                throw new RuntimeException(
+                    "ship.json's serviceNames.\"{$group}\" is not a valid compose service name -- "
+                        . 'lowercase letters, digits, "-" and "_" only, starting with a letter.',
+                );
+            }
+        }
+
+        foreach ($data['additionalServices'] ?? [] as $additional) {
+            $name = $additional['name'] ?? null;
+
+            if (!is_string($name) || preg_match('/^[a-z][a-z0-9_]*$/', $name) !== 1) {
+                throw new RuntimeException(
+                    'ship.json\'s additionalServices has an invalid "name" -- lowercase letters, digits, '
+                        . 'and "_" only, starting with a letter (no "-": it also becomes an env var prefix).',
+                );
+            }
+        }
     }
 
     public function toFile(string $path): void

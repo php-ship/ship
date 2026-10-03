@@ -41,6 +41,68 @@ final class ShipConfigTest extends TestCase
     }
 
     /**
+     * Regression coverage for a real bug found via an independent audit: `"php": 8.4` (a bare
+     * JSON number -- the quotes around the string are an easy hand-edit mistake to drop)
+     * previously reached the constructor's own strict `string $phpVersion` type unchecked,
+     * surfacing as a raw "Argument #1 ($phpVersion) must be of type string, float given"
+     * TypeError instead of a message that so much as names ship.json.
+     */
+    public function test_from_file_rejects_a_non_string_php_version_with_a_clear_error(): void
+    {
+        file_put_contents($this->projectRoot . '/ship.json', json_encode(['php' => 8.4, 'services' => []]));
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('"php" must be a string');
+
+        ShipConfig::fromFile($this->projectRoot . '/ship.json');
+    }
+
+    public function test_from_file_rejects_a_non_string_node_version_with_a_clear_error(): void
+    {
+        file_put_contents($this->projectRoot . '/ship.json', json_encode(['node' => 24, 'services' => []]));
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('"node" must be a string');
+
+        ShipConfig::fromFile($this->projectRoot . '/ship.json');
+    }
+
+    /**
+     * Regression coverage for a real bug found via an independent audit: serviceNames values went
+     * straight into generated compose keys with no validation at all, unlike `processes` names,
+     * which already get exactly this check.
+     */
+    public function test_from_file_rejects_an_invalid_service_name(): void
+    {
+        file_put_contents(
+            $this->projectRoot . '/ship.json',
+            json_encode(['services' => [], 'serviceNames' => ['app' => 'not a valid name!']]),
+        );
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('serviceNames."app"');
+
+        ShipConfig::fromFile($this->projectRoot . '/ship.json');
+    }
+
+    /**
+     * additionalServices names are stricter than serviceNames -- no hyphen -- because they also
+     * become a `.env`-style env var prefix, which a hyphen breaks.
+     */
+    public function test_from_file_rejects_an_additional_service_name_with_a_hyphen(): void
+    {
+        file_put_contents(
+            $this->projectRoot . '/ship.json',
+            json_encode(['services' => [], 'additionalServices' => [['group' => 'database', 'service' => 'mysql', 'name' => 'my-analytics']]]),
+        );
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('additionalServices');
+
+        ShipConfig::fromFile($this->projectRoot . '/ship.json');
+    }
+
+    /**
      * Every one of these is what a project genuinely on an old ship.json (predating a field
      * that's since been added -- nodeVersion, additionalServices) would have on disk. Silently
      * defaulting keeps `ship up` working for it without forcing a re-`ship init` just to pick up
