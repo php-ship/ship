@@ -107,6 +107,20 @@ final class InitCommandServiceSelectionTest extends TestCase
     }
 
     /**
+     * Regression coverage for a real bug found via a seventh independent audit: nginx's default
+     * server_tokens (on) advertises the exact nginx version in every response's Server: header, a
+     * smaller, specific CVE search target than "nginx" alone.
+     */
+    public function test_nginx_does_not_advertise_its_own_version(): void
+    {
+        $this->runInit(['None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
+
+        $conf = (string) file_get_contents($this->projectRoot . '/ship/nginx/default.conf');
+
+        self::assertStringContainsString('server_tokens off;', $conf);
+    }
+
+    /**
      * A real bug found via an independent audit: the stub hardcodes "app:9000" -- renaming the
      * app service via ship.json's serviceNames left nginx trying to reach a DNS name nothing in
      * the stack answers to anymore, 502ing every request.
