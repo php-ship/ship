@@ -88,6 +88,25 @@ final class InitCommandServiceSelectionTest extends TestCase
     }
 
     /**
+     * Regression coverage for a real bug found via an independent re-audit of the fix above:
+     * restricting execution to the exact front controller left every *other* .php file under
+     * public/ falling through to "location /"'s try_files, which served it statically as raw PHP
+     * source instead of running it -- a source-disclosure bug in place of the original
+     * arbitrary-execution one. Verified live (a real nginx container): a stray second.php now
+     * 404s instead of returning its source, while /index.php itself still reaches the exact-match
+     * fastcgi_pass block untouched (confirmed by a 502 against no real php-fpm backend, not a
+     * 404 from this new rule intercepting it instead).
+     */
+    public function test_nginx_denies_every_other_php_file_instead_of_serving_it_as_source(): void
+    {
+        $this->runInit(['None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
+
+        $conf = (string) file_get_contents($this->projectRoot . '/ship/nginx/default.conf');
+
+        self::assertMatchesRegularExpression('/location ~ \\\\\.php\$ \{\s*return 404;/', $conf);
+    }
+
+    /**
      * A real bug found via an independent audit: the stub hardcodes "app:9000" -- renaming the
      * app service via ship.json's serviceNames left nginx trying to reach a DNS name nothing in
      * the stack answers to anymore, 502ing every request.
