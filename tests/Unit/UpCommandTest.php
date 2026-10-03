@@ -43,6 +43,62 @@ final class UpCommandTest extends TestCase
     }
 
     /**
+     * Regression coverage for a real bug found via an independent audit: a flat "15 attempts x
+     * 2s = ~30s" wait was well past MySQL/Postgres/Redis's own interval x retries when it was
+     * written, but Garage/RustFS/Silo's own healthcheck (10s start_period + 5s x 10 retries = 60s)
+     * can legitimately still be "starting" well after that budget, producing a false "never
+     * became healthy" on a slow first boot. The wait is computed from each service's own
+     * generated healthcheck instead, so it's never shorter than Docker's own patience for it.
+     *
+     * @return iterable<string, array{array{interval?: string, retries?: int, start_period?: string}, int}>
+     */
+    public static function healthcheckBudgetCases(): iterable
+    {
+        yield 'MySQL/Postgres/Redis-shaped (5s interval, 5 retries, no start_period)' => [
+            ['interval' => '5s', 'retries' => 5],
+            0 + (5 * 5) + 5,
+        ];
+        yield 'Garage/RustFS/Silo-shaped (10s start_period, 5s interval, 10 retries)' => [
+            ['interval' => '5s', 'retries' => 10, 'start_period' => '10s'],
+            10 + (5 * 10) + 5,
+        ];
+        yield 'SeaweedFS-shaped (10s interval, 5 retries, no start_period)' => [
+            ['interval' => '10s', 'retries' => 5],
+            0 + (10 * 5) + 5,
+        ];
+        yield 'missing fields fall back to Docker-like defaults' => [
+            [],
+            0 + (30 * 3) + 5,
+        ];
+    }
+
+    /**
+     * @param array{interval?: string, retries?: int, start_period?: string} $healthcheck
+     */
+    #[DataProvider('healthcheckBudgetCases')]
+    public function test_the_healthcheck_wait_budget_is_computed_from_the_services_own_healthcheck(array $healthcheck, int $expectedSeconds): void
+    {
+        $command = new UpCommand(sys_get_temp_dir(), new ProcessRunner());
+        $method = new \ReflectionMethod($command, 'healthcheckBudgetSeconds');
+
+        self::assertSame($expectedSeconds, $method->invoke($command, $healthcheck));
+    }
+
+    /**
+     * Ship itself only ever generates a plain "<N>s" duration. A hand-edited
+     * docker-compose.override.yml's own healthcheck could use Docker's fuller duration syntax
+     * ("1m30s", "1h") instead -- falls back to a conservative 30s rather than miscalculating
+     * silently or crashing on something this was never meant to fully parse.
+     */
+    public function test_parse_seconds_falls_back_to_30_for_a_duration_it_does_not_recognize(): void
+    {
+        $command = new UpCommand(sys_get_temp_dir(), new ProcessRunner());
+        $method = new \ReflectionMethod($command, 'parseSeconds');
+
+        self::assertSame(30, $method->invoke($command, '1m30s'));
+    }
+
+    /**
      * Never re-publishes ship/ on its own (see the method's own docblock for why -- a project may
      * have hand-edited those files), only warns -- so this checks it produces the right warning
      * text rather than any side effect.

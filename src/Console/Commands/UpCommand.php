@@ -236,13 +236,13 @@ final class UpCommand extends Command
      */
     private function ensureHealthchecksPass(string $composeYaml, OutputInterface $output): int
     {
-        /** @var array{services?: array<string, array{healthcheck?: mixed}>} $parsed */
+        /** @var array{services?: array<string, array{healthcheck?: array{interval?: string, retries?: int, start_period?: string}}>} $parsed */
         $parsed = Yaml::parse($composeYaml);
 
         $unhealthy = [];
 
         foreach ($parsed['services'] ?? [] as $name => $service) {
-            if (isset($service['healthcheck']) && !$this->serviceBecomesHealthy($name)) {
+            if (isset($service['healthcheck']) && !$this->serviceBecomesHealthy($name, $service['healthcheck'])) {
                 $unhealthy[] = $name;
             }
         }
@@ -261,12 +261,21 @@ final class UpCommand extends Command
     }
 
     /**
-     * Polls for up to 30s -- well past any built-in healthcheck's own interval x retries (5s x 5 =
-     * 25s), which already covers a fresh volume's first-boot initialization -- rather than trusting
-     * a single reading, since a container can sit at "starting" for several polls before Docker
-     * marks it "healthy".
+     * Polls until the service's *own* healthcheck would have given up -- not a fixed count. A
+     * real bug found via an independent audit: a flat "15 attempts x 2s = ~30s" budget was well
+     * past MySQL/Postgres/Redis's own interval x retries (5s x 5 = 25s) when that comment was
+     * written, but Garage/RustFS/Silo's own healthcheck (10s start_period + 5s x 10 retries = 60s)
+     * and SeaweedFS's (10s x 5 = 50s) can both legitimately still be "starting" well after this
+     * gave up and reported a false "never became healthy" -- the exact failure a slow first boot
+     * (a fresh volume's own initialization) produces, not a real problem. Computed from the
+     * service's own generated `healthcheck:` block instead, so it's never shorter than Docker's
+     * own patience for it, with a small buffer on top rather than trusting a single reading right
+     * at the edge, since a container can sit at "starting" for several polls before Docker marks
+     * it "healthy".
+     *
+     * @param array{interval?: string, retries?: int, start_period?: string} $healthcheck
      */
-    private function serviceBecomesHealthy(string $service): bool
+    private function serviceBecomesHealthy(string $service, array $healthcheck): bool
     {
         $containerId = trim($this->runner->runQuiet(
             [...ComposeCommand::baseArgs($this->projectRoot), 'ps', '-q', $service],
@@ -277,7 +286,10 @@ final class UpCommand extends Command
             return false;
         }
 
-        for ($attempt = 1; $attempt <= 15; $attempt++) {
+        $pollIntervalSeconds = 2;
+        $maxAttempts = (int) ceil($this->healthcheckBudgetSeconds($healthcheck) / $pollIntervalSeconds) + 1;
+
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
             $status = trim($this->runner->runQuiet(
                 ['docker', 'inspect', $containerId, '--format', '{{.State.Health.Status}}'],
                 $this->projectRoot,
@@ -287,12 +299,39 @@ final class UpCommand extends Command
                 return true;
             }
 
-            if ($attempt < 15) {
-                sleep(2);
+            if ($attempt < $maxAttempts) {
+                sleep($pollIntervalSeconds);
             }
         }
 
         return false;
+    }
+
+    /**
+     * Docker's own worst-case time before it gives up and marks a container "unhealthy":
+     * start_period, then interval x retries. A 5s buffer on top for this process's own polling
+     * overhead -- never meant to be exact, just never shorter than Docker's own patience.
+     *
+     * @param array{interval?: string, retries?: int, start_period?: string} $healthcheck
+     */
+    private function healthcheckBudgetSeconds(array $healthcheck): int
+    {
+        $interval = $this->parseSeconds($healthcheck['interval'] ?? '30s');
+        $retries = $healthcheck['retries'] ?? 3;
+        $startPeriod = $this->parseSeconds($healthcheck['start_period'] ?? '0s');
+
+        return $startPeriod + ($interval * $retries) + 5;
+    }
+
+    /**
+     * Every healthcheck ship itself generates uses a plain "<N>s" duration -- not Docker's full
+     * duration syntax (which also allows "1m30s", "1h", ...) -- so this only ever needs to parse
+     * that one shape. Falls back to a conservative 30s for anything else (a hand-edited
+     * docker-compose.override.yml's own healthcheck, say) rather than failing outright.
+     */
+    private function parseSeconds(string $duration): int
+    {
+        return preg_match('/^(\d+)s$/', $duration, $matches) === 1 ? (int) $matches[1] : 30;
     }
 
     /**
