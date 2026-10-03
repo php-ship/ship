@@ -12,6 +12,16 @@ use Symfony\Component\Yaml\Yaml;
 final class ComposeCommand
 {
     /**
+     * `ship build`/`ship release` (via ProductionBuildRunner) write and read this one instead of
+     * the dev file -- a real bug found via an independent audit: both used to share
+     * docker-compose.generated.yml, so running either one after `ship up` silently left the dev
+     * compose file overwritten with a production one until the next `ship up` regenerated it,
+     * and in the meantime `ship exec`/`ship shell`/`ship composer`/`ship npm` would all read the
+     * wrong target (and lose the hostUser `--user` flag, since production never sets `x-ship`).
+     */
+    public const PRODUCTION_COMPOSE_FILE = 'ship/docker-compose.production.yml';
+
+    /**
      * A docker-compose.override.yml at the project root -- the standard Compose convention for customizing
      * a generated file, without ever touching it directly, so nothing here is ever lost when `ship up`,
      * next regenerates that file. Picked up explicitly: passing any -f disables Compose's own default
@@ -28,9 +38,9 @@ final class ComposeCommand
      *
      * @return list<string>
      */
-    public static function baseArgs(string $projectRoot, bool $includeOverride = true): array
+    public static function baseArgs(string $projectRoot, bool $includeOverride = true, string $composeFile = 'ship/docker-compose.generated.yml'): array
     {
-        $args = ['docker', 'compose', '-f', $projectRoot . '/ship/docker-compose.generated.yml'];
+        $args = ['docker', 'compose', '-f', $projectRoot . '/' . $composeFile];
 
         $overridePath = $projectRoot . '/docker-compose.override.yml';
         if ($includeOverride && is_file($overridePath)) {

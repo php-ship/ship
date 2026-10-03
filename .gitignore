@@ -6,6 +6,7 @@
 /build/
 ship.json
 /ship/docker-compose.generated.yml
+/ship/docker-compose.production.yml
 /dist/
 .DS_Store
 /.code

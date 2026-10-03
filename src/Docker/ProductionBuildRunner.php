@@ -59,8 +59,12 @@ final class ProductionBuildRunner
         if (!is_dir($composeDir)) {
             mkdir($composeDir, recursive: true);
         }
+        // ComposeCommand::PRODUCTION_COMPOSE_FILE, never docker-compose.generated.yml -- a real
+        // bug found via an independent audit: sharing the dev file meant ship build/ship release
+        // silently overwrote it with a production compose until the next ship up regenerated it,
+        // during which ship exec/shell/composer/npm would all read the wrong target.
         file_put_contents(
-            $composeDir . '/docker-compose.generated.yml',
+            $projectRoot . '/' . ComposeCommand::PRODUCTION_COMPOSE_FILE,
             Yaml::dump($parsed, inline: 6, indent: 2, flags: Yaml::DUMP_EMPTY_ARRAY_AS_SEQUENCE),
         );
 
@@ -78,9 +82,14 @@ final class ProductionBuildRunner
         $buildEnv = EnvFile::parse($projectRoot . '/.env.production');
 
         $result = $this->runner->runInteractive(
-            // false: never docker-compose.override.yml here -- see ComposeCommand::baseArgs()'s
-            // own docblock for why a dev convenience must never silently reach a production build.
-            [...ComposeCommand::baseArgs($projectRoot, includeOverride: false), 'build', ...$canonicalServices],
+            // includeOverride: false -- never docker-compose.override.yml here, see
+            // ComposeCommand::baseArgs()'s own docblock. composeFile: PRODUCTION_COMPOSE_FILE --
+            // never the dev file, see that constant's own docblock.
+            [
+                ...ComposeCommand::baseArgs($projectRoot, includeOverride: false, composeFile: ComposeCommand::PRODUCTION_COMPOSE_FILE),
+                'build',
+                ...$canonicalServices,
+            ],
             $projectRoot,
             $buildEnv === [] ? null : $buildEnv,
         );

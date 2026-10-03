@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ship\Console\Commands;
 
 use Ship\Config\ShipConfig;
+use Ship\Docker\ComposeCommand;
 use Ship\Docker\DeployPlan;
 use Ship\Docker\EnvFile;
 use Ship\Docker\MySqlUsernameGuard;
@@ -172,7 +173,7 @@ final class ReleaseCommand extends Command
     }
 
     /**
-     * The release's own docker-compose.yml, unlike ship/docker-compose.generated.yml (which
+     * The release's own docker-compose.yml, unlike ComposeCommand::PRODUCTION_COMPOSE_FILE (which
      * ProductionBuildRunner just wrote and still needs `build:` to actually build the images):
      * every project-owned service already has its final `image:` tag, so `build:` -- and the
      * source/Dockerfile/build-context it points at -- is dropped entirely. This is the one file
@@ -180,7 +181,7 @@ final class ReleaseCommand extends Command
      */
     private function writeReleaseCompose(string $releaseDir): void
     {
-        $generated = (string) file_get_contents($this->projectRoot . '/ship/docker-compose.generated.yml');
+        $generated = (string) file_get_contents($this->projectRoot . '/' . ComposeCommand::PRODUCTION_COMPOSE_FILE);
         /** @var array{services: array<string, array<string, mixed>>} $parsed */
         $parsed = Yaml::parse($generated);
 
@@ -227,12 +228,12 @@ final class ReleaseCommand extends Command
      * infrastructure first (nothing else starts it -- see DeployPlan::infrastructureServices()'s own
      * docblock), then runs each command once against a one-off container of the app's own image.
      *
-     * Reads `ship/docker-compose.generated.yml` (ProductionBuildRunner's own working copy, still
-     * carrying every project-owned service's `build:`), not the release's own docker-compose.yml --
-     * writeReleaseCompose() strips `build:` from *every* project-owned service there, "app" and
-     * "webserver" included, which would otherwise make DeployPlan::infrastructureServices() see no
-     * `build:` anywhere and misclassify them as infrastructure too, defeating the entire reason this
-     * runs before they start.
+     * Reads ComposeCommand::PRODUCTION_COMPOSE_FILE (ProductionBuildRunner's own working copy,
+     * still carrying every project-owned service's `build:`), not the release's own
+     * docker-compose.yml -- writeReleaseCompose() strips `build:` from *every* project-owned
+     * service there, "app" and "webserver" included, which would otherwise make
+     * DeployPlan::infrastructureServices() see no `build:` anywhere and misclassify them as
+     * infrastructure too, defeating the entire reason this runs before they start.
      */
     private function writeDeployScript(ShipConfig $config, string $releaseDir): void
     {
@@ -240,7 +241,7 @@ final class ReleaseCommand extends Command
             return;
         }
 
-        $composeYaml = (string) file_get_contents($this->projectRoot . '/ship/docker-compose.generated.yml');
+        $composeYaml = (string) file_get_contents($this->projectRoot . '/' . ComposeCommand::PRODUCTION_COMPOSE_FILE);
         $infrastructure = DeployPlan::infrastructureServices($composeYaml);
         $appService = $config->serviceNames['app'] ?? 'app';
 

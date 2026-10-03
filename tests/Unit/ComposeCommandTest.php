@@ -68,4 +68,22 @@ final class ComposeCommandTest extends TestCase
             $args,
         );
     }
+
+    /**
+     * Regression coverage for a real bug found via an independent audit: ship build/ship release
+     * used to write to this exact same docker-compose.generated.yml, so running either one after
+     * `ship up` silently left the dev compose file overwritten with a production one until the
+     * next `ship up` regenerated it -- during which ship exec/shell/composer/npm would all read
+     * the wrong target. ProductionBuildRunner now passes composeFile:
+     * ComposeCommand::PRODUCTION_COMPOSE_FILE explicitly instead of ever sharing the dev default.
+     */
+    public function test_a_custom_compose_file_overrides_the_dev_default(): void
+    {
+        $args = ComposeCommand::baseArgs($this->tmpDir, composeFile: ComposeCommand::PRODUCTION_COMPOSE_FILE);
+
+        self::assertSame(
+            ['docker', 'compose', '-f', $this->tmpDir . '/ship/docker-compose.production.yml', '--project-directory', $this->tmpDir],
+            $args,
+        );
+    }
 }
