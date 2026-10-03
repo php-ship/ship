@@ -18,6 +18,13 @@ FROM dunglas/frankenphp:1-php${PHP_VERSION}-bookworm AS base
 ARG REDIS_EXTENSION_VERSION=6.3.0
 RUN install-php-extensions pdo_pgsql pdo_mysql intl mbstring opcache redis-$REDIS_EXTENSION_VERSION pcntl
 
+# ship.json's phpExtensions (see ShipConfig's own docblock) -- the same build arg the main
+# Dockerfile already takes, declared here too so a FrankenPHP build doesn't just silently ignore
+# it. install-php-extensions is already present in this base image (used above for redis/xdebug),
+# so this is one line instead of the main Dockerfile's own curl+checksum dance.
+ARG PHP_EXTENSIONS=""
+RUN if [ -n "$PHP_EXTENSIONS" ]; then install-php-extensions $PHP_EXTENSIONS; fi
+
 # Found live, not guessed: this base image has neither ext-zip nor an unzip/7z binary, so Composer
 # can't extract a single package distributed as a zip -- which is the normal case for anything
 # pulled from Packagist, not an edge case -- failing the "builder" stage below outright on the
@@ -85,11 +92,12 @@ RUN composer dump-autoload --optimize --no-dev
 # See stubs/docker/php/Dockerfile's "assets" stage -- identical reasoning,
 # duplicated here rather than shared since this Dockerfile can't FROM the
 # other one (different base images entirely), including the npm ci/npm
-# install split's own docblock there.
+# install split and the node_modules removal, both documented there.
 FROM builder AS assets
 RUN if [ -f package.json ]; then \
         if [ -f package-lock.json ]; then npm ci; else npm install; fi \
-        && npm run build; \
+        && npm run build \
+        && rm -rf node_modules; \
     fi
 
 # ---- prod --------------------------------------------------------------
