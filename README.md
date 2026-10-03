@@ -771,6 +771,12 @@ container — override it for one invocation:
 APP_PORT=8081 VITE_PORT=5174 REVERB_PORT=8081 vendor/bin/ship up
 ```
 
+Every one of these binds to `127.0.0.1` in development, not every
+interface — reachable from your own machine, not from another device on
+the same network or the internet. Production ports are unaffected (and
+already gated by `publishPorts` — see
+[Configuration](#configuration-shipjson)).
+
 ## Customizing the stack
 
 `ship/docker-compose.generated.yml` is exactly that — generated fresh from

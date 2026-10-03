@@ -1567,6 +1567,15 @@ A sixth independent audit found one trivial leftover in `EnvFile::parse()`.
   Verified live: a real `ship init` run against an existing multi-service `ship.json`, every
   prompt answered by pressing Enter, reproduces the same selections instead of wiping them.
 
+- Every published development port (Vite's dev server, the app/webserver port, Mailpit's web UI,
+  Reverb, Octane's HTTP/HTTPS ports, Silo's console) binds `127.0.0.1` only, not every interface
+  -- a bare `HOST:CONTAINER` mapping is reachable from anything else on the same network, or the
+  open internet on a cloud dev box with no firewall, for a port that only ever needs to reach the
+  developer's own machine. `DevPortBinding::bind()` applies this in development only; production
+  is untouched, since a published production port often does need to be reachable from outside.
+  Verified live: a real `ship up` run's generated dev compose file has every published port bound
+  to `127.0.0.1`, while the equivalent `ship build` production compose file is unchanged.
+
 - Three reductions in production secret exposure. "webserver" (nginx) no longer gets
   `env_file: .env`/`.env.production` -- its config is byte-for-byte static, so it had no actual
   use for any app secret. MySQL's root password is `DB_ROOT_PASSWORD`, a separate secret from the
