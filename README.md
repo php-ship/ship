@@ -279,12 +279,14 @@ not actually necessary: add the entry directly to `ship.json`'s
 again — it reads `ship.json` fresh every time, regardless of how it got
 there. The one exception is Garage, which needs a config file `ship
 init` publishes into `ship/garage/`; picking it that way is the reliable
-option. Re-running `ship init` is safe too, it just means answering
-every prompt again and republishing `ship/`'s stub files — every
-hand-edited field it doesn't prompt for (`serviceNames`,
-`externalNetwork`, `phpExtensions`, `publishPorts`, `deployCommands`,
-`processes`, `hostUser`, `name`, `extensions`) carries over from the
-existing `ship.json` unchanged.
+option. Re-running `ship init` is safe too — every prompt defaults to
+whatever's already selected (just press Enter to keep it, including
+every existing `additionalServices` entry, which isn't re-prompted for
+at all), and it republishes `ship/`'s stub files. Every hand-edited
+field it doesn't prompt for (`serviceNames`, `externalNetwork`,
+`phpExtensions`, `publishPorts`, `deployCommands`, `processes`,
+`hostUser`, `name`, `extensions`) carries over from the existing
+`ship.json` unchanged too.
 
 Upgrading the `php-ship/ship` package itself is different: `ship up`
 doesn't republish stub files on its own — only `ship init` does — so

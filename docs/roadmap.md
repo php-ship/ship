@@ -1558,6 +1558,15 @@ A sixth independent audit found one trivial leftover in `EnvFile::parse()`.
   build) gets the same protection. Verified live through `config:test` against all four shapes,
   and against a legitimate multi-rename config to confirm no false positive.
 
+- Re-running `ship init` on a project that already has a `ship.json` defaults every group prompt
+  to its existing selection (falling back to "None" only when that selection is no longer a valid
+  choice), and keeps every existing `additionalServices` entry without re-prompting for it.
+  `ShipConfig::tryFromFile()` -- the lenient reader `InitCommand::readExistingConfig()` uses --
+  now reads `services`/`additionalServices` back for this, instead of hardcoding both to `[]` on
+  the assumption that nothing ever needed them for anything but the value written to ship.json.
+  Verified live: a real `ship init` run against an existing multi-service `ship.json`, every
+  prompt answered by pressing Enter, reproduces the same selections instead of wiping them.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
