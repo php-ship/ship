@@ -40,6 +40,19 @@ final class EnvFileTest extends TestCase
         self::assertSame(['APP_NAME' => 'Acme Inc', 'APP_ENV' => 'production'], EnvFile::parse($path));
     }
 
+    /**
+     * Regression coverage for a real bug found via a seventh independent audit: a UTF-8 BOM
+     * (several Windows editors, and PowerShell's own Out-File/Set-Content, write one by default)
+     * prepended itself to the first line's key, so DB_PASSWORD was never found by any exact
+     * lookup even though the file reads as correct in an editor that hides the BOM on display.
+     */
+    public function test_it_strips_a_leading_utf8_bom(): void
+    {
+        $path = $this->writeTempEnv("\xEF\xBB\xBFDB_PASSWORD=secret\nAPP_NAME=Acme\n");
+
+        self::assertSame(['DB_PASSWORD' => 'secret', 'APP_NAME' => 'Acme'], EnvFile::parse($path));
+    }
+
     public function test_a_missing_file_returns_nothing_instead_of_failing(): void
     {
         self::assertSame([], EnvFile::parse(sys_get_temp_dir() . '/ship-env-file-does-not-exist'));

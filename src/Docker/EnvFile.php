@@ -26,7 +26,16 @@ final class EnvFile
 
         $lines = file($path, FILE_IGNORE_NEW_LINES);
 
-        foreach ($lines === false ? [] : $lines as $line) {
+        foreach ($lines === false ? [] : $lines as $index => $line) {
+            // A UTF-8 BOM (several Windows editors, and PowerShell's own Out-File/Set-Content,
+            // write one by default) only ever lands on the very first line -- left in place, it
+            // silently prepends itself to that line's own key, so the first variable in the file
+            // is never found by any exact lookup even though it reads as correct in an editor
+            // that hides the BOM on display (most of them do).
+            if ($index === 0) {
+                $line = preg_replace('/^\xEF\xBB\xBF/', '', $line) ?? $line;
+            }
+
             $line = trim($line);
 
             if ($line === '' || str_starts_with($line, '#') || !str_contains($line, '=')) {
