@@ -375,6 +375,31 @@ final class ComposeFileBuilderTest extends TestCase
         self::assertArrayNotHasKey('SHIP_DEV_SKIP_INSTALL', $prod['services']['reverb']['environment']);
     }
 
+    /**
+     * Regression coverage for a real bug found via a fourth independent audit: with an Octane
+     * runtime selected, "app" itself is not php-fpm, so its own entrypoint raced `ship up`'s own
+     * MutagenSync::installComposerDependencies() to run `composer install` the moment
+     * composer.json merely appeared -- often before composer.lock had finished syncing too,
+     * silently writing a fresh composer.lock into the synced tree instead of honoring the
+     * project's pinned versions. "app" now gets the same SHIP_DEV_SKIP_INSTALL signal Reverb
+     * already does, but only when Mutagen is actually active -- a plain bind mount never starts
+     * out empty the way Mutagen's named volume does, so "app" still has to install for itself
+     * there (a project cloned with no local vendor/ at all).
+     */
+    public function test_app_is_told_to_skip_its_own_composer_install_only_when_mutagen_is_active(): void
+    {
+        $builder = new ComposeFileBuilder(new ServiceRegistry());
+        $config = new ShipConfig(phpVersion: '8.4', services: []);
+
+        $withMutagen = Yaml::parse($builder->build($config, ShipEnvironment::Development, mutagenSync: true));
+        $withoutMutagen = Yaml::parse($builder->build($config, ShipEnvironment::Development, mutagenSync: false));
+        $prod = Yaml::parse($builder->build($config, ShipEnvironment::Production));
+
+        self::assertSame('1', $withMutagen['services']['app']['environment']['SHIP_DEV_SKIP_INSTALL']);
+        self::assertArrayNotHasKey('SHIP_DEV_SKIP_INSTALL', $withoutMutagen['services']['app']['environment']);
+        self::assertArrayNotHasKey('SHIP_DEV_SKIP_INSTALL', $prod['services']['app']['environment']);
+    }
+
     public function test_reverb_gets_its_own_service_with_the_projects_php_version_backfilled(): void
     {
         $registry = new ServiceRegistry([new ReverbService()]);

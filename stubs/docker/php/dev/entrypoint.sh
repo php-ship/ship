@@ -48,14 +48,24 @@ if [ "$1" != "php-fpm" ]; then
     done
 fi
 
-# SHIP_DEV_SKIP_INSTALL (set on Reverb specifically, see ComposeFileBuilder::alignReverbWithApp())
-# -- a second real bug found the same way: Reverb and "app" share this exact same volume, so both
-# this entrypoint (running as Reverb) and app's own container independently satisfying the
+# SHIP_DEV_SKIP_INSTALL (set on Reverb unconditionally, and on "app" itself when SHIP_MUTAGEN is
+# active -- see ComposeFileBuilder::alignReverbWithApp()/baseServices()) -- a second real bug
+# found the same way: Reverb and "app" share this exact same volume, so both this entrypoint
+# (running as Reverb) and app's own container independently satisfying the
 # composer.json-present/vendor-missing condition below would run `composer install` *twice*,
 # concurrently, into the same vendor/ -- confirmed from reading the code, not observed live. Only
-# one real installer (app) is ever needed; every other service sharing the volume just waits for
-# its result instead of racing to produce it a second time.
-if [ -n "$SHIP_DEV_SKIP_INSTALL" ]; then
+# one real installer is ever needed; everything else sharing the volume just waits for its result
+# instead of racing to produce it a second time.
+#
+# A third, found via a fourth independent audit: with an Octane runtime selected, "app" itself is
+# *not* php-fpm, so it's exactly as exposed to this race as Reverb is -- the install that mattered
+# was `ship up`'s own, via MutagenSync::installComposerDependencies() (which only ever runs once
+# the sync is fully "Watching", guaranteeing composer.lock has actually arrived), not whichever one
+# this entrypoint happened to attempt first against a partially-synced tree. Gated on
+# `$1 != "php-fpm"`, the same as the wait loop above, so setting this unconditionally whenever
+# SHIP_MUTAGEN is active (regardless of which runtime "app" itself ends up running) is still a
+# complete no-op for plain php-fpm, which never reaches here at all.
+if [ -n "$SHIP_DEV_SKIP_INSTALL" ] && [ "$1" != "php-fpm" ]; then
     i=0
     while [ ! -f vendor/autoload.php ] && [ "$i" -lt 120 ]; do
         sleep 1

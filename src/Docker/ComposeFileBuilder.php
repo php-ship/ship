@@ -110,6 +110,18 @@ final class ComposeFileBuilder
             // composer install and any non-php-fpm command as. Numeric, so it doesn't depend on
             // whatever name the image gave the user.
             ...($hostUser !== null ? ['SHIP_HOST_USER' => "{$hostUser['uid']}:{$hostUser['gid']}"] : []),
+            // A real bug found via a fourth independent audit: with an Octane runtime selected,
+            // "app" itself is not php-fpm, so its own entrypoint raced `ship up`'s own
+            // MutagenSync::installComposerDependencies() to run `composer install` the moment
+            // composer.json merely *appeared* -- often before composer.lock had finished syncing
+            // too, so the entrypoint's own install ran fresh (no lock), silently writing a new
+            // composer.lock into the synced tree instead of honoring the project's pinned
+            // versions. Telling the entrypoint to wait for *app's* own install instead (the one
+            // that only ever runs once Mutagen's sync is fully "Watching", guaranteeing
+            // composer.lock has actually arrived) removes the premature one entirely. A no-op for
+            // plain php-fpm, which the entrypoint's own `$1 != "php-fpm"` check already exempts
+            // from this regardless of this variable -- see that file's own docblock.
+            ...($mutagenSync && $environment->isDevelopment() ? ['SHIP_DEV_SKIP_INSTALL' => '1'] : []),
             // Only set at all when Dusk is selected *and* this is Development -- Selenium (a
             // separate container, itself dev-only, see DuskService::composeFragment()) reaches
             // the app over the "ship" network, not via whatever host-reachable URL a real browser
