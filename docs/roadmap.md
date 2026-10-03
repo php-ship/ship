@@ -1507,6 +1507,23 @@ gap and one more narrow edge of the Mutagen composer-install race.
   confirmed a real `ship up` run afterward still completes the one correct install, with
   `composer.lock`'s hash unchanged throughout and `RestartCount=0`.
 
+A sixth independent audit found one trivial leftover in `EnvFile::parse()`.
+
+- Fixed `EnvFile::parse()` cutting a double-quoted value short at an *escaped* quote --
+  `E="a\"b"` parsed as the literal `"a\"` (truncated at the escaped quote) instead of `a"b`. The
+  previous fix's `strpos()` has no concept of escaping, so it treated the escaped quote as the
+  real closing one. Only matters for a value containing a literal `"` -- Compose reads
+  `.env.production` directly at container runtime, so the containers themselves were never
+  affected either way; only `MySqlUsernameGuard` and the `${VAR}` interpolation handed to `docker
+  compose build` saw the truncated value.
+
+  Double-quoted values are now scanned character by character, treating a backslash as consuming
+  whatever follows it rather than a value boundary -- the same thing a shell or a real dotenv
+  parser already does -- and unescaped afterward. Single-quoted values are left on the simpler
+  path: they have no escape mechanism at all in shell/dotenv convention. Verified live for the
+  escaped-quote case, an escaped backslash, and a single-quoted value containing a literal
+  backslash.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
