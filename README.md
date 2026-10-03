@@ -465,9 +465,11 @@ dist/ship/1.2.0/
 a release is generated output, and often genuinely sensitive (it carries
 your `.env.production`), so it's never meant to be committed. It's also
 excluded from the Docker build context itself (`ship init`'s
-`.dockerignore`, `/dist`) — without that, a second release built in the
-same project would bake every *earlier* release's own `.env`/images
-straight into the next image via the builder stage's `COPY . .`. Project-owned
+`.dockerignore`, `/dist/ship` specifically — not your project's whole
+`dist/`, in case you keep other build output there) — without that, a
+second release built in the same project would bake every *earlier*
+release's own `.env`/images straight into the next image via the builder
+stage's `COPY . .`. Project-owned
 services that build from an identical Dockerfile/target/args (most
 commonly `app` and every `ship.json` `processes` entry, which build from
 the exact same config) share one image and one `.tar` — the `tag`/`-t`

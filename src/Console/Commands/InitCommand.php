@@ -430,9 +430,13 @@ final class InitCommand extends Command
      * matches at the build context *root*, not recursively, so a nested file (most importantly
      * `dist/ship/<tag>/.env`, `ship release`'s own copy of `.env.production`) was NOT excluded by
      * the un-prefixed form, and landed readable inside the very next image built in that same
-     * project -- an actual production secret leak, not a theoretical one. `/dist` is excluded
-     * outright for the same reason: it's `ship release`'s own generated output (images, often
-     * hundreds of MB, carried forward release after release), never a build input.
+     * project -- an actual production secret leak, not a theoretical one. `/dist/ship` -- not the
+     * bare `/dist` a real re-audit of this exact fix flagged -- is excluded for the same reason:
+     * that's specifically `ship release`'s own generated output (see ReleaseCommand's own
+     * `$releaseDir`), images and all, carried forward release after release, never a build input.
+     * A bare `/dist` instead silently dropped a project's *own* `dist/` -- a separate build tool's
+     * real output the image might legitimately need to `COPY . .` in -- from the build context
+     * entirely, with no error, confirmed in a real build.
      */
     private function ensureDockerignoreExcludesEnv(): void
     {
@@ -444,7 +448,7 @@ final class InitCommand extends Command
             '.git',
             'node_modules',
             'vendor',
-            '/dist',
+            '/dist/ship',
         ];
 
         $fileLines = is_file($path) ? file($path, FILE_IGNORE_NEW_LINES) : [];

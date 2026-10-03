@@ -28,10 +28,10 @@ final class InitCommandDockerignoreTest extends TestCase
      * Regression coverage for a real secret leak found live: a bare `.env`/`.env.*` pattern only
      * ever matched at the build context *root*, not recursively, so `dist/ship/<tag>/.env` (ship
      * release's own copy of .env.production) was never excluded and landed readable inside the
-     * very next image built in that project. `**`-prefixed patterns match at any depth, and `/dist`
-     * excludes ship release's own generated output outright.
+     * very next image built in that project. `**`-prefixed patterns match at any depth, and
+     * `/dist/ship` excludes ship release's own generated output outright.
      */
-    public function test_it_writes_recursive_env_patterns_and_excludes_dist(): void
+    public function test_it_writes_recursive_env_patterns_and_excludes_dist_ship(): void
     {
         $this->invokeEnsureDockerignoreExcludesEnv();
 
@@ -40,18 +40,35 @@ final class InitCommandDockerignoreTest extends TestCase
         self::assertStringContainsString('**/.env', $written);
         self::assertStringContainsString('**/.env.*', $written);
         self::assertStringContainsString('!**/.env.example', $written);
-        self::assertStringContainsString('/dist', $written);
+        self::assertStringContainsString('/dist/ship', $written);
+    }
+
+    /**
+     * Regression coverage for a real bug found via an independent re-audit: a bare `/dist`
+     * excluded a project's *entire* dist/ directory from the build context, not just
+     * ship release's own dist/ship/ -- a project that keeps real build inputs under its own
+     * dist/ (a separate build tool's output the image legitimately needs to COPY in, say) had
+     * them silently dropped from every image built, with no error. Narrowed to the exact
+     * namespace ship release actually writes to.
+     */
+    public function test_it_excludes_only_dist_ship_not_the_whole_dist_directory(): void
+    {
+        $this->invokeEnsureDockerignoreExcludesEnv();
+
+        $written = (string) file_get_contents($this->projectRoot . '/.dockerignore');
+
+        self::assertStringNotContainsString("/dist\n", $written);
     }
 
     public function test_it_does_not_duplicate_entries_already_present(): void
     {
-        file_put_contents($this->projectRoot . '/.dockerignore', "**/.env\n**/.env.*\n!**/.env.example\n.git\nnode_modules\nvendor\n/dist\n");
+        file_put_contents($this->projectRoot . '/.dockerignore', "**/.env\n**/.env.*\n!**/.env.example\n.git\nnode_modules\nvendor\n/dist/ship\n");
 
         $this->invokeEnsureDockerignoreExcludesEnv();
 
         $written = (string) file_get_contents($this->projectRoot . '/.dockerignore');
 
-        self::assertSame(1, substr_count($written, '/dist'));
+        self::assertSame(1, substr_count($written, '/dist/ship'));
     }
 
     private function invokeEnsureDockerignoreExcludesEnv(): void
