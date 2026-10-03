@@ -240,6 +240,14 @@ final class ShipConfig
      * `additionalServices` reuses `ship init`'s own interactive prompt validation (also an env var
      * prefix, so no hyphen -- a `.env` file's own KEY=VALUE syntax doesn't allow one).
      *
+     * `serviceNames`/`additionalServices`/`processes`/`deployCommands` each get their own
+     * top-level array-type check below too -- a real gap found via an independent re-audit of the
+     * fix above: `serviceNames`/`additionalServices` being some non-array value (a bare string,
+     * say) reached a raw `foreach() argument must be of type array|object` PHP warning followed by
+     * an uncaught constructor `TypeError`, the exact "no message naming ship.json at all" failure
+     * mode this method exists to replace -- confirmed live. `processes`/`deployCommands` had no
+     * validation at all before this, of any kind.
+     *
      * @param array<string, mixed> $data
      */
     private static function validate(array $data, string $path): void
@@ -252,6 +260,8 @@ final class ShipConfig
             }
         }
 
+        self::requireArray($data, 'serviceNames', $path);
+
         foreach ($data['serviceNames'] ?? [] as $group => $serviceName) {
             if (!is_string($serviceName) || preg_match('/^[a-z][a-z0-9_-]*$/', $serviceName) !== 1) {
                 throw new RuntimeException(
@@ -261,8 +271,10 @@ final class ShipConfig
             }
         }
 
+        self::requireArray($data, 'additionalServices', $path);
+
         foreach ($data['additionalServices'] ?? [] as $additional) {
-            $name = $additional['name'] ?? null;
+            $name = is_array($additional) ? ($additional['name'] ?? null) : null;
 
             if (!is_string($name) || preg_match('/^[a-z][a-z0-9_]*$/', $name) !== 1) {
                 throw new RuntimeException(
@@ -270,6 +282,36 @@ final class ShipConfig
                         . 'and "_" only, starting with a letter (no "-": it also becomes an env var prefix).',
                 );
             }
+        }
+
+        self::requireArray($data, 'processes', $path);
+
+        foreach ($data['processes'] ?? [] as $name => $command) {
+            if (!is_string($name) || !is_string($command)) {
+                throw new RuntimeException(
+                    "ship.json's \"processes\" must map string names to string commands at {$path}.",
+                );
+            }
+        }
+
+        self::requireArray($data, 'deployCommands', $path);
+
+        foreach ($data['deployCommands'] ?? [] as $command) {
+            if (!is_string($command)) {
+                throw new RuntimeException(
+                    "ship.json's \"deployCommands\" must be a list of strings at {$path}.",
+                );
+            }
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    private static function requireArray(array $data, string $key, string $path): void
+    {
+        if (isset($data[$key]) && !is_array($data[$key])) {
+            throw new RuntimeException("ship.json's \"{$key}\" must be an array or object at {$path}.");
         }
     }
 

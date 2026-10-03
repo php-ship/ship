@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ship\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Ship\Config\ShipConfig;
 use Symfony\Component\Filesystem\Filesystem;
@@ -94,6 +95,81 @@ final class ShipConfigTest extends TestCase
         file_put_contents(
             $this->projectRoot . '/ship.json',
             json_encode(['services' => [], 'additionalServices' => [['group' => 'database', 'service' => 'mysql', 'name' => 'my-analytics']]]),
+        );
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('additionalServices');
+
+        ShipConfig::fromFile($this->projectRoot . '/ship.json');
+    }
+
+    /**
+     * Regression coverage for a real bug found via an independent re-audit: a non-array
+     * serviceNames/additionalServices/processes/deployCommands used to reach a raw `foreach()
+     * argument must be of type array|object` PHP warning followed by an uncaught constructor
+     * TypeError -- confirmed live -- instead of a clean message naming ship.json, exactly the
+     * failure mode this validation exists to replace.
+     *
+     * @return iterable<string, array{string, mixed}>
+     */
+    public static function nonArrayFields(): iterable
+    {
+        yield 'serviceNames' => ['serviceNames', 'not-an-array'];
+        yield 'additionalServices' => ['additionalServices', 'not-an-array'];
+        yield 'processes' => ['processes', 'not-an-array'];
+        yield 'deployCommands' => ['deployCommands', 'not-an-array'];
+    }
+
+    #[DataProvider('nonArrayFields')]
+    public function test_from_file_rejects_a_non_array_value_with_a_clear_error(string $field, mixed $value): void
+    {
+        file_put_contents(
+            $this->projectRoot . '/ship.json',
+            json_encode(['services' => [], $field => $value]),
+        );
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage("\"{$field}\"");
+
+        ShipConfig::fromFile($this->projectRoot . '/ship.json');
+    }
+
+    /**
+     * Regression coverage for a real bug found via an independent re-audit: processes/
+     * deployCommands had no validation at all before this -- a non-string command (or, for
+     * processes, a non-string name) would have reached whatever used it downstream unchecked.
+     */
+    public function test_from_file_rejects_a_non_string_process_command(): void
+    {
+        file_put_contents(
+            $this->projectRoot . '/ship.json',
+            json_encode(['services' => [], 'processes' => ['worker' => 123]]),
+        );
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('"processes"');
+
+        ShipConfig::fromFile($this->projectRoot . '/ship.json');
+    }
+
+    public function test_from_file_rejects_a_non_string_deploy_command(): void
+    {
+        file_put_contents(
+            $this->projectRoot . '/ship.json',
+            json_encode(['services' => [], 'deployCommands' => [123]]),
+        );
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('"deployCommands"');
+
+        ShipConfig::fromFile($this->projectRoot . '/ship.json');
+    }
+
+    public function test_from_file_rejects_a_non_array_additional_service_entry(): void
+    {
+        file_put_contents(
+            $this->projectRoot . '/ship.json',
+            json_encode(['services' => [], 'additionalServices' => ['just-a-string']]),
         );
 
         $this->expectException(\RuntimeException::class);
