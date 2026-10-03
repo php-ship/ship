@@ -1100,6 +1100,18 @@
   Omitting it from the build entirely fixes both problems at once: nothing to leak, and nothing
   for the artifact to disagree with.
 
+- Fixed `ship up`'s own healthcheck wait being shorter than some services' own healthcheck allows
+  -- found via the same independent audit. The wait was a flat "15 attempts x 2s = ~30s" budget,
+  well past MySQL/Postgres/Redis's own interval x retries (5s x 5 = 25s) when that comment was
+  written, but Garage/RustFS/Silo's own healthcheck (10s `start_period` + 5s x 10 retries = 60s)
+  and SeaweedFS's (10s x 5 = 50s) can both legitimately still be "starting" well after this gave
+  up, producing a false "never became healthy" on a slow first boot (a fresh volume's own
+  initialization) rather than a real problem.
+
+  Computed from the service's own generated `healthcheck:` block instead (`start_period` +
+  `interval` x `retries`, plus a small buffer), so the wait is never shorter than Docker's own
+  patience for it, whatever a service's healthcheck happens to be configured with.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
