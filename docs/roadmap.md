@@ -1193,6 +1193,26 @@
   Verified live: a `ship.json` extension class that doesn't exist now prints exactly one
   `ship: warning: ...` line on both `ship up` and `ship build`, not two.
 
+- Pinned every floating build input in the generated Dockerfiles -- found via the same
+  independent audit: `install-php-extensions` was fetched from `/latest/download/` with nothing
+  verifying the response, `composer:2`/`nginx:alpine`/`selenium/standalone-chrome:4` all track a
+  moving tag, and `pecl install redis`/`swoole` plus `install-php-extensions xdebug` took no
+  version at all -- any of these can silently change what a build produces weeks apart with no
+  corresponding change to this repo.
+
+  `install-php-extensions` is now pinned to a specific release tag with its SHA-256 checksum
+  verified before it's ever executed; `composer`, `nginx`, and the Selenium image are pinned to a
+  specific version; redis/swoole/xdebug each take an explicit `ARG *_EXTENSION_VERSION`.
+
+  Also stopped `npm ci || npm install` from silently masking `npm ci`'s own lockfile-drift
+  failure by falling back to `npm install` (which resolves and writes a *new* lockfile instead of
+  failing) -- `npm install` is now only the fallback when no `package-lock.json` exists at all.
+
+  Verified live: a full `ship build` (Octane Swoole + Dusk + a `phpExtensions` entry, exercising
+  the checksum-verified `install-php-extensions` path, both pinned PECL installs, the pinned
+  composer copy, and the `npm ci` branch) completes successfully; the pinned nginx tag resolves
+  and pulls.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
