@@ -95,4 +95,21 @@ final class GarageServiceTest extends TestCase
         self::assertStringContainsString(':-', $garageEnv['GARAGE_RPC_SECRET']);
         self::assertStringContainsString(':-', $garageEnv['GARAGE_ADMIN_TOKEN']);
     }
+
+    /**
+     * Regression coverage for a real bug found via an independent audit: garage.toml's
+     * rpc_public_addr was hardcoded to the literal "garage:3901", wrong for a named additional
+     * instance (ship.json's additionalServices) since its real compose service name is never just
+     * "garage". The Dockerfile's own "config" stage now substitutes this build arg into the file
+     * instead -- see that file's docblock for why it can't be done at container boot (no shell in
+     * the final, FROM-scratch image).
+     */
+    public function test_the_rpc_public_addr_build_arg_matches_the_instances_own_compose_name(): void
+    {
+        $default = (new GarageService())->composeFragment(ShipEnvironment::Development);
+        self::assertSame('garage:3901', $default['garage']['build']['args']['GARAGE_RPC_PUBLIC_ADDR']);
+
+        $named = (new GarageService())->composeFragment(ShipEnvironment::Development, 'archive');
+        self::assertSame('garage-archive:3901', $named['garage-archive']['build']['args']['GARAGE_RPC_PUBLIC_ADDR']);
+    }
 }

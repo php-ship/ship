@@ -44,6 +44,14 @@ final class GarageService implements ServiceDefinition
                 'build' => [
                     'context' => './ship/garage',
                     'dockerfile' => 'Dockerfile',
+                    // A real bug found via an independent audit: garage.toml's rpc_public_addr
+                    // used to be the hardcoded literal "garage:3901", wrong for any named
+                    // additional instance (ship.json's additionalServices) since its real compose
+                    // service name is never just "garage". The Dockerfile's own "config" stage
+                    // substitutes this into the file at build time -- see that file's docblock
+                    // for why it can't be done at container boot instead (no shell in the final,
+                    // FROM-scratch image).
+                    'args' => ['GARAGE_RPC_PUBLIC_ADDR' => "{$name}:3901"],
                 ],
                 // The image is FROM scratch with only the /garage binary in it.
                 'command' => ['/garage', 'server', '--single-node', '--default-access-key', '--default-bucket'],

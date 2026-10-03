@@ -140,6 +140,26 @@ final class InitCommandServiceSelectionTest extends TestCase
         self::assertDirectoryDoesNotExist($this->projectRoot . '/ship/garage');
     }
 
+    /**
+     * Regression coverage for a real bug found via an independent audit: this check only ever
+     * looked at the default storage pick, so Garage selected *only* as a named additionalServices
+     * instance never got its stub files published at all -- that instance's own `build:` had
+     * nothing to build from.
+     */
+    public function test_garages_config_stub_is_published_when_selected_only_as_an_additional_instance(): void
+    {
+        $command = new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults()));
+        $tester = new CommandTester($command);
+        $tester->setInputs([
+            'None', 'None', 'None', 'SeaweedFS (S3-compatible storage)', 'None', 'None', 'None', 'None', 'None',
+            'yes', 'storage', 'Garage (S3-compatible storage, lightweight alt.)', 'archive', 'no',
+            '8.4', '24',
+        ]);
+        $tester->execute([]);
+
+        self::assertFileExists($this->projectRoot . '/ship/garage/garage.toml');
+    }
+
     public function test_the_base_php_stubs_are_always_published_regardless_of_selection(): void
     {
         $this->runInit(['None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);

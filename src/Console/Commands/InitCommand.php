@@ -86,7 +86,7 @@ final class InitCommand extends Command
         );
         $config->toFile($this->projectRoot . '/ship.json');
 
-        $this->publishStubs($selected, $config->serviceNames['app'] ?? 'app');
+        $this->publishStubs($selected, $additionalServices, $config->serviceNames['app'] ?? 'app');
         $this->warnAboutViteDevServerConfigIfNeeded($io);
         $this->warnAboutMissingReverbPackageIfNeeded($io, $selected);
 
@@ -356,8 +356,9 @@ final class InitCommand extends Command
      * project's ship folder; ensures .dockerignore excludes .env (see ensureDockerignoreExcludesEnv()).
      *
      * @param array<string, string> $selected
+     * @param list<array{group: string, service: string, name: string}> $additionalServices
      */
-    private function publishStubs(array $selected, string $appServiceName): void
+    private function publishStubs(array $selected, array $additionalServices, string $appServiceName): void
     {
         $filesystem = new Filesystem();
         $packageRoot = dirname(__DIR__, 3);
@@ -391,7 +392,15 @@ final class InitCommand extends Command
             }
         }
 
-        if (($selected['storage'] ?? null) === 'garage') {
+        // A real bug found via an independent audit: this only ever checked the default storage
+        // pick, so Garage selected *only* as a named additionalServices instance (ship.json's
+        // storage group is one of GROUPS_SUPPORTING_ADDITIONAL_INSTANCES) never got its stub
+        // files published at all -- that instance's own `build: {context: ./ship/garage}` had
+        // nothing to build from.
+        $garageSelected = ($selected['storage'] ?? null) === 'garage'
+            || in_array('garage', array_column($additionalServices, 'service'), strict: true);
+
+        if ($garageSelected) {
             $filesystem->mirror(
                 $packageRoot . '/stubs/docker/garage',
                 $target . '/garage',
