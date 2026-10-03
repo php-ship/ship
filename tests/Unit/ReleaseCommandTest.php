@@ -6,6 +6,7 @@ namespace Ship\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Ship\Config\ShipConfig;
 use Ship\Console\Commands\ReleaseCommand;
 use Ship\Runtime\ProcessRunner;
 use Symfony\Component\Console\Input\ArrayInput;
@@ -73,6 +74,25 @@ final class ReleaseCommandTest extends TestCase
         self::assertFileDoesNotExist($releaseDir . '/images/app.tar');
 
         (new \Symfony\Component\Filesystem\Filesystem())->remove($releaseDir);
+    }
+
+    /**
+     * Regression coverage for a real bug found via an independent audit: chmod() is a silent
+     * no-op on Windows (NTFS has no Unix executable bit for it to set), so deploy-commands.sh
+     * written on a Windows dev machine was never actually executable once copied to the server --
+     * with nothing ever telling the operator that.
+     */
+    public function test_windows_executable_bit_warning_fires_only_on_windows_with_deploy_commands(): void
+    {
+        $command = new ReleaseCommand(sys_get_temp_dir(), new ProcessRunner());
+        $method = new \ReflectionMethod($command, 'windowsExecutableBitWarning');
+
+        $withCommands = new ShipConfig(phpVersion: '8.4', services: [], deployCommands: ['php artisan migrate']);
+        $withoutCommands = new ShipConfig(phpVersion: '8.4', services: []);
+
+        self::assertStringContainsString('chmod +x', (string) $method->invoke($command, $withCommands, 'Windows'));
+        self::assertNull($method->invoke($command, $withoutCommands, 'Windows'));
+        self::assertNull($method->invoke($command, $withCommands, 'Linux'));
     }
 
     /**

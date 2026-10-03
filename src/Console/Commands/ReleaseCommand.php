@@ -118,6 +118,11 @@ final class ReleaseCommand extends Command
         $manifest = ReleaseManifest::build($tag, $this->projectRoot, $this->runner, $result['images']);
         $filesystem->dumpFile($releaseDir . '/release.json', json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
 
+        $windowsWarning = $this->windowsExecutableBitWarning($config);
+        if ($windowsWarning !== null) {
+            $output->writeln($windowsWarning);
+        }
+
         $output->writeln("<info>ship: release ready at dist/ship/{$tag}</info>");
 
         return Command::SUCCESS;
@@ -234,6 +239,13 @@ final class ReleaseCommand extends Command
      * service there, "app" and "webserver" included, which would otherwise make
      * DeployPlan::infrastructureServices() see no `build:` anywhere and misclassify them as
      * infrastructure too, defeating the entire reason this runs before they start.
+     *
+     * chmod() below is a real, working executable-bit set on Linux/macOS, but a silent no-op on
+     * Windows -- NTFS has no Unix executable bit for it to set at all, a real bug found via an
+     * independent audit for a release built on a Windows dev machine (nothing about `ship
+     * release` requires Linux/macOS specifically). execute() warns about it explicitly on
+     * PHP_OS_FAMILY === 'Windows' rather than claiming an executable bit that was never actually
+     * set.
      */
     private function writeDeployScript(ShipConfig $config, string $releaseDir): void
     {
@@ -270,5 +282,21 @@ final class ReleaseCommand extends Command
         $path = $releaseDir . '/deploy-commands.sh';
         file_put_contents($path, implode("\n", $lines));
         chmod($path, 0o755);
+    }
+
+    /**
+     * $osFamily is injectable (default PHP_OS_FAMILY) purely so this is testable without actually
+     * running on Windows -- see writeDeployScript()'s own docblock for why the warning exists.
+     */
+    private function windowsExecutableBitWarning(ShipConfig $config, string $osFamily = PHP_OS_FAMILY): ?string
+    {
+        if ($config->deployCommands === [] || $osFamily !== 'Windows') {
+            return null;
+        }
+
+        return '<comment>ship: deploy-commands.sh was written on Windows, which has no Unix '
+            . 'executable bit for chmod() to set -- run `chmod +x deploy-commands.sh` on the '
+            . 'server before `./deploy-commands.sh`, or invoke it as `sh deploy-commands.sh` '
+            . 'instead.</comment>';
     }
 }
