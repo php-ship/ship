@@ -1035,6 +1035,27 @@
   single `:?` anywhere in it aborts the whole command before any service, the app included, ever
   starts.
 
+- Gave SeaweedFS real S3 authentication -- found via the same independent audit, confirmed live:
+  the base image's S3 gateway has no authentication at all unless handed an identity config file
+  via `-s3.config`. An unsigned, credential-less request against a plain `weed server -s3`
+  returned 200 with a real bucket listing. There's no env-var-driven auth option, only a config
+  *file*, which the real secret (known only once `.env.production` exists, long after `ship init`
+  published anything) can't be baked into ahead of time. Fixed by overriding the image's own
+  ENTRYPOINT with a shell that generates that file from the already-injected
+  `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` env vars at container *boot*, then execs the real
+  server against it.
+
+  Hit the same bug class the audit separately flagged for `ship.json`'s own `processes` commands
+  while implementing this: a bare `$VAR` in a compose `command:` string gets interpolated by
+  Compose itself (against the host's own environment, empty) before the container's shell ever
+  runs it -- confirmed live by inspecting `docker compose config`'s actual resolved output, which
+  showed both credentials blank. Fixed with `$$`, the same escape Compose's own docs call for.
+
+  Verified live twice: once showing the *before* state (unsigned request -> 200, real bucket
+  listing) to prove the bug concretely rather than just reasoning about it, and once after the fix
+  (through the real `ship up`-generated compose file, not a hand-rolled one) showing the identity
+  file with real credentials and the same unsigned request now returning 403.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
