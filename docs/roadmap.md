@@ -1077,6 +1077,17 @@
   "Bearer token must be provided" where it previously had no gate at all, the correct token gets a
   200, and a wrong one gets a 403.
 
+- Fixed Garage being misclassified as application code in deploy ordering -- found via the same
+  independent audit: `DeployPlan::infrastructureServices()` used "has a `build:` at all" as a
+  proxy for "is this the app's own code," correct for `app`/`webserver`/`reverb`/`processes`
+  (which all build from `ship/Dockerfile`), but it also caught Garage, a project-owned service
+  with its own small packaging Dockerfile for unrelated reasons. A "create the bucket" deploy
+  command would run against a Garage that `deploy-commands.sh`'s own "bring up infrastructure
+  first" step never started. Fixed by checking the build's own dockerfile path instead of just
+  whether `build:` is present at all: only `ship/Dockerfile`/`ship/Dockerfile.frankenphp` count as
+  application code that must not start until deploy commands succeed -- everything else, Garage
+  included, is infrastructure.
+
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
