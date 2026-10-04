@@ -47,8 +47,8 @@ final class SiloServiceTest extends TestCase
     /**
      * Production requires a real value instead of falling back to the same friendly default
      * development uses -- worse here than for Garage/RustFS if it didn't, since Silo's console is
-     * published to the host by default. `docker compose` itself refuses to run at all when no
-     * real value is set in .env.production.
+     * published to the host when `publishPorts` is enabled. `docker compose` itself refuses to run
+     * when no real value is set in .env.production.
      */
     public function test_the_password_is_required_in_production_not_just_overridable(): void
     {

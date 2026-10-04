@@ -45,13 +45,10 @@ final class ShipConfig
      *        mlocati/docker-php-extension-installer (see the Dockerfile's own ARG), which already
      *        handles the apk build-dependency dance every hand-written extension install in that
      *        file does manually.
-     * @param bool $publishPorts false stops production from publishing any port to the host --
-     *        for a deployment where a reverse proxy (Caddy, Traefik, ...) reaches the containers
-     *        over a shared Docker network instead. Docker-published ports bypass host firewalls
-     *        like ufw, so leaving them published there exposes the app directly on the server's
-     *        public IP, skipping the proxy's TLS and headers entirely. Production only --
-     *        development always publishes what it needs (the app, Vite, ...). True (the default)
-     *        keeps today's behavior.
+     * @param bool $publishPorts true explicitly publishes production HTTP ports to the host.
+     *        The default, false, keeps them private for a reverse proxy joined to the project's
+     *        Docker network. Docker-published ports can expose the app on the server's public
+     *        IP, bypassing the proxy's TLS and headers. Development always publishes its ports.
      * @param list<string> $deployCommands shell commands meant to run exactly once per deploy --
      *        database migrations, a package's own one-off setup, creating buckets. Deliberately not
      *        the same thing as FrameworkAdapter::releaseCommands(), despite the similar name: those
@@ -94,7 +91,7 @@ final class ShipConfig
         public readonly array $serviceNames = [],
         public readonly ?string $externalNetwork = null,
         public readonly array $phpExtensions = [],
-        public readonly bool $publishPorts = true,
+        public readonly bool $publishPorts = false,
         public readonly array $deployCommands = [],
         public readonly array $processes = [],
         public readonly bool $hostUser = false,
@@ -159,7 +156,7 @@ final class ShipConfig
             serviceNames: $data['serviceNames'] ?? [],
             externalNetwork: $data['externalNetwork'] ?? null,
             phpExtensions: $data['phpExtensions'] ?? [],
-            publishPorts: $data['publishPorts'] ?? true,
+            publishPorts: $data['publishPorts'] ?? false,
             deployCommands: $data['deployCommands'] ?? [],
             processes: $data['processes'] ?? [],
             hostUser: $data['hostUser'] ?? false,
@@ -220,7 +217,7 @@ final class ShipConfig
             serviceNames: self::filterStringMap($data['serviceNames'] ?? null),
             externalNetwork: is_string($data['externalNetwork'] ?? null) ? $data['externalNetwork'] : null,
             phpExtensions: self::filterStringList($data['phpExtensions'] ?? null),
-            publishPorts: is_bool($data['publishPorts'] ?? null) ? $data['publishPorts'] : true,
+            publishPorts: is_bool($data['publishPorts'] ?? null) ? $data['publishPorts'] : false,
             deployCommands: self::filterStringList($data['deployCommands'] ?? null),
             processes: self::filterStringMap($data['processes'] ?? null),
             hostUser: is_bool($data['hostUser'] ?? null) ? $data['hostUser'] : false,
@@ -430,8 +427,8 @@ final class ShipConfig
         if ($this->phpExtensions !== []) {
             $payload['phpExtensions'] = $this->phpExtensions;
         }
-        if (!$this->publishPorts) {
-            $payload['publishPorts'] = false;
+        if ($this->publishPorts) {
+            $payload['publishPorts'] = true;
         }
         if ($this->deployCommands !== []) {
             $payload['deployCommands'] = $this->deployCommands;

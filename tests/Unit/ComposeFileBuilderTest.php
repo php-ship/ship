@@ -16,6 +16,7 @@ use Ship\Services\PostgresService;
 use Ship\Services\RedisService;
 use Ship\Services\ReverbService;
 use Ship\Services\ServiceRegistry;
+use Ship\Services\SiloService;
 use Symfony\Component\Yaml\Yaml;
 
 final class ComposeFileBuilderTest extends TestCase
@@ -223,14 +224,34 @@ final class ComposeFileBuilderTest extends TestCase
         self::assertNotSame([], $dev['services']['webserver']['ports']);
     }
 
-    public function test_production_publishes_the_webserver_port_by_default(): void
+    public function test_production_does_not_publish_the_webserver_port_by_default(): void
     {
         $builder = new ComposeFileBuilder($this->registry());
         $config = new ShipConfig(phpVersion: '8.4', services: []);
 
         $prod = Yaml::parse($builder->build($config, ShipEnvironment::Production));
 
+        self::assertSame([], $prod['services']['webserver']['ports']);
+    }
+
+    public function test_production_publishes_the_webserver_port_when_explicitly_enabled(): void
+    {
+        $builder = new ComposeFileBuilder($this->registry());
+        $config = new ShipConfig(phpVersion: '8.4', services: [], publishPorts: true);
+
+        $prod = Yaml::parse($builder->build($config, ShipEnvironment::Production));
+
         self::assertSame(['${APP_PORT:-80}:80'], $prod['services']['webserver']['ports']);
+    }
+
+    public function test_production_does_not_publish_the_silo_console_by_default(): void
+    {
+        $builder = new ComposeFileBuilder(new ServiceRegistry([new SiloService()]));
+        $config = new ShipConfig(phpVersion: '8.4', services: ['storage' => 'silo']);
+
+        $prod = Yaml::parse($builder->build($config, ShipEnvironment::Production));
+
+        self::assertSame([], $prod['services']['silo']['ports']);
     }
 
     /**

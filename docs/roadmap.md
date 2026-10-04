@@ -510,7 +510,7 @@
   `XDEBUG_MODE=debug` in `.env`, both reported `["debug"]` after a plain
   `ship up`, no rebuild.
 
-- `ship.json`'s `publishPorts` (default `true`): `false` makes
+- `ship.json`'s `publishPorts` (originally default `true`; now `false`): `false` makes
   production publish nothing to the host. Raised from a real project's
   evaluation: it fronts its apps with a reverse proxy over a shared
   Docker network, but production still mapped `${APP_PORT:-8000}:8000`,
@@ -845,8 +845,8 @@
   unlike every other credentialed service in the registry (MySqlService's `DB_PASSWORD`,
   PostgresService's own, ...), which all use a `${VAR:-default}` expression a project's own
   `.env`/`.env.production` can override. Raised directly when asked for the state of the package.
-  Matters most for Silo specifically: its admin console is published to the host by default
-  (`publishPorts` defaults to `true`), so a hardcoded literal meant every default `ship release`
+  Matters most for Silo specifically: its admin console is published when `publishPorts` is enabled
+  (when `publishPorts` defaulted to `true`), so a hardcoded literal meant every default `ship release`
   deploy exposed a login page with a publicly-known credential on the open internet. Garage/RustFS
   don't publish a console, so they were lower-risk, but still shared one hardcoded credential
   across every project that ever selected them.
@@ -936,7 +936,7 @@
   everywhere else. A friendly `${VAR:-default}` in development, but `${VAR:?...}` in production,
   verified live against a minimal compose file both ways: `docker compose` itself refuses to run
   at all when the real value was never set, with a clear, actionable error naming the variable.
-  Matters most for Silo, whose admin console is published to the host by default -- a missed
+  Matters most for Silo, whose admin console can be published to the host -- a missed
   `.env.production` value there would otherwise expose a login page with a publicly-known
   credential on the open internet.
 

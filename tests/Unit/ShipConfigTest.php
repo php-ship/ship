@@ -269,7 +269,7 @@ final class ShipConfigTest extends TestCase
         self::assertSame([], $config->serviceNames);
         self::assertNull($config->externalNetwork);
         self::assertSame([], $config->phpExtensions);
-        self::assertTrue($config->publishPorts);
+        self::assertFalse($config->publishPorts);
         self::assertSame([], $config->deployCommands);
         self::assertSame([], $config->processes);
         self::assertFalse($config->hostUser);
@@ -322,6 +322,15 @@ final class ShipConfigTest extends TestCase
         self::assertStringNotContainsString('processes', $written);
         self::assertStringNotContainsString('hostUser', $written);
         self::assertStringNotContainsString('"name"', $written);
+    }
+
+    public function test_to_file_persists_explicit_production_port_publishing(): void
+    {
+        $path = $this->projectRoot . '/ship.json';
+        (new ShipConfig(phpVersion: '8.4', services: [], publishPorts: true))->toFile($path);
+
+        self::assertTrue(ShipConfig::fromFile($path)->publishPorts);
+        self::assertStringContainsString('"publishPorts": true', (string) file_get_contents($path));
     }
 
     public function test_to_file_writes_pretty_printed_json_ending_in_a_newline(): void
@@ -392,6 +401,6 @@ final class ShipConfigTest extends TestCase
         self::assertNotNull($config);
         self::assertSame(['Real\\Extension'], $config->extensions);
         self::assertSame(['app' => 'client-app'], $config->serviceNames);
-        self::assertTrue($config->publishPorts);
+        self::assertFalse($config->publishPorts);
     }
 }

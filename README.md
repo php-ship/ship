@@ -219,14 +219,14 @@ plain, readable JSON document:
   ```
   Fed to [`mlocati/docker-php-extension-installer`](https://github.com/mlocati/docker-php-extension-installer),
   which handles each extension's own build dependencies for you.
-- `publishPorts` — set to `false` and the release's compose file publishes
-  nothing to the host, for a deployment where a reverse proxy (Caddy,
-  Traefik, ...) reaches the containers over a shared Docker network (see
-  `externalNetwork` below). Worth knowing why it matters: a Docker-published
-  port bypasses host firewalls like `ufw`, so with the default (`true`) the
-  app answers directly on the server's public IP, skipping the proxy's TLS
-  and headers entirely. Production only — development always publishes
-  what it needs.
+- `publishPorts` — defaults to `false`, so production publishes nothing to
+  the host. A reverse proxy (Caddy, Traefik, ...) can reach the HTTP service
+  when joined to the project's `ship` Docker network. `externalNetwork`
+  attaches only the app service, so it does not expose `webserver` to the proxy.
+  Set `publishPorts` to
+  `true` only when you intend to expose the generated host ports; they may
+  bypass host firewalls and a proxy's TLS and headers. Production only —
+  development always publishes what it needs.
 - `deployCommands` — shell commands meant to run exactly once per deploy,
   **before** the app services start:
   ```json
@@ -509,6 +509,11 @@ docker load -i images/webserver.tar
 docker compose up -d
 ```
 
+With the default `publishPorts: false`, this starts the services without a
+public HTTP endpoint. Attach a TLS reverse proxy to the project's `ship` Docker
+network, or set `publishPorts: true` in `ship.json` before creating the release
+if your deployment intentionally uses host ports.
+
 `ship` deliberately stops there — there's no `ship deploy` that SSHes
 anywhere or runs any of this remotely for you. Getting the folder onto the
 server (`scp`, a CI artifact upload, a DevOps handoff) and running those
@@ -544,14 +549,14 @@ same way it would in front of any other containerized app —
 
 - a load balancer or reverse proxy you already run (an ALB/NLB, Cloudflare,
   a Caddy/Traefik/another nginx instance) forwarding plain HTTP to
-  `webserver`'s published port, or
+  `webserver` after you explicitly enable `publishPorts`, or
 - a sidecar you add yourself via
   [`docker-compose.override.yml`](#customizing-the-stack) — for example a
   `caddy` or `traefik` service in front of `webserver`, with your certs
   mounted in.
 
-Serving real traffic over the bare `${APP_PORT:-80}:80` `ship` publishes
-by default, with nothing in front of it, means serving it over plain
+Serving real traffic over the bare `${APP_PORT:-80}:80` mapping with
+`publishPorts: true` and nothing in front of it means serving it over plain
 HTTP. Put a TLS-terminating layer in front before that port reaches the
 public internet.
 
@@ -778,8 +783,8 @@ APP_PORT=8081 VITE_PORT=5174 REVERB_PORT=8081 vendor/bin/ship up
 
 Every one of these binds to `127.0.0.1` in development, not every
 interface — reachable from your own machine, not from another device on
-the same network or the internet. Production ports are unaffected (and
-already gated by `publishPorts` — see
+the same network or the internet. Production publishes no ports by default;
+set `publishPorts: true` to enable its host mappings (see
 [Configuration](#configuration-shipjson)).
 
 ## Customizing the stack

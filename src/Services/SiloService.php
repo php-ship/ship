@@ -59,8 +59,8 @@ final class SiloService implements ServiceDefinition
                     // credentialed service (MySqlService's DB_PASSWORD, ...) already uses. The
                     // password specifically is required (not just overridable) in production --
                     // see RequiredEnv's own docblock -- and matters most here of every credentialed
-                    // service: Silo's admin console is published to the host by default (see
-                    // 'ports' below), so a missed .env.production value would otherwise expose a
+                    // service: Silo's admin console can be published to the host (see
+                    // 'ports' below), so a missed .env.production value could otherwise expose a
                     // login page with a publicly-known credential on the open internet.
                     'MINIO_ROOT_USER' => "\${{$prefix}AWS_ACCESS_KEY_ID:-ship}",
                     'MINIO_ROOT_PASSWORD' => RequiredEnv::expr("{$prefix}AWS_SECRET_ACCESS_KEY", 'shipsecret', $environment),

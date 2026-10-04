@@ -90,7 +90,7 @@ final class InitCommand extends Command
             serviceNames: $existing->serviceNames ?? [],
             externalNetwork: $existing?->externalNetwork,
             phpExtensions: $existing->phpExtensions ?? [],
-            publishPorts: $existing->publishPorts ?? true,
+            publishPorts: $existing->publishPorts ?? false,
             deployCommands: $existing->deployCommands ?? [],
             processes: $existing->processes ?? [],
             hostUser: $existing->hostUser ?? false,
