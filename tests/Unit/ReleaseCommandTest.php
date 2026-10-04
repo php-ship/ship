@@ -58,18 +58,16 @@ final class ReleaseCommandTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via an independent audit: `docker save`'s own exit
-     * code was previously ignored entirely, so a release could report success with a missing or
-     * truncated tar. A nonexistent image tag makes `docker save` itself fail predictably, without
-     * needing a real image to actually exist.
+     * exportImages() has to check `docker save`'s own exit code -- a release would otherwise
+     * report success with a missing or truncated tar. A nonexistent image tag makes `docker save`
+     * itself fail predictably, without needing a real image to actually exist.
      *
-     * Skipped, not silently "passed", when Docker itself isn't installed -- a real gap found via
-     * an independent re-audit: `docker save` against a nonexistent tag and `docker` not existing
-     * on PATH at all both make `runInteractive()` return a non-zero exit code, so this assertion
-     * held either way, but only the former is actually exercising exportImages()'s own handling
-     * of a *genuine* `docker save` failure. Without Docker, this was passing for an unrelated
-     * reason -- "the `docker` command couldn't even start" -- that proves nothing about the code
-     * under test.
+     * Skipped, not silently "passed", when Docker itself isn't installed: `docker save` against
+     * a nonexistent tag and `docker` not existing on PATH at all both make `runInteractive()`
+     * return a non-zero exit code, so the assertion would hold either way, but only the former
+     * actually exercises exportImages()'s own handling of a *genuine* `docker save` failure --
+     * without Docker, the test would pass for the unrelated reason that the `docker` command
+     * couldn't even start, which proves nothing about the code under test.
      */
     public function test_export_images_fails_when_docker_save_fails(): void
     {
@@ -93,10 +91,9 @@ final class ReleaseCommandTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via an independent audit: chmod() is a silent
-     * no-op on Windows (NTFS has no Unix executable bit for it to set), so deploy-commands.sh
-     * written on a Windows dev machine was never actually executable once copied to the server --
-     * with nothing ever telling the operator that.
+     * chmod() is a silent no-op on Windows (NTFS has no Unix executable bit for it to set), so
+     * deploy-commands.sh written on a Windows dev machine isn't actually executable once copied
+     * to the server -- this warning is the only thing telling the operator that.
      */
     public function test_windows_executable_bit_warning_fires_only_on_windows_with_deploy_commands(): void
     {
@@ -112,13 +109,12 @@ final class ReleaseCommandTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug via a seventh independent audit: `ship release` only
-     * ever checked that .env.production *exists*, not that every variable Compose will actually
-     * require is set in it (the same check ConfigTestCommand's own dry run already made) -- a
-     * missing DB_PASSWORD surfaced as a raw `docker compose build` interpolation error instead,
-     * assuming Docker was even installed to produce it at all. No Docker involved in this test:
-     * failing this check happens before ProductionBuildRunner -- and therefore Docker -- is ever
-     * reached.
+     * `ship release` checks that every variable Compose will actually require is set in
+     * .env.production, not just that the file *exists* (the same check ConfigTestCommand's own
+     * dry run makes) -- otherwise a missing DB_PASSWORD surfaces as a raw `docker compose build`
+     * interpolation error instead, assuming Docker is even installed to produce one. No Docker
+     * involved in this test: failing this check happens before ProductionBuildRunner -- and
+     * therefore Docker -- is ever reached.
      */
     public function test_release_fails_fast_on_a_missing_required_production_variable(): void
     {

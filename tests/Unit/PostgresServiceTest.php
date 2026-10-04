@@ -26,9 +26,9 @@ final class PostgresServiceTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via an independent audit: production previously
-     * used the exact same `${DB_PASSWORD:-secret}` expression as development. `docker compose`
-     * itself now refuses to run at all when no real value was set in .env.production.
+     * Production requires a real value instead of falling back to the same friendly default
+     * development uses -- `docker compose` itself refuses to run at all when no real value is
+     * set in .env.production.
      */
     public function test_the_password_is_required_in_production_not_just_overridable(): void
     {

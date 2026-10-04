@@ -27,9 +27,9 @@ final class OctaneFrankenPhpServiceTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via a seventh independent audit: a bare
-     * `HOST:CONTAINER` mapping binds every interface, not just loopback. Production is untouched
-     * here -- a published production port often does need to be reachable from outside.
+     * A bare `HOST:CONTAINER` mapping binds every interface, not just loopback -- development
+     * binds these to 127.0.0.1 instead (see DevPortBinding), but production is left unbound: a
+     * published production port often does need to be reachable from outside.
      */
     public function test_ports_are_not_loopback_bound_in_production(): void
     {

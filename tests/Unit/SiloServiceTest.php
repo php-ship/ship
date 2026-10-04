@@ -45,11 +45,10 @@ final class SiloServiceTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via an independent audit: production previously
-     * used the exact same `${AWS_SECRET_ACCESS_KEY:-shipsecret}` expression as development --
-     * worse here than for Garage/RustFS, since Silo's console is published to the host by
-     * default. `docker compose` itself now refuses to run at all when no real value was set in
-     * .env.production.
+     * Production requires a real value instead of falling back to the same friendly default
+     * development uses -- worse here than for Garage/RustFS if it didn't, since Silo's console is
+     * published to the host by default. `docker compose` itself refuses to run at all when no
+     * real value is set in .env.production.
      */
     public function test_the_password_is_required_in_production_not_just_overridable(): void
     {
@@ -82,9 +81,9 @@ final class SiloServiceTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via a seventh independent audit: a bare
-     * `HOST:CONTAINER` mapping binds every interface, not just loopback, for a management console
-     * that only ever needs to reach the developer's own machine.
+     * A bare `HOST:CONTAINER` mapping binds every interface, not just loopback -- development
+     * binds this to 127.0.0.1 instead (see DevPortBinding), for a management console that only
+     * ever needs to reach the developer's own machine. Production is left unbound.
      */
     public function test_the_console_port_is_not_loopback_bound_in_production(): void
     {

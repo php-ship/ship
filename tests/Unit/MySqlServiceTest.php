@@ -22,10 +22,9 @@ final class MySqlServiceTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via an independent audit: production previously
-     * used the exact same `${DB_PASSWORD:-secret}` expression as development, so a
-     * `.env.production` that forgot a real value silently shared the same publicly-known default
-     * every such project would. `docker compose` itself now refuses to run at all instead.
+     * Production requires a real value instead of falling back to the same friendly default
+     * development uses -- `docker compose` itself refuses to run at all until one is set, rather
+     * than every project that forgot silently sharing the same publicly-known default.
      */
     public function test_the_password_is_required_in_production_not_just_overridable(): void
     {
@@ -36,10 +35,10 @@ final class MySqlServiceTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via a seventh independent audit: the root password
-     * reused the exact same DB_PASSWORD value as the app user's own credential, so a leaked app
-     * credential handed over full MySQL admin access too. "app" never needs it -- it only ever
-     * authenticates as MYSQL_USER -- so it has no business appearing in environmentVariables().
+     * The root password is a separate secret from the app user's own DB_PASSWORD, not the same
+     * value doubling as both -- a leaked app credential would otherwise hand over full MySQL
+     * admin access too. "app" never needs it -- it only ever authenticates as MYSQL_USER -- so it
+     * has no business appearing in environmentVariables().
      */
     public function test_the_root_password_is_a_separate_secret_from_the_app_users_own_password(): void
     {
@@ -59,9 +58,9 @@ final class MySqlServiceTest extends TestCase
     }
 
     /**
-     * Regression test for a real race found via a live deploy: "localhost" makes mysqladmin use the
-     * unix socket, which the image's temporary init-phase server (no TCP at all) also answers -- the
-     * container went healthy ~4 seconds before anything could connect to it over the network.
+     * "localhost" makes mysqladmin use the unix socket, which the image's temporary init-phase
+     * server (no TCP at all) also answers -- the container would report healthy several seconds
+     * before anything could actually connect to it over the network.
      */
     public function test_the_healthcheck_pings_over_tcp_not_the_init_phase_sockets(): void
     {

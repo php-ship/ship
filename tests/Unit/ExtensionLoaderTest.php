@@ -97,10 +97,10 @@ final class ExtensionLoaderTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via an independent audit: a separate
-     * loadFrameworkAdapters() method used to re-instantiate every class a second time just to find
-     * the FrameworkAdapter ones -- every caller needing both ended up constructing each extension
-     * class twice per run. A single load() call now returns both in one pass.
+     * A single load() call returns both the registry and any FrameworkAdapters in one pass --
+     * not a separate method that re-instantiates every class a second time just to find the
+     * FrameworkAdapter ones, which would construct each extension class twice per run for any
+     * caller needing both.
      */
     public function test_it_resolves_a_framework_adapter_class_in_the_same_pass(): void
     {

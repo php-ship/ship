@@ -43,11 +43,10 @@ final class UpCommandTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via an independent audit: a flat "15 attempts x
-     * 2s = ~30s" wait was well past MySQL/Postgres/Redis's own interval x retries when it was
-     * written, but Garage/RustFS/Silo's own healthcheck (10s start_period + 5s x 10 retries = 60s)
-     * can legitimately still be "starting" well after that budget, producing a false "never
-     * became healthy" on a slow first boot. The wait is computed from each service's own
+     * A flat "15 attempts x 2s = ~30s" wait is well past MySQL/Postgres/Redis's own interval x
+     * retries, but Garage/RustFS/Silo's own healthcheck (10s start_period + 5s x 10 retries = 60s)
+     * can legitimately still be "starting" well after that budget, which would produce a false
+     * "never became healthy" on a slow first boot. The wait is computed from each service's own
      * generated healthcheck instead, so it's never shorter than Docker's own patience for it.
      *
      * @return iterable<string, array{array{interval?: string, retries?: int, start_period?: string}, int}>

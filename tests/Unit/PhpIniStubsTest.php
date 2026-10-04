@@ -8,12 +8,12 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Regression coverage for a real bug found via a seventh independent audit: neither php.ini stub
- * set upload_max_filesize/post_max_size at all, leaving PHP's own (much smaller stock) default in
- * place while ship/nginx/default.conf's client_max_body_size already allows 100M through to
- * php-fpm -- nginx happily forwards a request that large, which PHP then silently rejects,
- * emptying $_FILES/$_POST with nothing visible to the end user short of a PHP error log. Neither
- * stub turned off expose_php either, advertising the exact PHP version in every response.
+ * Both php.ini stubs set upload_max_filesize/post_max_size to match
+ * ship/nginx/default.conf's own client_max_body_size (100M) -- otherwise nginx happily forwards
+ * a request that large through to php-fpm, which silently rejects it at PHP's own much smaller
+ * stock default, emptying $_FILES/$_POST with nothing visible to the end user short of a PHP
+ * error log. Both also turn off expose_php, so neither advertises the exact PHP version in every
+ * response.
  *
  * Plain file-content assertions, not a live request -- these are static, non-templated stub files
  * (see InitCommand::publishStubs()'s plain mirror() call), so there's no PHP logic here to exercise.

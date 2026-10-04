@@ -81,12 +81,11 @@ final class ComposeFileBuilderTest extends TestCase
     }
 
     /**
-     * A real bug found live, caught by an independent audit: with no environment check in
-     * MailpitService itself, production got a Mailpit container too, and its MAIL_HOST
-     * unconditionally overrode whatever real mail config .env.production actually set
-     * (environment: always wins over env_file:, see OPTIONAL_ENV_FILE's own docblock) -- real
-     * mail, password reset links included, silently captured into an unauthenticated web UI
-     * instead of ever being sent.
+     * MailpitService itself has to check the environment -- without it, production would get a
+     * Mailpit container too, and its MAIL_HOST would unconditionally override whatever real mail
+     * config .env.production sets (environment: always wins over env_file:, see
+     * OPTIONAL_ENV_FILE's own docblock), silently capturing real mail -- password reset links
+     * included -- into an unauthenticated web UI instead of ever sending it.
      */
     public function test_dev_only_tooling_like_mailpit_is_entirely_absent_in_production(): void
     {
@@ -179,12 +178,11 @@ final class ComposeFileBuilderTest extends TestCase
     }
 
     /**
-     * Regression test for a real bug found from live use: the container side used to be a fixed
-     * "5173" regardless of $VITE_PORT, so a project whose own vite.config.js listens on a
-     * different port (its own VITE_PORT) never actually got it published -- HMR just silently
-     * never connected. Both sides now follow the same variable -- asserted as an exact string, not
-     * just "the two halves match," since the halves themselves both contain a ":" as part of
-     * `${VAR:-default}` syntax, which would make a naive split on ":" pick the wrong one.
+     * The container side has to follow the same $VITE_PORT the host side does, not a fixed
+     * "5173" -- otherwise a project whose own vite.config.js listens on a different port (its own
+     * VITE_PORT) never gets it published, and HMR silently never connects. Asserted as an exact
+     * string, not just "the two halves match," since the halves themselves both contain a ":" as
+     * part of `${VAR:-default}` syntax, which would make a naive split on ":" pick the wrong one.
      */
     public function test_the_vite_dev_server_ports_container_side_follows_the_same_variable_as_the_host_side(): void
     {
@@ -236,11 +234,11 @@ final class ComposeFileBuilderTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via a seventh independent audit: a bare
-     * `HOST:CONTAINER` mapping binds every interface (0.0.0.0), reachable from anything else on
-     * the same network -- or the open internet, on a cloud dev box with no firewall -- for a port
-     * that only ever needs to reach the developer's own machine. Production is untouched: a
-     * published production port often does need to be reachable from outside.
+     * A bare `HOST:CONTAINER` mapping binds every interface (0.0.0.0), reachable from anything
+     * else on the same network -- or the open internet, on a cloud dev box with no firewall --
+     * for a port that only ever needs to reach the developer's own machine, so development binds
+     * 127.0.0.1 explicitly instead. Production is untouched: a published production port often
+     * does need to be reachable from outside.
      */
     public function test_the_webserver_port_binds_loopback_only_in_development(): void
     {
@@ -281,10 +279,10 @@ final class ComposeFileBuilderTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via an independent audit: Compose interpolates a
-     * bare $VAR in a command string itself (against the host's own environment, not the
-     * container's), so a process command referencing a real shell variable had it silently
-     * blanked out before the container's shell ever ran it. $$ escapes it through as a literal.
+     * Compose interpolates a bare $VAR in a command string itself (against the host's own
+     * environment, not the container's), so a process command referencing a real shell variable
+     * needs it escaped through as a literal $$, or Compose would silently blank it out before the
+     * container's shell ever runs it.
      */
     public function test_a_dollar_sign_in_a_process_command_survives_composes_own_interpolation(): void
     {
@@ -378,12 +376,12 @@ final class ComposeFileBuilderTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via an independent re-audit: ReverbService's own
-     * composeFragment() has no access to $hostUser, so SHIP_HOST_USER was only ever set on "app"
-     * itself -- the dev entrypoint drops anything that's "its own long-lived program" (an Octane
-     * server, or Reverb, exactly the same category) to that user before exec'ing it, *if*
-     * SHIP_HOST_USER is set; without it Reverb kept running as root in dev even with hostUser
-     * enabled, the exact problem hostUser exists to avoid.
+     * SHIP_HOST_USER has to reach Reverb too, not just "app" -- ReverbService's own
+     * composeFragment() has no access to $hostUser on its own, so ComposeFileBuilder backfills
+     * it. The dev entrypoint drops anything that's "its own long-lived program" (an Octane
+     * server, or Reverb, the same category) to that user before exec'ing it, *if*
+     * SHIP_HOST_USER is set; without it Reverb would keep running as root in dev even with
+     * hostUser enabled, the exact problem hostUser exists to avoid.
      */
     public function test_reverb_gets_ship_host_user_too_when_a_host_user_is_set(): void
     {
@@ -397,10 +395,9 @@ final class ComposeFileBuilderTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via a third independent re-audit: Reverb and
-     * "app" share the exact same dev entrypoint and project tree, so both independently
-     * satisfying that entrypoint's own "composer.json present, vendor/autoload.php missing"
-     * condition would run `composer install` twice, concurrently, into the same vendor/.
+     * Reverb and "app" share the exact same dev entrypoint and project tree, so both
+     * independently satisfying that entrypoint's own "composer.json present, vendor/autoload.php
+     * missing" condition would run `composer install` twice, concurrently, into the same vendor/.
      * SHIP_DEV_SKIP_INSTALL tells the entrypoint to wait for "app"'s result instead -- dev only,
      * since production bakes vendor/ into the image at build time and never runs this entrypoint
      * logic at all.
@@ -419,15 +416,14 @@ final class ComposeFileBuilderTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via a fourth independent audit: with an Octane
-     * runtime selected, "app" itself is not php-fpm, so its own entrypoint raced `ship up`'s own
-     * MutagenSync::installComposerDependencies() to run `composer install` the moment
-     * composer.json merely appeared -- often before composer.lock had finished syncing too,
-     * silently writing a fresh composer.lock into the synced tree instead of honoring the
-     * project's pinned versions. "app" now gets the same SHIP_DEV_SKIP_INSTALL signal Reverb
-     * already does, but only when Mutagen is actually active -- a plain bind mount never starts
-     * out empty the way Mutagen's named volume does, so "app" still has to install for itself
-     * there (a project cloned with no local vendor/ at all).
+     * With an Octane runtime selected, "app" itself is not php-fpm, so its own entrypoint would
+     * otherwise race `ship up`'s own MutagenSync::installComposerDependencies() to run `composer
+     * install` the moment composer.json merely appears -- often before composer.lock has finished
+     * syncing too, writing a fresh composer.lock into the synced tree instead of honoring the
+     * project's pinned versions. "app" gets the same SHIP_DEV_SKIP_INSTALL signal Reverb does,
+     * but only when Mutagen is actually active -- a plain bind mount never starts out empty the
+     * way Mutagen's named volume does, so "app" still has to install for itself there (a project
+     * cloned with no local vendor/ at all).
      */
     public function test_app_is_told_to_skip_its_own_composer_install_only_when_mutagen_is_active(): void
     {
@@ -460,12 +456,11 @@ final class ComposeFileBuilderTest extends TestCase
     }
 
     /**
-     * Three real bugs found via an independent audit, all fixed together: Reverb never got "app"'s
-     * own injected environment (DB_*, REDIS_*, ...) at all, so anything it touched that needed the
-     * database -- a private-channel auth callback, say -- failed to connect; it never got
-     * SHIP_RUN_AS, so it ran as root in production; and its own build args were missing
-     * OCTANE_RUNTIME, so selecting Octane/Swoole alongside Reverb forced a second, wasteful image
-     * build for content that should be identical to "app"'s.
+     * Reverb has to receive "app"'s own injected environment (DB_*, REDIS_*, ...), or anything it
+     * touches that needs the database -- a private-channel auth callback, say -- fails to
+     * connect; SHIP_RUN_AS, or it runs as root in production; and matching build args
+     * (OCTANE_RUNTIME included), or selecting Octane/Swoole alongside Reverb forces a second,
+     * wasteful image build for content that should be identical to "app"'s.
      */
     public function test_reverb_gets_apps_env_vars_ship_run_as_and_matching_build_args(): void
     {
@@ -487,10 +482,11 @@ final class ComposeFileBuilderTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via an independent audit: ReverbService's own
-     * composeFragment() has no access to $mutagenSync, so its dev volume was always the raw bind
-     * mount even when SHIP_MUTAGEN is active and "app"/"webserver" both switched to the synced
-     * named volume instead -- Reverb kept reading the unsynced host tree directly.
+     * Reverb's dev volume has to follow $mutagenSync too, not stay the raw bind mount --
+     * ReverbService's own composeFragment() has no access to it on its own, so
+     * ComposeFileBuilder backfills it, matching "app"/"webserver" switching to the synced named
+     * volume when SHIP_MUTAGEN is active. Without this Reverb would read the unsynced host tree
+     * directly.
      */
     public function test_reverb_uses_the_synced_named_volume_when_mutagen_is_active(): void
     {
@@ -634,12 +630,11 @@ final class ComposeFileBuilderTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via a seventh independent audit: "webserver"
-     * (nginx) served a byte-for-byte static config -- no envsubst, no runtime variable of its own
-     * -- yet got the same env_file: as "app", so every app secret in .env/.env.production (DB
-     * credentials, API keys, ...) was readable inside the nginx container too, for no actual use.
-     * A reverse proxy serving static files and forwarding to php-fpm has no legitimate need for
-     * any of them.
+     * "webserver" (nginx) serves a byte-for-byte static config -- no envsubst, no runtime
+     * variable of its own -- so it must not get the same env_file: as "app" does: every app
+     * secret in .env/.env.production (DB credentials, API keys, ...) would be readable inside the
+     * nginx container too, for no actual use. A reverse proxy serving static files and forwarding
+     * to php-fpm has no legitimate need for any of them.
      */
     public function test_webserver_does_not_load_the_apps_env_file(): void
     {

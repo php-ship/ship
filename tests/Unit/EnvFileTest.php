@@ -41,10 +41,10 @@ final class EnvFileTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via a seventh independent audit: a UTF-8 BOM
-     * (several Windows editors, and PowerShell's own Out-File/Set-Content, write one by default)
-     * prepended itself to the first line's key, so DB_PASSWORD was never found by any exact
-     * lookup even though the file reads as correct in an editor that hides the BOM on display.
+     * A UTF-8 BOM (several Windows editors, and PowerShell's own Out-File/Set-Content, write one
+     * by default) has to be stripped from the first line's key, or that variable is never found
+     * by any exact lookup even though the file reads as correct in an editor that hides the BOM
+     * on display.
      */
     public function test_it_strips_a_leading_utf8_bom(): void
     {
@@ -59,11 +59,9 @@ final class EnvFileTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via a fourth independent audit, confirmed live:
      * `export KEY=value` -- valid shell syntax Laravel/Compose both already accept, and a real
-     * pattern for a .env.production meant to also be `source`-able directly -- kept "export KEY"
-     * as the variable name verbatim, so every lookup against the real "KEY" silently saw it as
-     * never set at all.
+     * pattern for a .env.production meant to also be `source`-able directly -- must strip the
+     * `export ` prefix, or every lookup against the real "KEY" would see it as never set at all.
      */
     public function test_it_strips_a_leading_export_keyword(): void
     {
@@ -73,8 +71,8 @@ final class EnvFileTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found the same way: a trailing " # comment" was kept as
-     * part of the value verbatim instead of being stripped, corrupting it outright.
+     * A trailing " # comment" must be stripped, not kept as part of the value verbatim -- the
+     * "comment" isn't a comment to anything reading this value afterward.
      */
     public function test_it_strips_a_trailing_inline_comment_on_an_unquoted_value(): void
     {
@@ -95,15 +93,14 @@ final class EnvFileTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via a fifth independent re-audit, confirmed live:
-     * a *quoted* value followed by a comment -- `KEY="three" # note` -- was still misread as the
-     * literal `"three" # note`, quotes and comment included. The old quote-stripping only ever
-     * matched when the closing quote was the value's very last character, which a trailing
-     * comment makes false, so neither the comment-stripping nor the quote-stripping path applied
-     * at all. The real-world effect: DB_USERNAME="root" # comment would have escaped
-     * MySqlUsernameGuard entirely, and a value handed to `docker compose build` for `${VAR}`
-     * interpolation would have been wrong (though not the containers Compose itself starts,
-     * which read the file directly rather than through this reader).
+     * A *quoted* value followed by a comment -- `KEY="three" # note` -- has to find the closing
+     * quote explicitly and only comment-strip what comes after it; checking only whether the
+     * closing quote is the value's very last character would miss this (a trailing comment makes
+     * that false), reading the literal `"three" # note` instead -- quotes and comment included.
+     * The real-world effect: DB_USERNAME="root" # comment would escape MySqlUsernameGuard
+     * entirely, and a value handed to `docker compose build` for `${VAR}` interpolation would be
+     * wrong (though not the containers Compose itself starts, which read the file directly rather
+     * than through this reader).
      */
     public function test_it_strips_a_trailing_comment_after_a_quoted_values_closing_quote(): void
     {
@@ -120,12 +117,13 @@ final class EnvFileTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via a sixth independent re-audit, confirmed live:
-     * an *escaped* quote inside a double-quoted value -- E="a\"b" -- cut the value short at that
-     * escaped quote (parsing as the literal "a\") instead of continuing to the real closing one.
+     * An *escaped* quote inside a double-quoted value -- E="a\"b" -- must not end the value
+     * early: scanning has to continue past it to the real closing quote, treating a backslash as
+     * consuming whatever follows it, the same way a shell or a real dotenv parser already does.
      * The only consumers that ever read this (MySqlUsernameGuard, the `${VAR}` interpolation
-     * handed to `docker compose build`) would have seen the truncated value -- Compose itself
-     * reads the real file at container runtime, so the containers were never actually affected.
+     * handed to `docker compose build`) would otherwise see the truncated value -- Compose itself
+     * reads the real file at container runtime, so the containers themselves are never affected
+     * either way.
      */
     public function test_an_escaped_quote_inside_a_double_quoted_value_does_not_end_it_early(): void
     {

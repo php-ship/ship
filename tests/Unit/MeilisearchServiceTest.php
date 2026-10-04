@@ -40,10 +40,9 @@ final class MeilisearchServiceTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via an independent audit: production previously
-     * used the exact same `${MEILISEARCH_KEY:-shipsearchkey}` expression as development.
-     * `docker compose` itself now refuses to run at all when no real value was set in
-     * .env.production.
+     * Production must require a real value instead of falling back to the same
+     * `${MEILISEARCH_KEY:-shipsearchkey}` expression development uses -- `docker compose` itself
+     * refuses to run at all when none was set in .env.production.
      */
     public function test_the_master_key_is_required_in_production_not_just_overridable(): void
     {

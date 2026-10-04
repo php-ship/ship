@@ -82,11 +82,11 @@ final class OctaneRuntimeMergeTest extends TestCase
     }
 
     /**
-     * Regression test for a real bug found from live use: this used to be set unconditionally,
-     * which always overwrote a project's own real, host-reachable APP_URL (environment: always
-     * wins over env_file: -- see OPTIONAL_ENV_FILE's own docblock) with an internal Docker
-     * hostname no browser outside the container can resolve, breaking queued emails, signed URLs,
-     * and any artisan command that generates an absolute URL.
+     * Only injected when Dusk is actually selected -- setting it unconditionally would overwrite
+     * a project's own real, host-reachable APP_URL (environment: always wins over env_file: --
+     * see OPTIONAL_ENV_FILE's own docblock) with an internal Docker hostname no browser outside
+     * the container can resolve, breaking queued emails, signed URLs, and any artisan command
+     * that generates an absolute URL.
      */
     public function test_app_url_is_not_injected_when_dusk_is_not_selected(): void
     {
@@ -99,12 +99,11 @@ final class OctaneRuntimeMergeTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via an independent re-audit: ship.json's
-     * "testing": "dusk" selection doesn't vary by environment, so this block still fired in
-     * *production* too, overwriting a project's own real, host-reachable APP_URL there -- the
-     * exact overwrite the test above already guards against, just reintroduced for production.
-     * DuskService itself already contributes nothing in production (see its own
-     * composeFragment()), so this should match that and inject nothing either.
+     * ship.json's "testing": "dusk" selection doesn't vary by environment on its own, so this
+     * injection has to check the environment explicitly too, or it would overwrite a project's
+     * own real, host-reachable APP_URL in *production* as well -- the same overwrite the test
+     * above guards against in development. DuskService itself already contributes nothing in
+     * production (see its own composeFragment()), so this matches that and injects nothing either.
      */
     public function test_app_url_is_not_injected_in_production_even_when_dusk_is_selected(): void
     {
@@ -118,12 +117,12 @@ final class OctaneRuntimeMergeTest extends TestCase
     }
 
     /**
-     * Regression test for a real bug reported from live use: baseServices() sets "app".networks to
-     * ["ship"], then applyService() defaults every fragment missing its own networks key to ["ship"]
-     * too (see its own docblock) -- Octane's fragment for "app" doesn't set one, so
-     * mergeServiceFragment() used to concatenate the two into ["ship", "ship"], which Compose's
-     * schema rejects outright ("app" is the only service two fragments both land on without either
-     * setting networks explicitly, which is why only it showed the duplicate).
+     * baseServices() sets "app".networks to ["ship"], and applyService() defaults every fragment
+     * missing its own networks key to ["ship"] too (see its own docblock) -- Octane's fragment for
+     * "app" doesn't set one, so mergeServiceFragment() has to recognize the two are the same
+     * network rather than concatenating them into ["ship", "ship"], which Compose's schema
+     * rejects outright. "app" is the only service two fragments both land on without either
+     * setting networks explicitly, which is why only it can show the duplicate.
      */
     public function test_networks_is_not_duplicated_when_a_second_fragment_merges_into_app(): void
     {

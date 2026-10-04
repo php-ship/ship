@@ -25,9 +25,8 @@ final class DuskServiceTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via an independent audit: the Selenium image was
-     * pinned to the floating "4" major tag, an unpinned build input that could silently change
-     * between two `ship up` runs with no corresponding change here.
+     * Pinned to a specific version, not the floating "4" major tag -- an unpinned build input
+     * could silently change between two `ship up` runs with no corresponding change here.
      */
     public function test_the_selenium_image_is_pinned_to_a_specific_version(): void
     {
@@ -40,10 +39,10 @@ final class DuskServiceTest extends TestCase
     }
 
     /**
-     * Dev/test tooling, not infrastructure -- a real bug found live: with no environment check at
-     * all, production built and started a Selenium container too, for a browser test suite that
-     * never runs there. An empty fragment is this class's own signal to ComposeFileBuilder that it
-     * contributes nothing in production -- no container, no env vars injected into "app" either.
+     * Dev/test tooling, not infrastructure -- production has no business building and starting a
+     * Selenium container for a browser test suite that never runs there. An empty fragment is
+     * this class's own signal to ComposeFileBuilder that it contributes nothing in production --
+     * no container, no env vars injected into "app" either.
      */
     public function test_it_contributes_nothing_in_production(): void
     {

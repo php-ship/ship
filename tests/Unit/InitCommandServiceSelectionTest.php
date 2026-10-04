@@ -74,9 +74,8 @@ final class InitCommandServiceSelectionTest extends TestCase
     }
 
     /**
-     * Only the exact front controller is ever passed to PHP-FPM -- a real bug found via an
-     * independent audit: the previous `location ~ \.php$` passed *any* request path ending in
-     * .php to PHP-FPM, existing file or not, instead of being restricted to index.php.
+     * Only the exact front controller is ever passed to PHP-FPM -- not `location ~ \.php$`,
+     * which would pass *any* request path ending in .php to PHP-FPM, existing file or not.
      */
     public function test_nginx_restricts_php_execution_to_the_front_controller(): void
     {
@@ -88,14 +87,12 @@ final class InitCommandServiceSelectionTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via an independent re-audit of the fix above:
-     * restricting execution to the exact front controller left every *other* .php file under
-     * public/ falling through to "location /"'s try_files, which served it statically as raw PHP
-     * source instead of running it -- a source-disclosure bug in place of the original
-     * arbitrary-execution one. Verified live (a real nginx container): a stray second.php now
-     * 404s instead of returning its source, while /index.php itself still reaches the exact-match
-     * fastcgi_pass block untouched (confirmed by a 502 against no real php-fpm backend, not a
-     * 404 from this new rule intercepting it instead).
+     * Restricting execution to the exact front controller alone would leave every *other* .php
+     * file under public/ falling through to "location /"'s try_files, which serves it statically
+     * as raw PHP source instead of running it -- a source-disclosure problem in place of
+     * arbitrary execution. This rule 404s a stray second.php instead of returning its source,
+     * while /index.php itself still reaches the exact-match fastcgi_pass block untouched (nginx's
+     * exact match always wins over this regex for /index.php itself).
      */
     public function test_nginx_denies_every_other_php_file_instead_of_serving_it_as_source(): void
     {
@@ -107,9 +104,8 @@ final class InitCommandServiceSelectionTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via a seventh independent audit: nginx's default
-     * server_tokens (on) advertises the exact nginx version in every response's Server: header, a
-     * smaller, specific CVE search target than "nginx" alone.
+     * server_tokens off -- nginx's own default (on) advertises the exact nginx version in every
+     * response's Server: header, a smaller, specific CVE search target than "nginx" alone.
      */
     public function test_nginx_does_not_advertise_its_own_version(): void
     {
@@ -121,9 +117,9 @@ final class InitCommandServiceSelectionTest extends TestCase
     }
 
     /**
-     * A real bug found via an independent audit: the stub hardcodes "app:9000" -- renaming the
-     * app service via ship.json's serviceNames left nginx trying to reach a DNS name nothing in
-     * the stack answers to anymore, 502ing every request.
+     * The stub's own "app:9000" upstream has to follow a renamed app service, not stay
+     * hardcoded -- renaming it via ship.json's serviceNames would otherwise leave nginx trying
+     * to reach a DNS name nothing in the stack answers to, 502ing every request.
      */
     public function test_nginx_upstream_follows_a_renamed_app_service(): void
     {
@@ -174,10 +170,9 @@ final class InitCommandServiceSelectionTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via an independent audit: this check only ever
-     * looked at the default storage pick, so Garage selected *only* as a named additionalServices
-     * instance never got its stub files published at all -- that instance's own `build:` had
-     * nothing to build from.
+     * This check has to cover Garage selected *only* as a named additionalServices instance too,
+     * not just the default storage pick -- otherwise that instance's own `build:` would have
+     * nothing to build from, since its stub files were never published at all.
      */
     public function test_garages_config_stub_is_published_when_selected_only_as_an_additional_instance(): void
     {
@@ -290,12 +285,11 @@ final class InitCommandServiceSelectionTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via a seventh independent audit, confirmed live:
-     * every group prompt always defaulted to "None" regardless of ship.json's existing
-     * selections, so re-running `ship init` on a project that already has one -- exactly what
-     * `ship up` itself tells users to do after a stub-version mismatch -- silently dropped the
-     * database/cache/etc. selection the moment the user just accepted each prompt's own default
-     * instead of retyping every choice by hand.
+     * Every group prompt must default to ship.json's existing selection, not always "None" --
+     * re-running `ship init` on a project that already has one (exactly what `ship up` itself
+     * tells users to do after a stub-version mismatch) would otherwise drop the database/cache/
+     * etc. selection the moment the user just accepts each prompt's own default instead of
+     * retyping every choice by hand.
      */
     public function test_re_running_init_defaults_each_group_to_its_existing_selection(): void
     {

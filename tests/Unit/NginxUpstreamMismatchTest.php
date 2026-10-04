@@ -10,10 +10,9 @@ use Ship\Docker\NginxUpstreamMismatch;
 use Symfony\Component\Filesystem\Filesystem;
 
 /**
- * Extracted from UpCommand (see that class's own history) so ship build/ship release can share
- * the exact same check -- a real bug found via an independent re-audit: they build the same
- * prod-nginx image from this exact same stale file, so a rename can ship a webserver that can't
- * reach the app either, with nothing warning about it there.
+ * Shared by UpCommand and ship build/ship release alike -- they all build the prod-nginx image
+ * from this exact same published file, so a rename can ship a webserver that can't reach the
+ * app, with nothing warning about it unless every one of those commands checks for it.
  */
 final class NginxUpstreamMismatchTest extends TestCase
 {

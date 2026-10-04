@@ -28,9 +28,9 @@ final class ReverbServiceTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via a seventh independent audit: a bare
-     * `HOST:CONTAINER` mapping binds every interface, not just loopback. Production is untouched
-     * -- Reverb's published port often does need to be reachable from outside there.
+     * A bare `HOST:CONTAINER` mapping binds every interface, not just loopback -- development
+     * binds this to 127.0.0.1 instead (see DevPortBinding), but production is left unbound:
+     * Reverb's published port often does need to be reachable from outside there.
      */
     public function test_the_port_is_not_loopback_bound_in_production(): void
     {

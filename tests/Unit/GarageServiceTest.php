@@ -51,11 +51,11 @@ final class GarageServiceTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via an independent audit: production previously
-     * used the exact same `${AWS_SECRET_ACCESS_KEY:-shipsecretplaceholder}` expression as
-     * development. `docker compose` itself now refuses to run at all when no real value was set
-     * in .env.production. The access key id -- access-key-ID-shaped, not secret-shaped -- stays a
-     * plain default, same reasoning DB_USERNAME is never required either.
+     * Production must require a real value instead of falling back to the same
+     * `${AWS_SECRET_ACCESS_KEY:-shipsecretplaceholder}` expression development uses --
+     * `docker compose` itself refuses to run at all when none was set in .env.production. The
+     * access key id -- access-key-ID-shaped, not secret-shaped -- stays a plain default, same
+     * reasoning DB_USERNAME is never required either.
      */
     public function test_the_secret_key_is_required_in_production_not_just_overridable(): void
     {
@@ -67,10 +67,10 @@ final class GarageServiceTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via an independent audit: the published
-     * garage.toml stub hardcoded an all-zero rpc_secret shared by every project that ever
-     * selected Garage, and the admin API had no token at all. Garage's own CLI reads both as env
-     * vars directly, overriding config.toml, so no wrapper script or generated file is needed.
+     * Both the rpc_secret and the admin API token must be required, real values in production --
+     * not an all-zero rpc_secret shared by every project that ever selects Garage, or no admin
+     * token at all. Garage's own CLI reads both as env vars directly, overriding config.toml, so
+     * no wrapper script or generated file is needed.
      */
     public function test_rpc_secret_and_admin_token_are_required_in_production_not_just_overridable(): void
     {
@@ -97,12 +97,12 @@ final class GarageServiceTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via an independent audit: garage.toml's
-     * rpc_public_addr was hardcoded to the literal "garage:3901", wrong for a named additional
-     * instance (ship.json's additionalServices) since its real compose service name is never just
-     * "garage". The Dockerfile's own "config" stage now substitutes this build arg into the file
-     * instead -- see that file's docblock for why it can't be done at container boot (no shell in
-     * the final, FROM-scratch image).
+     * garage.toml's rpc_public_addr has to match whatever the instance's own compose service name
+     * actually is, not a hardcoded literal "garage:3901" -- wrong for a named additional instance
+     * (ship.json's additionalServices), whose real compose service name is never just "garage".
+     * The Dockerfile's own "config" stage substitutes this build arg into the file instead -- see
+     * that file's docblock for why it can't be done at container boot (no shell in the final,
+     * FROM-scratch image).
      */
     public function test_the_rpc_public_addr_build_arg_matches_the_instances_own_compose_name(): void
     {

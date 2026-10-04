@@ -45,11 +45,11 @@ final class ProjectNameTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via an independent audit, confirmed live
-     * (`docker build -t foo..bar-app:local` fails outright with "invalid reference format"):
      * Docker's actual grammar only allows a *single* separator between alphanumeric runs, never
-     * two or more literal dots/underscores in a row. "foo..bar" is already entirely within the
-     * allowed character set, so the old single-pass sanitizer let it straight through.
+     * two or more literal dots/underscores in a row -- confirmed live: `docker build -t
+     * foo..bar-app:local` fails outright with "invalid reference format". "foo..bar" is already
+     * entirely within the allowed character set, so a sanitizer that only checks characters (not
+     * run length) would let it straight through.
      */
     public function test_consecutive_separator_characters_are_collapsed_to_one(): void
     {

@@ -88,8 +88,8 @@ final class EntrypointScriptBuilderTest extends TestCase
     }
 
     /**
-     * Debian (FrankenPHP) has no su-exec but already ships setpriv, confirmed live to exec() its
-     * target directly, same as su-exec, not fork-and-wait. SHIP_RUN_AS is always a bare name
+     * Debian (FrankenPHP) has no su-exec but already ships setpriv, which exec()s its target
+     * directly, same as su-exec, not fork-and-wait. SHIP_RUN_AS is always a bare name
      * ("www-data") here, never "uid:gid", so the same value works as both --reuid and --regid.
      */
     public function test_it_falls_back_to_setpriv_when_su_exec_is_not_available(): void

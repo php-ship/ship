@@ -42,11 +42,10 @@ final class ShipConfigTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via an independent audit: `"php": 8.4` (a bare
-     * JSON number -- the quotes around the string are an easy hand-edit mistake to drop)
-     * previously reached the constructor's own strict `string $phpVersion` type unchecked,
-     * surfacing as a raw "Argument #1 ($phpVersion) must be of type string, float given"
-     * TypeError instead of a message that so much as names ship.json.
+     * `"php": 8.4` (a bare JSON number -- the quotes around the string are an easy hand-edit
+     * mistake to drop) must be caught here with a message naming ship.json, not reach the
+     * constructor's own strict `string $phpVersion` type unchecked -- that surfaces as a raw
+     * "Argument #1 ($phpVersion) must be of type string, float given" TypeError instead.
      */
     public function test_from_file_rejects_a_non_string_php_version_with_a_clear_error(): void
     {
@@ -69,9 +68,8 @@ final class ShipConfigTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via an independent audit: serviceNames values went
-     * straight into generated compose keys with no validation at all, unlike `processes` names,
-     * which already get exactly this check.
+     * serviceNames values go straight into generated compose keys, so they need the same format
+     * check `processes` names already get.
      */
     public function test_from_file_rejects_an_invalid_service_name(): void
     {
@@ -104,11 +102,9 @@ final class ShipConfigTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via an independent re-audit: a non-array
-     * serviceNames/additionalServices/processes/deployCommands used to reach a raw `foreach()
-     * argument must be of type array|object` PHP warning followed by an uncaught constructor
-     * TypeError -- confirmed live -- instead of a clean message naming ship.json, exactly the
-     * failure mode this validation exists to replace.
+     * A non-array serviceNames/additionalServices/processes/deployCommands must be caught here
+     * with a clean message naming ship.json, not reach a raw `foreach() argument must be of type
+     * array|object` PHP warning followed by an uncaught constructor TypeError.
      *
      * @return iterable<string, array{string, mixed}>
      */
@@ -135,9 +131,9 @@ final class ShipConfigTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via an independent re-audit: processes/
-     * deployCommands had no validation at all before this -- a non-string command (or, for
-     * processes, a non-string name) would have reached whatever used it downstream unchecked.
+     * processes/deployCommands need the same validation as every other field -- a non-string
+     * command (or, for processes, a non-string name) would otherwise reach whatever uses it
+     * downstream unchecked.
      */
     public function test_from_file_rejects_a_non_string_process_command(): void
     {
@@ -179,9 +175,8 @@ final class ShipConfigTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via a second independent re-audit, confirmed
-     * live: each of these used to reach a raw constructor TypeError instead of a message naming
-     * ship.json.
+     * Each of these must be caught with a message naming ship.json, not reach a raw constructor
+     * TypeError.
      *
      * @return iterable<string, array{array<string, mixed>, string}>
      */
@@ -211,10 +206,9 @@ final class ShipConfigTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via a second independent re-audit: an
-     * additionalServices entry missing its "service" key reached an "Undefined array key"
-     * PHP warning in ComposeFileBuilder::build() instead, confirmed live, rather than a message
-     * naming ship.json at the point the config is actually loaded.
+     * An additionalServices entry missing its "service" key must be caught with a message naming
+     * ship.json at the point the config is actually loaded, not reach an "Undefined array key"
+     * PHP warning in ComposeFileBuilder::build() instead.
      */
     public function test_from_file_rejects_an_additional_service_entry_missing_the_service_key(): void
     {
@@ -230,11 +224,10 @@ final class ShipConfigTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via a second independent re-audit: a top-level
-     * JSON value that isn't even an object at all -- a plain array, or a bare string -- used to
-     * either silently proceed with every field defaulted (discarding the fact the file was never
-     * ship.json-shaped) or reach a raw TypeError from validate()'s own parameter type hint,
-     * confirmed live, instead of a message naming ship.json.
+     * A top-level JSON value that isn't even an object at all -- a plain array, or a bare string
+     * -- must be caught with a message naming ship.json, not silently proceed with every field
+     * defaulted (discarding the fact the file was never ship.json-shaped) or reach a raw
+     * TypeError from validate()'s own parameter type hint.
      *
      * @return iterable<string, array{string}>
      */
@@ -355,14 +348,14 @@ final class ShipConfigTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via an independent re-audit: fromFile() validates
-     * and throws on the first invalid field it finds, which InitCommand::readExistingConfig()'s
-     * own try/catch treated as "nothing to preserve at all" -- one bad serviceNames value
-     * reintroduced the exact data-loss bug the preservation fix exists to prevent. tryFromFile()
-     * preserves a field that's merely the wrong *format* (not the wrong *type*) as-is instead of
-     * dropping it -- silently discarding it here would just be a second, quieter way to lose a
-     * hand-edited value with no error at all; fromFile()'s own validation still catches it for
-     * real, with a clear and actionable error, the next time anything actually uses the config.
+     * fromFile() validates and throws on the first invalid field it finds, which
+     * InitCommand::readExistingConfig() treats as "nothing to preserve at all" if it calls
+     * fromFile() directly -- one bad serviceNames value would then discard every other hand-edited
+     * field right along with it. tryFromFile() preserves a field that's merely the wrong *format*
+     * (not the wrong *type*) as-is instead of dropping it -- silently discarding it here would
+     * just be a second, quieter way to lose a hand-edited value with no error at all;
+     * fromFile()'s own validation still catches it for real, with a clear and actionable error,
+     * the next time anything actually uses the config.
      */
     public function test_try_from_file_preserves_a_field_that_fails_formatting_rules_as_is(): void
     {

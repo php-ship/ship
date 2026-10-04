@@ -29,9 +29,9 @@ final class OctaneSwooleServiceTest extends TestCase
      * to begin with (the source is baked into the image, not live-mounted).
      *
      * Gated on node_modules/chokidar actually existing, checked at container *boot* -- not always
-     * on -- found via a real CI failure: unconditionally passing --watch crash-loops Octane's own
-     * watcher subprocess ("Cannot find module 'chokidar'") on any project that doesn't have it,
-     * which is most fresh Laravel installs, not a rare case.
+     * on -- unconditionally passing --watch crash-loops Octane's own watcher subprocess ("Cannot
+     * find module 'chokidar'") on any project that doesn't have it, which is most fresh Laravel
+     * installs, not a rare case.
      */
     public function test_watch_is_conditional_on_chokidar_and_only_checked_in_development(): void
     {

@@ -54,11 +54,9 @@ final class ProcessRunnerTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via an independent audit: a command that actually
-     * hits the timeout used to throw ProcessTimedOutException straight out of runQuiet(),
-     * uncaught -- crashing the whole `ship` process with a raw stack trace. A genuinely slow
-     * command (sleeps longer than a deliberately tiny timeout) now degrades to the same empty
-     * string every other runQuiet() failure already produces, instead of throwing.
+     * A command that actually hits the timeout degrades to the same empty string every other
+     * runQuiet() failure already produces, instead of letting ProcessTimedOutException escape
+     * uncaught and crash the whole `ship` process with a raw stack trace.
      */
     public function test_run_quiet_returns_an_empty_string_instead_of_throwing_on_timeout(): void
     {
@@ -75,11 +73,11 @@ final class ProcessRunnerTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via a seventh independent audit: MutagenSync's own
-     * `mutagen sync create` call discarded its result entirely, so a real failure (confirmed live
-     * against the actual `mutagen` binary: a nonexistent container gives exit 1 and a specific
-     * "container does not exist" stderr message) fell straight through to a 120-second polling
-     * loop that was never going to succeed, instead of failing fast with the real cause.
+     * MutagenSync::start() needs this to tell a real `mutagen sync create` failure apart from
+     * "succeeded with no output" -- confirmed against the actual `mutagen` binary: a nonexistent
+     * container gives exit 1 and a specific "container does not exist" stderr message, which lets
+     * start() fail fast with the real cause instead of falling through to a 120-second polling
+     * loop that was never going to succeed.
      */
     public function test_run_quiet_with_result_captures_exit_code_and_both_streams(): void
     {

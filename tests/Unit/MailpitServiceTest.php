@@ -18,10 +18,10 @@ final class MailpitServiceTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via a seventh independent audit: a bare
-     * `HOST:CONTAINER` mapping binds every interface, not just loopback, for a web UI that only
-     * ever needs to reach the developer's own machine. Mailpit is dev-only tooling entirely (see
-     * the production test below), so there's no production case to leave unbound here.
+     * A bare `HOST:CONTAINER` mapping binds every interface, not just loopback, for a web UI
+     * that only ever needs to reach the developer's own machine -- bound to 127.0.0.1 instead.
+     * Mailpit is dev-only tooling entirely (see the production test below), so there's no
+     * production case to leave unbound here.
      */
     public function test_the_web_ui_port_binds_loopback_only(): void
     {
@@ -51,11 +51,11 @@ final class MailpitServiceTest extends TestCase
     }
 
     /**
-     * Dev/test tooling, not infrastructure -- a real bug found live: with no environment check at
-     * all, production got a Mailpit container too, and its MAIL_HOST unconditionally overrode
-     * whatever real mail config .env.production set (environment: always wins over env_file:).
-     * An empty fragment is this class's own signal to ComposeFileBuilder that it contributes
-     * nothing in production -- no container, no env vars injected into "app" either.
+     * Dev/test tooling, not infrastructure -- production must not get a Mailpit container, or
+     * its MAIL_HOST would unconditionally override whatever real mail config .env.production sets
+     * (environment: always wins over env_file:). An empty fragment is this class's own signal to
+     * ComposeFileBuilder that it contributes nothing in production -- no container, no env vars
+     * injected into "app" either.
      */
     public function test_it_contributes_nothing_in_production(): void
     {

@@ -12,10 +12,9 @@ use Symfony\Component\Console\Tester\CommandTester;
 use Symfony\Component\Filesystem\Filesystem;
 
 /**
- * ship.json's equivalent of `nginx -t` -- added alongside a third independent audit's findings,
- * at the user's own request for exactly this kind of command. Covers that it actually surfaces
- * every class of problem the rest of this codebase already knows how to detect, and that it
- * reports all of them in one pass rather than failing fast on the first one.
+ * ship.json's equivalent of `nginx -t`. Covers that it actually surfaces every class of problem
+ * the rest of this codebase already knows how to detect, and that it reports all of them in one
+ * pass rather than failing fast on the first one.
  */
 final class ConfigTestCommandTest extends TestCase
 {
@@ -52,10 +51,9 @@ final class ConfigTestCommandTest extends TestCase
     }
 
     /**
-     * Checked once, not once per environment -- a real bug found via a fourth independent audit:
-     * registry membership doesn't depend on dev vs prod, and reporting it twice (one label per
-     * environment, as an earlier version of this command did by attempting both builds
-     * unconditionally) would double-count one real problem as two.
+     * Checked once, not once per environment -- registry membership doesn't depend on dev vs
+     * prod, so attempting both builds unconditionally and reporting one label per environment
+     * would double-count one real problem as two.
      */
     public function test_it_reports_an_unregistered_service_key_exactly_once(): void
     {
@@ -71,9 +69,8 @@ final class ConfigTestCommandTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via a fourth independent audit: an unregistered
-     * service key in ship.json's additionalServices is exactly as fatal as one in services
-     * itself, and must be checked the same way.
+     * An unregistered service key in ship.json's additionalServices is exactly as fatal as one
+     * in services itself, and must be checked the same way.
      */
     public function test_it_reports_an_unregistered_additional_service_key(): void
     {
@@ -90,10 +87,10 @@ final class ConfigTestCommandTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via a fourth independent audit, confirmed live:
-     * ComposeFileBuilder::build() throws on the *first* problem it hits, so an unregistered
-     * service key used to hide a bad `processes` name behind it, directly contradicting this
-     * command's own "reports everything in one pass" promise.
+     * ComposeFileBuilder::build() throws on the *first* problem it hits, so checking service keys
+     * and process names independently (not solely via a single build() attempt) matters: an
+     * unregistered service key would otherwise hide a bad `processes` name behind it, directly
+     * contradicting this command's own "reports everything in one pass" promise.
      */
     public function test_it_reports_a_bad_service_key_and_a_bad_process_name_together(): void
     {

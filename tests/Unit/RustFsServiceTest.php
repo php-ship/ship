@@ -37,10 +37,9 @@ final class RustFsServiceTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via an independent audit: production previously
-     * used the exact same `${AWS_SECRET_ACCESS_KEY:-shipsecret}` expression as development.
-     * `docker compose` itself now refuses to run at all when no real value was set in
-     * .env.production.
+     * Production requires a real value instead of falling back to the same friendly default
+     * development uses -- `docker compose` itself refuses to run at all when no real value is
+     * set in .env.production.
      */
     public function test_the_secret_key_is_required_in_production_not_just_overridable(): void
     {
@@ -83,10 +82,10 @@ final class RustFsServiceTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real gap found via live Docker verification: unlike Garage, RustFS
-     * has no way to auto-provision a default bucket -- a write to one that was never created fails
-     * outright with "NoSuchBucket". AWS_BUCKET still points at "local" (the app's expected default,
-     * same as every other storage option here), but nothing about this class secretly creates it.
+     * Unlike Garage, RustFS has no way to auto-provision a default bucket -- a write to one that
+     * was never created fails outright with "NoSuchBucket". AWS_BUCKET still points at "local"
+     * (the app's expected default, same as every other storage option here), but nothing about
+     * this class secretly creates it.
      */
     public function test_it_does_not_claim_to_provision_a_default_bucket(): void
     {

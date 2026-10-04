@@ -15,11 +15,9 @@ use Symfony\Component\Filesystem\Filesystem;
 final class ApplicationTest extends TestCase
 {
     /**
-     * Regression coverage for a real bug found via an independent audit: this was hardcoded to
-     * the literal "0.1.0-dev" forever, so `ship --version` never reflected whatever was actually
-     * installed. ShipVersion::current() reads real Composer metadata (confirmed to return
-     * "dev-main", not null, in this checkout), so this fails if the hardcoded literal ever creeps
-     * back in.
+     * `ship --version` must reflect whatever's actually installed, not a hardcoded literal --
+     * ShipVersion::current() reads real Composer metadata (returns "dev-main", not null, in this
+     * checkout), so this fails if a hardcoded "0.1.0-dev" ever creeps back in.
      */
     public function test_the_cli_version_comes_from_shipversion_not_a_hardcoded_literal(): void
     {
@@ -101,14 +99,11 @@ final class ApplicationTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via an independent re-audit: removing the
-     * duplicate *warning* print (see Application's own fwrite() docblock) left the duplicate
-     * *instantiation* itself in place -- UpCommand/BuildCommand/ReleaseCommand/DbCommand each
-     * still built and populated their own fresh ServiceRegistry independently on every real
-     * `ship` invocation, instantiating every extension class a second time. Application now
-     * passes its own already-populated registry into all four, exactly as it already did for
-     * InitCommand -- same object, not an equivalent copy, which is what proves no second
-     * instantiation pass happened.
+     * UpCommand/BuildCommand/ReleaseCommand/DbCommand each receive Application's own
+     * already-populated registry, exactly as InitCommand does (see Application's own fwrite()
+     * docblock) -- not an equivalent copy each builds and populates independently, which would
+     * instantiate every extension class a second time on every real `ship` invocation. Asserted
+     * as the same object, which is what proves no second instantiation pass happened.
      */
     public function test_up_build_release_and_db_commands_share_applications_own_registry(): void
     {

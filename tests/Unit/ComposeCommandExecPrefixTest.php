@@ -69,10 +69,9 @@ final class ComposeCommandExecPrefixTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via a seventh independent audit: a hand-edit, an
-     * interrupted write, or a stale file from a different ship version could all leave this
-     * genuinely malformed, which previously threw a raw ParseException straight out of
-     * execPrefix() -- crashing `ship exec`/`shell`/`composer`/`npm` outright over a --user prefix
+     * A hand-edit, an interrupted write, or a stale file from a different ship version can all
+     * leave this genuinely malformed -- execPrefix() falls back to no --user prefix instead of
+     * letting a ParseException crash `ship exec`/`shell`/`composer`/`npm` outright over a prefix
      * that's a convenience, not something any of them actually need to run at all.
      */
     public function test_malformed_yaml_falls_back_to_no_user_instead_of_throwing(): void

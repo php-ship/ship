@@ -11,12 +11,11 @@ use Ship\Services\SeaweedFsService;
 final class SeaweedFsServiceTest extends TestCase
 {
     /**
-     * Regression test for a real bug found via live Docker verification: this image's own DNS
-     * resolver tries ::1 (IPv6 loopback) first, which nothing listens on, so a healthcheck against
-     * "localhost" reports connection refused forever even though the master API works fine on
-     * IPv4 -- the container never reports healthy despite actually being up. 127.0.0.1 sidesteps
-     * the resolver entirely. Locks in the fix so a future "cleanup" back to localhost can't
-     * silently reintroduce it.
+     * This image's own DNS resolver tries ::1 (IPv6 loopback) first, which nothing listens on, so
+     * a healthcheck against "localhost" reports connection refused forever even though the master
+     * API works fine on IPv4 -- the container would never report healthy despite actually being
+     * up. 127.0.0.1 sidesteps the resolver entirely. Locks in the fix so a future "cleanup" back
+     * to localhost can't silently reintroduce it.
      */
     public function test_the_healthcheck_targets_the_ipv4_loopback_address_explicitly(): void
     {
@@ -40,12 +39,11 @@ final class SeaweedFsServiceTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via a seventh independent audit, confirmed by
-     * reading the code: environmentVariables() -- the side "app" actually gets, since
-     * environment: always wins over env_file: -- hardcoded the literal "ship"/"shipsecret"
-     * instead of the same Compose expression composeFragment() uses, so "app" always
-     * authenticated with the dev placeholder regardless of what .env.production actually set.
-     * Every other credentialed service (Garage, RustFS, Silo) already gets this right.
+     * environmentVariables() -- the side "app" actually gets, since environment: always wins
+     * over env_file: -- must use the same Compose expression composeFragment() uses, not a
+     * hardcoded literal, or "app" would authenticate with the dev placeholder regardless of what
+     * .env.production actually sets. Every other credentialed service (Garage, RustFS, Silo)
+     * already gets this right.
      */
     public function test_app_credentials_are_expressions_not_hardcoded_literals(): void
     {
@@ -65,12 +63,11 @@ final class SeaweedFsServiceTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via an independent audit: the base image's S3
-     * gateway has no authentication at all unless handed an identity config file -- verified live
-     * that an unsigned request against a plain `weed server -s3` (no -s3.config) returned 200
-     * with a real bucket listing. The entrypoint now overrides the image's own `weed` ENTRYPOINT
-     * with a shell that generates that file from the injected credentials at boot, then execs the
-     * real server against it -- verified live that the same unsigned request now gets a 403.
+     * The base image's S3 gateway has no authentication at all unless handed an identity config
+     * file -- an unsigned request against a plain `weed server -s3` (no -s3.config) returns 200
+     * with a real bucket listing otherwise. The entrypoint overrides the image's own `weed`
+     * ENTRYPOINT with a shell that generates that file from the injected credentials at boot,
+     * then execs the real server against it -- the same unsigned request then gets a 403 instead.
      */
     public function test_an_s3_identity_config_is_generated_from_the_injected_credentials(): void
     {
@@ -86,12 +83,11 @@ final class SeaweedFsServiceTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via an independent re-audit, confirmed live: the
-     * raw credential values went straight into the printf %s placeholders with no JSON escaping
-     * at all, so a secret containing a literal '"' or '\' (nothing stops a real password manager
-     * or a RequiredEnv-required .env.production value from generating one) produced invalid JSON
-     * -- verified live that the unescaped version of this exact command genuinely fails to parse.
-     * sed now escapes both characters first.
+     * The raw credential values go straight into the printf %s placeholders otherwise, with no
+     * JSON escaping at all, so a secret containing a literal '"' or '\' (nothing stops a real
+     * password manager or a RequiredEnv-required .env.production value from generating one)
+     * would produce invalid JSON -- confirmed that the unescaped version of this exact command
+     * genuinely fails to parse. sed escapes both characters first.
      */
     public function test_the_identity_file_escapes_credentials_through_sed_before_embedding_them(): void
     {

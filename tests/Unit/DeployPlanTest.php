@@ -38,11 +38,10 @@ final class DeployPlanTest extends TestCase
     }
 
     /**
-     * Regression coverage for a real bug found via an independent audit: the original
-     * "has a build: at all" check used that as a proxy for "is this the app's own code," which
-     * also caught Garage -- a project-owned service with its own small packaging Dockerfile for
-     * unrelated reasons -- leaving a "create the bucket" deploy command to run against a Garage
-     * that was never started.
+     * A plain "has a build: at all" check is not a reliable proxy for "is this the app's own
+     * code" -- it would also catch Garage, a project-owned service with its own small packaging
+     * Dockerfile for unrelated reasons, leaving a "create the bucket" deploy command to run
+     * against a Garage that was never started.
      */
     public function test_a_service_building_from_its_own_dockerfile_is_infrastructure_too(): void
     {
