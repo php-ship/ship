@@ -11,15 +11,14 @@ use Ship\Docker\RequiredEnv;
 /**
  * Runs SeaweedFS's server subcommand -- master, volume, and filer/S3-gateway in one dev process.
  *
- * A real bug found via an independent audit: the base image's S3 gateway has no authentication
- * at all unless handed an identity config file via `-s3.config` -- confirmed live, not assumed: an
- * unsigned, credential-less request against a plain `weed server -s3` returned 200 with a real
- * bucket listing. There's no env-var-driven auth option, only a config *file*, which the real
- * secret (known only once `.env.production` exists, long after `ship init` published anything)
- * can't be baked into ahead of time -- so the entrypoint is overridden to a shell that generates
- * that file from the already-injected AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY env vars at
- * container *boot*, then execs the real server against it. Verified live both ways: the same
- * unsigned request now gets a 403 AccessDenied.
+ * The base image's S3 gateway has no authentication at all unless handed an identity config file
+ * via `-s3.config` -- an unsigned, credential-less request against a plain `weed server -s3`
+ * returns 200 with a real bucket listing otherwise. There's no env-var-driven auth option, only a
+ * config *file*, which the real secret (known only once `.env.production` exists, long after
+ * `ship init` published anything) can't be baked into ahead of time -- so the entrypoint is
+ * overridden to a shell that generates that file from the already-injected
+ * AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY env vars at container *boot*, then execs the real
+ * server against it. The same unsigned request then gets a 403 AccessDenied instead.
  */
 final class SeaweedFsService implements ServiceDefinition
 {
@@ -52,21 +51,19 @@ final class SeaweedFsService implements ServiceDefinition
                 // "sh" as an unknown subcommand rather than running it) so the identity file below
                 // can be generated at boot, after Compose has already injected the real env vars.
                 'entrypoint' => ['/bin/sh', '-c'],
-                // $$, not $ -- a real bug found live (the same class the independent audit flagged
-                // separately for ship.json's own `processes` commands): Compose interpolates `$VAR`
-                // in a command string itself, the same as `${VAR}`, so a single `$` here silently
-                // resolved against the *host's* environment (empty, almost always) before the
-                // container's own shell ever ran -- the identity file was generated with both
-                // credentials blank. `$$` passes a literal `$AWS_...` through for the shell to
-                // resolve instead, confirmed live against the real generated compose file.
+                // $$, not $ -- the same class of expression ship.json's own `processes` commands
+                // also have to escape: Compose interpolates `$VAR` in a command string itself,
+                // the same as `${VAR}`, so a single `$` here would resolve against the *host's*
+                // environment (empty, almost always) before the container's own shell ever ran,
+                // generating the identity file with both credentials blank. `$$` passes a literal
+                // `$AWS_...` through for the shell to resolve instead.
                 //
-                // Escaped through sed before being substituted in -- a real bug found via an
-                // independent re-audit: the raw credential values went straight into the `%s`
-                // placeholders with no JSON escaping at all, so a secret containing a literal `"`
-                // or `\` (nothing stops a real password manager or RequiredEnv-required
-                // .env.production value from generating one) produced invalid JSON, breaking S3
-                // auth entirely rather than just granting the wrong credential. sed, not jq --
-                // confirmed live this image has the former, not the latter.
+                // Escaped through sed before being substituted in -- the raw credential values
+                // go straight into the `%s` placeholders otherwise, with no JSON escaping at
+                // all, so a secret containing a literal `"` or `\` (nothing stops a real password
+                // manager or RequiredEnv-required .env.production value from generating one)
+                // would produce invalid JSON, breaking S3 auth entirely rather than just granting
+                // the wrong credential. sed, not jq -- this image has the former, not the latter.
                 'command' => [
                     'mkdir -p /etc/seaweedfs'
                         . ' && ACCESS_KEY_ESC=$$(printf \'%s\' "$$AWS_ACCESS_KEY_ID" | sed \'s/\\\\/\\\\\\\\/g; s/"/\\\\"/g\')'

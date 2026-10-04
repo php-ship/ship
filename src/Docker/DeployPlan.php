@@ -19,13 +19,13 @@ final class DeployPlan
      * whichever target). Databases, caches, and the like an image pulled straight from a registry
      * provides are the obvious case, but a project-owned service with its own small packaging
      * Dockerfile for unrelated reasons (Garage's own tiny from-scratch image, say) is
-     * infrastructure here too, not application code -- a real bug found via an independent audit:
-     * the original `!isset($service['build'])` check used "has a build: at all" as a proxy for
-     * "is this the app's own code," which happened to also catch Garage, leaving a "create the
-     * bucket" deploy command to run against a Garage that was never started. Everything this
-     * returns has to be up (and healthy, where it declares a healthcheck) before a deploy command
-     * runs, since nothing else starts it: the app service has no `depends_on` for any of it, and a
-     * one-off `docker compose run` only starts its own dependencies.
+     * infrastructure here too, not application code -- a plain `!isset($service['build'])` check
+     * would use "has a build: at all" as a proxy for "is this the app's own code," which also
+     * catches Garage, leaving a "create the bucket" deploy command to run against a Garage that
+     * was never started. Everything this returns has to be up (and healthy, where it declares a
+     * healthcheck) before a deploy command runs, since nothing else starts it: the app service
+     * has no `depends_on` for any of it, and a one-off `docker compose run` only starts its own
+     * dependencies.
      *
      * @return list<string>
      */

@@ -29,11 +29,11 @@ RUN apk add --no-cache libpq-dev icu-dev oniguruma-dev \
 # working, so this uses the URL the tool's own docs actually ask for.
 #
 # Pinned to a specific release tag with a checksum, not /latest/download/ with nothing verifying
-# the response at all -- a real bug found via an independent audit: "latest" is a floating target
-# that can serve a different script on two builds weeks apart with no corresponding change here,
-# and nothing was checking that whatever came back over the wire was actually that script. Bump
-# INSTALL_PHP_EXTENSIONS_VERSION and the checksum together (both published at that same release's
-# own GitHub page) when a newer version is wanted.
+# the response at all -- "latest" is a floating target that can serve a different script on two
+# builds weeks apart with no corresponding change here, with nothing checking that whatever came
+# back over the wire was actually that script. Bump INSTALL_PHP_EXTENSIONS_VERSION and the
+# checksum together (both published at that same release's own GitHub page) when a newer version
+# is wanted.
 ARG PHP_EXTENSIONS=""
 ARG INSTALL_PHP_EXTENSIONS_VERSION=2.12.0
 ARG INSTALL_PHP_EXTENSIONS_SHA256=3f49c71fa66c79b8b2b96bc0ce92885dafd7946f3b5a46f545b390d6f1617e2c
@@ -62,10 +62,10 @@ RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
 # container. Cheap enough to always install rather than plumb a second
 # build arg through ComposeFileBuilder just for this.
 #
-# Pinned to a specific PECL release, not a bare `pecl install redis` -- a real bug found via an
-# independent audit: an unpinned extension version is a floating build input exactly like an
-# unpinned image tag, just one PECL's own registry controls instead of a registry like Docker
-# Hub. Bump ARG REDIS_EXTENSION_VERSION deliberately when a newer release is wanted.
+# Pinned to a specific PECL release, not a bare `pecl install redis` -- an unpinned extension
+# version is a floating build input exactly like an unpinned image tag, just one PECL's own
+# registry controls instead of a registry like Docker Hub. Bump ARG REDIS_EXTENSION_VERSION
+# deliberately when a newer release is wanted.
 ARG REDIS_EXTENSION_VERSION=6.3.0
 RUN apk add --no-cache --virtual .build-deps-redis $PHPIZE_DEPS \
     && pecl install redis-$REDIS_EXTENSION_VERSION \
@@ -195,16 +195,16 @@ CMD ["php-fpm"]
 # Runs as root, not nginx:alpine's own default "nginx" user, for the same reason "app"'s dev
 # php-fpm pool does (see that RUN sed line's own docblock): dev bind-mounts (or, in SHIP_MUTAGEN
 # mode, syncs into a named volume) the project root from the host, so file ownership here isn't
-# baked in at a known value the way it is in "prod" -- confirmed live, not hypothetical: Mutagen's
-# own agent injection runs via `docker exec` as this container's default user, and nginx's own
-# unprivileged worker processes couldn't read what that user had just written, 403ing every
-# request with "is forbidden (13: Permission denied)". Prod keeps nginx's own default -- its files
+# baked in at a known value the way it is in "prod" -- Mutagen's own agent injection runs via
+# `docker exec` as this container's default user, and nginx's own unprivileged worker processes
+# can't read what that user just wrote, 403ing every request with "is forbidden (13: Permission
+# denied)" otherwise. Prod keeps nginx's own default -- its files
 # are baked into the image at build time by the COPY below, at a known, consistent ownership.
 #
-# Pinned to a specific version (nginx's own "stable" branch), not the floating "alpine" tag -- a
-# real bug found via an independent audit: an unpinned build input means two `ship up`/`ship
-# build` runs weeks apart can silently get a different nginx without any corresponding change
-# here. Bump deliberately when a newer stable release is wanted.
+# Pinned to a specific version (nginx's own "stable" branch), not the floating "alpine" tag -- an
+# unpinned build input means two `ship up`/`ship build` runs weeks apart can silently get a
+# different nginx without any corresponding change here. Bump deliberately when a newer stable
+# release is wanted.
 FROM nginx:1.30.5-alpine AS dev-nginx
 COPY ship/nginx/default.conf /etc/nginx/conf.d/default.conf
 RUN sed -i 's/^user  *nginx;/user root;/' /etc/nginx/nginx.conf

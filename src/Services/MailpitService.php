@@ -29,13 +29,13 @@ final class MailpitService implements ServiceDefinition
 
     public function composeFragment(ShipEnvironment $environment, ?string $instanceName = null): array
     {
-        // Dev/test tooling, not infrastructure -- a real bug found live: with no check here at
-        // all, production got a Mailpit container too, its MAIL_HOST unconditionally overriding
-        // whatever real mail config .env.production actually set (environment: always wins over
-        // env_file:, see ComposeFileBuilder::OPTIONAL_ENV_FILE), so real mail -- password reset
-        // links included -- got captured into an unauthenticated web UI instead of ever being
-        // sent. An empty fragment is this class's signal that it contributes nothing in production
-        // at all -- see ComposeFileBuilder::applyService() for how that's honored generically.
+        // Dev/test tooling, not infrastructure -- in production, this class's MAIL_HOST would
+        // unconditionally override whatever real mail config .env.production actually set
+        // (environment: always wins over env_file:, see ComposeFileBuilder::OPTIONAL_ENV_FILE),
+        // capturing real mail -- password reset links included -- into an unauthenticated web UI
+        // instead of ever sending it. An empty fragment is this class's signal that it
+        // contributes nothing in production at all -- see ComposeFileBuilder::applyService() for
+        // how that's honored generically.
         if (!$environment->isDevelopment()) {
             return [];
         }

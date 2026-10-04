@@ -14,11 +14,11 @@ final class ComposeCommand
 {
     /**
      * `ship build`/`ship release` (via ProductionBuildRunner) write and read this one instead of
-     * the dev file -- a real bug found via an independent audit: both used to share
-     * docker-compose.generated.yml, so running either one after `ship up` silently left the dev
-     * compose file overwritten with a production one until the next `ship up` regenerated it,
-     * and in the meantime `ship exec`/`ship shell`/`ship composer`/`ship npm` would all read the
-     * wrong target (and lose the hostUser `--user` flag, since production never sets `x-ship`).
+     * the dev file -- sharing docker-compose.generated.yml between the two would otherwise leave
+     * the dev compose file overwritten with a production one after running either, until the
+     * next `ship up` regenerated it, during which `ship exec`/`ship shell`/`ship composer`/`ship
+     * npm` would all read the wrong target (and lose the hostUser `--user` flag, since production
+     * never sets `x-ship`).
      */
     public const PRODUCTION_COMPOSE_FILE = 'ship/docker-compose.production.yml';
 
@@ -29,13 +29,12 @@ final class ComposeCommand
      * override auto-discovery outright, and ship already passes -f for its own generated file, too.
      *
      * $includeOverride is false only for `ship build`/`ship release` (via ProductionBuildRunner) --
-     * a real bug found via an independent audit: the override file is a dev convenience (its own
-     * docblock above already says so), but every other caller picked it up unconditionally, so a
-     * project's own dev-only `build:` customization silently leaked into the production image too,
-     * and the release's own exported docker-compose.yml (built from
-     * ship/docker-compose.generated.yml alone) never matched what was actually built as a result.
-     * Omitting it from the production build entirely fixes both at once: nothing to leak, and
-     * nothing for the artifact to disagree with.
+     * the override file is a dev convenience (its own docblock above already says so), so picking
+     * it up the same way every other caller does would let a project's own dev-only `build:`
+     * customization leak into the production image too, and the release's own exported
+     * docker-compose.yml (built from ship/docker-compose.generated.yml alone) would no longer
+     * match what was actually built. Omitting it from the production build entirely avoids both:
+     * nothing to leak, and nothing for the artifact to disagree with.
      *
      * @return list<string>
      */

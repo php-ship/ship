@@ -108,24 +108,22 @@ final class InitCommand extends Command
     }
 
     /**
-     * A real bug found via an independent audit: re-running `ship init` built a fresh ShipConfig
-     * from only the four fields this command's own prompts ever touch (php, node, services,
-     * additionalServices), silently dropping every hand-edited field that isn't prompted for at
-     * all -- extensions, serviceNames, externalNetwork, phpExtensions, publishPorts,
-     * deployCommands, processes, hostUser, name. The README calls re-running "always safe" and
+     * Reads back every hand-edited field re-running `ship init` doesn't itself prompt for --
+     * extensions, serviceNames, externalNetwork, phpExtensions, publishPorts, deployCommands,
+     * processes, hostUser, name -- so the fresh ShipConfig this command builds carries them
+     * forward instead of silently dropping them. The README calls re-running "always safe" and
      * `ship up` itself tells users to do it after a stub-version mismatch; losing `publishPorts:
-     * false` alone silently re-exposes ports a project turned off deliberately. Null (not an
+     * false` alone would silently re-expose ports a project turned off deliberately. Null (not an
      * exception) when there's nothing to preserve yet -- a first-ever `ship init` -- or the
      * existing file isn't even valid JSON, since a broken ship.json is exactly what re-running
      * `ship init` might be trying to fix in the first place.
      *
-     * Uses ShipConfig::tryFromFile(), not fromFile() -- a real bug found via an independent
-     * re-audit of this very fix: fromFile() validates and throws on the first invalid field it
-     * finds (e.g. one bad serviceNames value), which this method's own try/catch then treated as
-     * "nothing to preserve," reintroducing the exact data-loss bug being fixed here, just behind a
-     * new trigger. tryFromFile() preserves a field that's merely the wrong format as-is instead of
-     * throwing or discarding it -- see its own docblock for why that's the right tradeoff
-     * specifically here.
+     * Uses ShipConfig::tryFromFile(), not fromFile() -- fromFile() validates and throws on the
+     * first invalid field it finds (e.g. one bad serviceNames value), which would otherwise mean
+     * one bad field makes this method treat the whole file as "nothing to preserve," discarding
+     * every *other* hand-edited field right along with it. tryFromFile() preserves a field that's
+     * merely the wrong format as-is instead of throwing or discarding it -- see its own docblock
+     * for why that's the right tradeoff specifically here.
      */
     private function readExistingConfig(): ?ShipConfig
     {
@@ -201,14 +199,11 @@ final class InitCommand extends Command
      * each answer here becomes one ship.json `additionalServices` entry, distinguished by the name
      * given (also the env var prefix and compose service suffix -- see SupportsNamedInstances).
      *
-     * @return list<array{group: string, service: string, name: string}>
-     */
-    /**
      * $existing (ship.json's current additionalServices, if any) is kept as-is, not re-prompted
      * for -- re-running `ship init` has no interactive way to edit or remove one of these, so
-     * silently starting from an empty list every time discarded every previously-added instance
-     * the moment the project's ship.json was regenerated, confirmed live. Removing one is still
-     * possible by hand-editing ship.json directly, same as serviceNames/phpExtensions/etc.
+     * starting from an empty list every time would discard every previously-added instance the
+     * moment the project's ship.json was regenerated. Removing one is still possible by
+     * hand-editing ship.json directly, same as serviceNames/phpExtensions/etc.
      *
      * @param list<array{group: string, service: string, name: string}> $existing
      * @return list<array{group: string, service: string, name: string}>
@@ -400,23 +395,22 @@ final class InitCommand extends Command
                 overwriteNewerFiles: true,
             );
 
-            // A real bug found via an independent audit: the stub hardcodes "app:9000" --
-            // renaming the app service via ship.json's serviceNames (e.g. to share a Docker
-            // network with another ship project) left nginx still trying to reach a DNS name
-            // nothing in the stack answers to anymore, 502ing every request. Only rewritten when
-            // it actually differs, so the overwhelming majority of projects that never touch
-            // serviceNames get the exact same file as before.
+            // The stub hardcodes "app:9000" -- renaming the app service via ship.json's
+            // serviceNames (e.g. to share a Docker network with another ship project) would
+            // otherwise leave nginx trying to reach a DNS name nothing in the stack answers to,
+            // 502ing every request. Only rewritten when it actually differs, so the overwhelming
+            // majority of projects that never touch serviceNames get the exact same file as
+            // before.
             if ($appServiceName !== 'app') {
                 $confPath = $target . '/nginx/default.conf';
                 file_put_contents($confPath, str_replace('app:9000', "{$appServiceName}:9000", (string) file_get_contents($confPath)));
             }
         }
 
-        // A real bug found via an independent audit: this only ever checked the default storage
-        // pick, so Garage selected *only* as a named additionalServices instance (ship.json's
-        // storage group is one of GROUPS_SUPPORTING_ADDITIONAL_INSTANCES) never got its stub
-        // files published at all -- that instance's own `build: {context: ./ship/garage}` had
-        // nothing to build from.
+        // Checks both the default storage pick and additionalServices entries -- Garage selected
+        // *only* as a named instance (ship.json's storage group is one of
+        // GROUPS_SUPPORTING_ADDITIONAL_INSTANCES) still needs its stub files published, or that
+        // instance's own `build: {context: ./ship/garage}` has nothing to build from.
         $garageSelected = ($selected['storage'] ?? null) === 'garage'
             || in_array('garage', array_column($additionalServices, 'service'), strict: true);
 

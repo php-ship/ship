@@ -214,10 +214,10 @@ final class ReleaseCommand extends Command
      * `--no-interaction`/`-n` is explicitly passed, never from detecting a non-tty stdin on its
      * own. A GitHub Actions `run:` step (or any other CI shell) has no tty and also passes no `-n`,
      * so trusting `isInteractive()` alone would try to `$io->ask()` against a stream nothing will
-     * ever answer, hanging the pipeline instead of failing it -- confirmed live, not assumed:
-     * piping from `/dev/null` with no `-n` left this printing "Release tag:" and blocking forever
-     * before this check existed. `stream_isatty()` (unlike `posix_isatty`, missing on Windows)
-     * works everywhere this package already claims to run.
+     * ever answer, hanging the pipeline instead of failing it: piping from `/dev/null` with no
+     * `-n` prints "Release tag:" and blocks forever without this check. `stream_isatty()`
+     * (unlike `posix_isatty`, missing on Windows) works everywhere this package already claims
+     * to run.
      */
     private function isReallyInteractive(InputInterface $input): bool
     {
@@ -250,10 +250,10 @@ final class ReleaseCommand extends Command
     /**
      * One `docker save` per unique image (see ProductionImagePlan) -- never per service, so two
      * services sharing one image (e.g. "app" and a `processes` entry) don't double the archive.
-     * Returns false on the first failure (a real bug found via an independent audit: this exit
-     * code was previously ignored entirely, so a release could report success with a missing or
-     * truncated tar -- disk full, a bad tag, docker daemon hiccup, anything `docker save` itself
-     * would have failed loudly for on its own).
+     * Returns false on the first failure -- its exit code is checked, not ignored, since a
+     * release would otherwise report success with a missing or truncated tar (disk full, a bad
+     * tag, docker daemon hiccup, anything `docker save` itself would have failed loudly for on
+     * its own).
      *
      * @param list<array{tag: string, canonicalService: string, members: list<string>}> $images
      */
@@ -288,11 +288,10 @@ final class ReleaseCommand extends Command
      * infrastructure too, defeating the entire reason this runs before they start.
      *
      * chmod() below is a real, working executable-bit set on Linux/macOS, but a silent no-op on
-     * Windows -- NTFS has no Unix executable bit for it to set at all, a real bug found via an
-     * independent audit for a release built on a Windows dev machine (nothing about `ship
-     * release` requires Linux/macOS specifically). execute() warns about it explicitly on
-     * PHP_OS_FAMILY === 'Windows' rather than claiming an executable bit that was never actually
-     * set.
+     * Windows -- NTFS has no Unix executable bit for it to set at all, which matters for a
+     * release built on a Windows dev machine (nothing about `ship release` requires Linux/macOS
+     * specifically). execute() warns about it explicitly on PHP_OS_FAMILY === 'Windows' rather
+     * than claiming an executable bit that was never actually set.
      */
     private function writeDeployScript(ShipConfig $config, string $releaseDir): void
     {

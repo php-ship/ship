@@ -126,17 +126,17 @@ final class ComposeFileBuilder
             // composer install and any non-php-fpm command as. Numeric, so it doesn't depend on
             // whatever name the image gave the user.
             ...($hostUser !== null ? ['SHIP_HOST_USER' => "{$hostUser['uid']}:{$hostUser['gid']}"] : []),
-            // A real bug found via a fourth independent audit: with an Octane runtime selected,
-            // "app" itself is not php-fpm, so its own entrypoint raced `ship up`'s own
-            // MutagenSync::installComposerDependencies() to run `composer install` the moment
-            // composer.json merely *appeared* -- often before composer.lock had finished syncing
-            // too, so the entrypoint's own install ran fresh (no lock), silently writing a new
-            // composer.lock into the synced tree instead of honoring the project's pinned
-            // versions. Telling the entrypoint to wait for *app's* own install instead (the one
-            // that only ever runs once Mutagen's sync is fully "Watching", guaranteeing
-            // composer.lock has actually arrived) removes the premature one entirely. A no-op for
-            // plain php-fpm, which the entrypoint's own `$1 != "php-fpm"` check already exempts
-            // from this regardless of this variable -- see that file's own docblock.
+            // With an Octane runtime selected, "app" itself is not php-fpm, so its own entrypoint
+            // would otherwise race `ship up`'s own MutagenSync::installComposerDependencies() to
+            // run `composer install` the moment composer.json merely *appeared* -- often before
+            // composer.lock had finished syncing too, running a fresh install (no lock) that
+            // silently writes a new composer.lock into the synced tree instead of honoring the
+            // project's pinned versions. Telling the entrypoint to wait for *app's* own install
+            // instead (the one that only ever runs once Mutagen's sync is fully "Watching",
+            // guaranteeing composer.lock has actually arrived) removes the premature one
+            // entirely. A no-op for plain php-fpm, which the entrypoint's own `$1 != "php-fpm"`
+            // check already exempts from this regardless of this variable -- see that file's own
+            // docblock.
             ...($mutagenSync && $environment->isDevelopment() ? ['SHIP_DEV_SKIP_INSTALL' => '1'] : []),
             // Only set at all when Dusk is selected *and* this is Development -- Selenium (a
             // separate container, itself dev-only, see DuskService::composeFragment()) reaches
@@ -144,17 +144,15 @@ final class ComposeFileBuilder
             // or artisan command would use, and DuskService itself has no visibility into which
             // service ("app" or "webserver") is the real HTTP entrypoint (depends on whether an
             // Octane runtime was *also* selected -- the same check every Octane*Service::removes()
-            // already makes). Everywhere else, this used to unconditionally overwrite whatever
+            // already makes). Applying this unconditionally would otherwise overwrite whatever
             // real, host-reachable APP_URL the project's own .env already set (environment: always
-            // wins over env_file:, see OPTIONAL_ENV_FILE's own docblock) -- found from real use:
-            // a project with a genuine APP_URL (a custom port, a real domain, ...) had every
-            // user-facing link (queued emails, signed URLs, artisan output) silently rewritten to
-            // an internal Docker hostname no browser outside the container can resolve.
-            //
-            // A second real bug found via an independent re-audit of that very fix: ship.json's
-            // "testing": "dusk" selection doesn't vary by environment, so this block still fired
-            // in *production* too -- the exact same unwanted overwrite the comment above already
-            // describes, just reintroduced for any project that happens to have Dusk selected.
+            // wins over env_file:, see OPTIONAL_ENV_FILE's own docblock) -- a project with a
+            // genuine APP_URL (a custom port, a real domain, ...) would have every user-facing
+            // link (queued emails, signed URLs, artisan output) silently rewritten to an internal
+            // Docker hostname no browser outside the container can resolve. Restricted to
+            // Development specifically, not just "testing": "dusk" alone, since ship.json's
+            // selection doesn't vary by environment on its own -- the same unwanted overwrite
+            // would otherwise also fire in production for any project with Dusk selected.
             ...($environment->isDevelopment() && ($config->services['testing'] ?? null) === 'dusk' ? [
                 'APP_URL' => sprintf(
                     'http://%s',
@@ -239,9 +237,9 @@ final class ComposeFileBuilder
         // environment -- e.g. MailpitService/DuskService in production, dev/test-only tooling with
         // no business in a production release, not just a container ship happens not to start.
         // Treated uniformly as "this service is absent here": no compose service, no env vars
-        // injected into "app" either (a real bug found live: Mailpit's own MAIL_HOST unconditionally
-        // overrode a real .env.production's own mail config, and Dusk's Selenium container, with no
-        // environment check of its own, was built and started in every production release).
+        // injected into "app" either -- otherwise Mailpit's own MAIL_HOST would unconditionally
+        // override a real .env.production's own mail config, and Dusk's Selenium container, with
+        // no environment check of its own, would be built and started in every production release.
         if ($fragment === []) {
             return [$compose, $appEnv, $removed];
         }
@@ -520,13 +518,13 @@ final class ComposeFileBuilder
 
             $services[$name] = [
                 'build' => $app['build'],
-                // $$, not $ -- a real bug found via an independent audit: Compose interpolates a
-                // bare $VAR in a command string itself (against the host's own environment, not
-                // the container's), so a project's own command referencing a real shell variable
-                // (e.g. "php artisan horizon --queue=$QUEUE") silently had it blanked out before
-                // the container's shell ever ran it. A project writing this expects a shell
-                // command, not a Compose-interpolated string, so every literal "$" is escaped
-                // here rather than asking every processes entry to know Compose's own syntax.
+                // $$, not $ -- Compose interpolates a bare $VAR in a command string itself
+                // (against the host's own environment, not the container's), so a project's own
+                // command referencing a real shell variable (e.g. "php artisan horizon
+                // --queue=$QUEUE") would otherwise have it blanked out before the container's
+                // shell ever ran it. A project writing this expects a shell command, not a
+                // Compose-interpolated string, so every literal "$" is escaped here rather than
+                // asking every processes entry to know Compose's own syntax.
                 'command' => ['sh', '-c', str_replace('$', '$$', $command)],
                 'env_file' => $app['env_file'],
                 'environment' => [...($app['environment'] ?? []), 'SHIP_RUN_AS' => 'www-data'],
@@ -541,51 +539,45 @@ final class ComposeFileBuilder
 
     /**
      * Reverb is a genuinely separate compose service (see ReverbService's own docblock), but it
-     * runs the exact same Laravel app "app" does -- three real bugs found via an independent
-     * audit, all from the same root cause: ReverbService's own composeFragment() has no access to
-     * $appEnv, $config, or $hostUser, so it could never align itself with "app" on its own.
+     * runs the exact same Laravel app "app" does. ReverbService's own composeFragment() has no
+     * access to $appEnv, $config, $hostUser, or $mutagenSync, so it can never align itself with
+     * "app" on its own -- this method does it instead, covering six things:
      *
-     * 1. Reverb never got "app"'s own injected environment (DB_*, REDIS_*, ...) at all, so
-     *    anything it touched that needed the database -- a private-channel auth callback checking
-     *    the current user, say -- failed to connect.
-     * 2. Reverb never got SHIP_RUN_AS, so it ran as root in production -- the same root-process
-     *    gap already fixed for every Octane runtime and `processes` entry, just missed here.
-     * 3. Reverb's own build args were missing OCTANE_RUNTIME/HOST_UID/HOST_GID, so whenever any of
-     *    those differed from "app"'s own ARG defaults (Swoole selected as the runtime, say, or
-     *    hostUser in dev), Reverb's build no longer matched "app"'s byte-for-byte -- forcing a
-     *    second, wasteful image build and export for content that should be identical.
+     * 1. "app"'s own injected environment (DB_*, REDIS_*, ...), without which anything Reverb
+     *    touches that needs the database -- a private-channel auth callback checking the current
+     *    user, say -- fails to connect.
+     * 2. SHIP_RUN_AS, in production, matching every other service that sets it (every Octane
+     *    runtime, every `processes` entry) -- without it, Reverb would run as root.
+     * 3. Reverb's own build args (OCTANE_RUNTIME/HOST_UID/HOST_GID), so they stay in sync with
+     *    "app"'s own ARG defaults (Swoole selected as the runtime, say, or hostUser in dev) --
+     *    without this, a divergence there forces a second, wasteful image build and export for
+     *    content that should be identical.
+     * 4. The dev volume -- "app"/"webserver" switch to the synced named volume when SHIP_MUTAGEN
+     *    is active (see baseServices()'s own $devVolume), and Reverb has to switch with them, or
+     *    it keeps bind-mounting the *unsynced* host tree, reading stale code "app" itself no
+     *    longer sees once Mutagen's sync catches up.
+     * 5. SHIP_HOST_USER (ship.json's hostUser, see ShipConfig) -- stubs/docker/php/dev/
+     *    entrypoint.sh drops anything that's "its own long-lived program" (its own comment's
+     *    words, written with an Octane server in mind, but Reverb is exactly the same category)
+     *    to that user before exec'ing it, *if* SHIP_HOST_USER is set; without it, that branch
+     *    never fires and Reverb keeps running as root in dev even with hostUser enabled, writing
+     *    anything it touches in the bind-mounted tree back as root-owned -- the exact problem
+     *    hostUser exists to avoid.
+     * 6. SHIP_DEV_SKIP_INSTALL -- Reverb and "app" share the exact same dev entrypoint script and
+     *    (in SHIP_MUTAGEN mode especially, but a bind mount has the same window too) the exact
+     *    same project tree, so both independently satisfying that entrypoint's own "composer.json
+     *    present, vendor/autoload.php missing" condition would run `composer install` *twice*,
+     *    concurrently, into the same vendor/. This tells the entrypoint Reverb isn't the real
+     *    installer here -- see its own docblock -- and should just wait for "app"'s result
+     *    instead of racing to produce it a second time.
      *
      * Only the build *args* are copied, not the whole build block -- ReverbService's own
      * dockerfile/context/target are left alone deliberately: FrankenPHP overrides "app"'s own
      * dockerfile, but Reverb never needs Caddy/FrankenPHP's image just to run a plain `php artisan
      * reverb:start`, and copying "app"'s build wholesale would drag that override onto it too.
      *
-     * Applies in both environments -- the missing DB_* and REDIS_* env vars gap exists in dev
-     * too, not just production -- but SHIP_RUN_AS only in production, matching every other
-     * service that sets it.
-     *
-     * A fourth, found the same way: ReverbService's own composeFragment() also has no access to
-     * $mutagenSync, so its dev volume was always the raw bind mount (`.:/var/www/html`), even when
-     * SHIP_MUTAGEN is active and "app"/"webserver" both switched to the synced named volume
-     * instead (see baseServices()'s own $devVolume). Reverb kept bind-mounting the *unsynced* host
-     * tree, reading stale code "app" itself no longer saw once Mutagen's sync caught up.
-     *
-     * A fifth, found via an independent re-audit of the fourth: ReverbService's own
-     * composeFragment() also has no access to $hostUser, so SHIP_HOST_USER (ship.json's hostUser,
-     * see ShipConfig) was only ever set on "app" itself, never on Reverb -- stubs/docker/php/dev/
-     * entrypoint.sh drops anything that's "its own long-lived program" (its own comment's words,
-     * written with an Octane server in mind, but Reverb is exactly the same category) to that
-     * user before exec'ing it, *if* SHIP_HOST_USER is set; without it, that branch never fires and
-     * Reverb keeps running as root in dev even with hostUser enabled, writing anything it touches
-     * in the bind-mounted tree back as root-owned -- the exact problem hostUser exists to avoid.
-     *
-     * A sixth, found via a third independent re-audit: Reverb and "app" share the exact same dev
-     * entrypoint script and (in SHIP_MUTAGEN mode especially, but a bind mount has the same
-     * window too) the exact same project tree -- both independently satisfying that entrypoint's
-     * own "composer.json present, vendor/autoload.php missing" condition would run `composer
-     * install` *twice*, concurrently, into the same vendor/. SHIP_DEV_SKIP_INSTALL tells the
-     * entrypoint Reverb isn't the real installer here -- see its own docblock -- and should just
-     * wait for "app"'s result instead of racing to produce it a second time.
+     * Items 1 and 4 apply in both environments; SHIP_RUN_AS (2) only in production, matching
+     * every other service that sets it.
      *
      * @param array<string, array<string, mixed>> $services
      * @param array<string, string> $appEnv
@@ -749,10 +741,10 @@ final class ComposeFileBuilder
                 // prod at all -- there is no Vite dev server in
                 // production, see the "assets" build stage instead.
                 //
-                // Both sides use the same $VITE_PORT, not just the host side -- found from real
-                // use: a project whose own vite.config.js listens on a non-default port (its own
-                // VITE_PORT, read from this exact same .env via env_file: below) had its container
-                // side permanently fixed at 5173 regardless, so HMR never connected. Since "app"'s
+                // Both sides use the same $VITE_PORT, not just the host side -- a project whose
+                // own vite.config.js listens on a non-default port (its own VITE_PORT, read from
+                // this exact same .env via env_file: below) would otherwise have its container
+                // side permanently fixed at 5173 regardless, so HMR never connects. Since "app"'s
                 // env_file: already loads the same .env this interpolates from, one VITE_PORT value
                 // drives both the compose port mapping and whatever port a vite.config.js reading
                 // process.env.VITE_PORT actually binds to -- see README's Vite HMR section.

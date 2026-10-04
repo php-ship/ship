@@ -56,12 +56,12 @@ final class OctaneSwooleService implements ServiceDefinition
      * "Still needed in the app" column.
      *
      * Checked at container *boot*, inside the actual mounted project, not decided once by ship
-     * itself at compose-generation time -- found the hard way, via a real CI failure, not
-     * hypothesized: unconditionally passing --watch crash-loops Octane's own watcher subprocess
-     * with "Cannot find module 'chokidar'" the instant it's missing, which is most fresh Laravel
-     * installs, not a rare case. A shell conditional resolved at boot is the only place "is
-     * chokidar actually there" can be answered correctly, and it also means a project that adds
-     * chokidar later just gets --watch on its next `ship up`, no ship-side change needed.
+     * itself at compose-generation time -- unconditionally passing --watch crash-loops Octane's
+     * own watcher subprocess with "Cannot find module 'chokidar'" the instant it's missing,
+     * which is most fresh Laravel installs, not a rare case. A shell conditional resolved at
+     * boot is the only place "is chokidar actually there" can be answered correctly, and it also
+     * means a project that adds chokidar later just gets --watch on its next `ship up`, no
+     * ship-side change needed.
      */
     private function command(ShipEnvironment $environment): string
     {

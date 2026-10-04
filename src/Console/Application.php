@@ -34,11 +34,10 @@ final class Application extends SymfonyApplication
     public function __construct(private readonly string $projectRoot)
     {
         // ShipVersion::current() (Composer's own InstalledVersions) is the real installed
-        // version -- a real bug found via an independent audit: this was hardcoded to the
-        // literal "0.1.0-dev" forever, so `ship --version` never reflected whatever was actually
-        // installed. Still falls back to that literal when InstalledVersions can't answer at all
-        // (running straight from a git checkout with no Composer metadata, same case
-        // ShipVersion::current()'s own callers already degrade gracefully for).
+        // version, so `ship --version` reflects whatever's actually installed. Still falls back
+        // to the literal "0.1.0-dev" when InstalledVersions can't answer at all (running straight
+        // from a git checkout with no Composer metadata, same case ShipVersion::current()'s own
+        // callers already degrade gracefully for).
         parent::__construct('ship', ShipVersion::current() ?? '0.1.0-dev');
 
         $runner = new ProcessRunner();
@@ -53,12 +52,11 @@ final class Application extends SymfonyApplication
         $warnings = $loaded['warnings'];
         $this->extensionFrameworkAdapters = $loaded['frameworkAdapters'];
 
-        // $registry/$this->extensionFrameworkAdapters are passed into every command below that
-        // would otherwise reload the exact same extension classes all over again -- a real bug
-        // found via an independent re-audit: removing the duplicate *warning* print (see the
-        // fwrite() below) left the duplicate *instantiation* itself in place, since Up/Build/
-        // Release/Db each still built and populated their own fresh registry independently on
-        // every real `ship` invocation. See UpCommand's own constructor docblock.
+        // $registry/$this->extensionFrameworkAdapters are passed into every command below instead
+        // of letting each one build and populate its own fresh registry independently -- that
+        // would reload the exact same extension classes all over again on every real `ship`
+        // invocation, not just print the duplicate *warning* the fwrite() below already avoids.
+        // See UpCommand's own constructor docblock.
         $this->registerCommand(new InitCommand($this->projectRoot, $registry));
         $this->registerCommand(new UpCommand($this->projectRoot, $runner, $registry));
         $this->registerCommand(new BuildCommand($this->projectRoot, $runner, $registry, $this->extensionFrameworkAdapters));

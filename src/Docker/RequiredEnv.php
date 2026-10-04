@@ -12,10 +12,10 @@ use Ship\Contracts\ShipEnvironment;
  * ship's own defaults), but `${VAR:?...}` in production, which makes `docker compose` itself
  * refuse to run at all when the real value was never set, rather than silently falling back to
  * the exact same publicly-known default every project that never set it would otherwise share.
- * Found via an independent audit: `${DB_PASSWORD:-secret}` and friends previously used the same
- * `:-default` expression in both environments, so a `.env.production` that forgot (or never
- * had) a real value just got "secret"/"shipsearchkey"/"ship"/"shipsecret" in production, with no
- * error, warning, or way to notice short of reading the generated compose file by hand.
+ * Without this, `${DB_PASSWORD:-secret}` and friends would use the same `:-default` expression
+ * in both environments, so a `.env.production` that forgot (or never had) a real value would
+ * just get "secret"/"shipsearchkey"/"ship"/"shipsecret" in production, with no error, warning, or
+ * way to notice short of reading the generated compose file by hand.
  *
  * Only ever applied to a credentialed service's *own* container env (e.g. MySqlService's
  * MYSQL_PASSWORD), never to the matching app-facing value (DB_PASSWORD) `environmentVariables()`

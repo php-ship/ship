@@ -32,14 +32,14 @@ if [ -n "$SHIP_HOST_USER" ]; then
     export HOME=/home/ship
 fi
 
-# A real bug found via an independent re-audit: php-fpm tolerates an empty /var/www/html (see
-# above), but anything else that's "its own long-lived program" -- an Octane server, or Reverb, a
-# *separate* container sharing this exact same SHIP_MUTAGEN-synced volume (see
-# ComposeFileBuilder::alignReverbWithApp()) -- does not. `php artisan ...` needs composer.json/
-# artisan to exist the moment it starts, and the named volume starts out genuinely empty until
-# Mutagen's first sync pass finishes, so exec'ing straight into it crashed immediately -- and kept
-# crashing every restart-policy retry until the sync eventually caught up, confirmed live. Bounded
-# (not infinite) so a genuinely broken setup still fails eventually instead of hanging forever.
+# php-fpm tolerates an empty /var/www/html (see above), but anything else that's "its own
+# long-lived program" -- an Octane server, or Reverb, a *separate* container sharing this exact
+# same SHIP_MUTAGEN-synced volume (see ComposeFileBuilder::alignReverbWithApp()) -- does not.
+# `php artisan ...` needs composer.json/artisan to exist the moment it starts, and the named
+# volume starts out genuinely empty until Mutagen's first sync pass finishes, so exec'ing straight
+# into it would crash immediately -- and keep crashing every restart-policy retry until the sync
+# eventually caught up. Waiting here instead is bounded (not infinite) so a genuinely broken setup
+# still fails eventually instead of hanging forever.
 if [ "$1" != "php-fpm" ]; then
     i=0
     while [ ! -f composer.json ] && [ "$i" -lt 120 ]; do
@@ -49,29 +49,29 @@ if [ "$1" != "php-fpm" ]; then
 fi
 
 # SHIP_DEV_SKIP_INSTALL (set on Reverb unconditionally, and on "app" itself when SHIP_MUTAGEN is
-# active -- see ComposeFileBuilder::alignReverbWithApp()/baseServices()) -- a second real bug
-# found the same way: Reverb and "app" share this exact same volume, so both this entrypoint
-# (running as Reverb) and app's own container independently satisfying the
-# composer.json-present/vendor-missing condition below would run `composer install` *twice*,
-# concurrently, into the same vendor/ -- confirmed from reading the code, not observed live. Only
-# one real installer is ever needed; everything else sharing the volume just waits for its result
-# instead of racing to produce it a second time.
-#
-# A third, found via a fourth independent audit: with an Octane runtime selected, "app" itself is
-# *not* php-fpm, so it's exactly as exposed to this race as Reverb is -- the install that mattered
-# was `ship up`'s own, via MutagenSync::installComposerDependencies() (which only ever runs once
-# the sync is fully "Watching", guaranteeing composer.lock has actually arrived), not whichever one
-# this entrypoint happened to attempt first against a partially-synced tree.
-#
-# A fourth, found via a fifth independent audit: plain php-fpm wasn't actually exempt from this
-# race either, in one narrow case -- a *previous* `ship up` that synced the tree (composer.json
-# already present) but was interrupted before installing, then `ship down` (without `--volumes`)
-# and a fresh `ship up`. The new container's entrypoint runs for the first time against a volume
-# that already has composer.json, so the `elif` below would have fired immediately regardless of
-# `$1`, racing `ship up`'s own install exactly like the Octane case above. So SHIP_DEV_SKIP_INSTALL
-# skips the `elif` below entirely whenever it's set, php-fpm included -- just never *waits* for
+# active -- see ComposeFileBuilder::alignReverbWithApp()/baseServices()) skips the `elif` below
+# entirely whenever it's set, for every runtime, not just php-fpm -- it just never *waits* for
 # php-fpm specifically, which still starts immediately and tolerates emptiness as always; only an
 # Octane server or Reverb (its own `$1 != "php-fpm"` identifies them) wait for the file.
+#
+# Needed because Reverb and "app" share this exact same volume: both this entrypoint (running as
+# Reverb) and app's own container independently satisfying the composer.json-present/
+# vendor-missing condition below would otherwise run `composer install` *twice*, concurrently,
+# into the same vendor/. Only one real installer is ever needed; everything else sharing the
+# volume just waits for its result instead of racing to produce it a second time. With an Octane
+# runtime selected, "app" itself is *not* php-fpm either, so it's exactly as exposed to this race
+# as Reverb is -- the install that matters is `ship up`'s own, via
+# MutagenSync::installComposerDependencies() (which only ever runs once the sync is fully
+# "Watching", guaranteeing composer.lock has actually arrived), not whichever one this entrypoint
+# happens to attempt first against a partially-synced tree.
+#
+# Plain php-fpm isn't actually exempt from this race either, in one narrow case -- a *previous*
+# `ship up` that synced the tree (composer.json already present) but was interrupted before
+# installing, then `ship down` (without `--volumes`) and a fresh `ship up`. The new container's
+# entrypoint runs for the first time against a volume that already has composer.json, so the
+# `elif` below would fire immediately regardless of `$1`, racing `ship up`'s own install exactly
+# like the Octane case above -- which is why SHIP_DEV_SKIP_INSTALL covers php-fpm too, not just
+# the two runtimes that wait on the file.
 if [ -n "$SHIP_DEV_SKIP_INSTALL" ]; then
     if [ "$1" != "php-fpm" ]; then
         i=0

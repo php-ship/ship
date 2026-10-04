@@ -27,15 +27,15 @@ final class ProjectName
      * an opaque "invalid reference format". Falls back to a fixed name when nothing usable is left
      * (e.g. a basename that's entirely punctuation) rather than handing `docker` an empty component.
      *
-     * A real bug found via an independent audit, confirmed live (`docker build -t foo..bar-app:local`
-     * fails outright with "invalid reference format"): Docker's actual grammar for this component is
-     * `[a-z0-9]+((\.|_|__|-+)[a-z0-9]+)*` -- a *single* separator (one '.', one or two '_', or any
-     * run of '-') between two alphanumeric runs, never two or more literal dots/underscores in a row.
-     * The first replace below only ever touched characters *outside* [a-z0-9._-] -- "foo..bar" is
-     * already entirely within that set, so it passed through untouched and still broke `docker
-     * build`/`docker save` later with the exact same opaque error this class exists to avoid. The
-     * second replace collapses any run of two or more separator characters (whatever mix of '.', '_',
-     * '-' produced it) down to a single '-', which satisfies Docker's grammar unconditionally rather
+     * Confirmed live (`docker build -t foo..bar-app:local` fails outright with "invalid reference
+     * format"): Docker's actual grammar for this component is `[a-z0-9]+((\.|_|__|-+)[a-z0-9]+)*`
+     * -- a *single* separator (one '.', one or two '_', or any run of '-') between two
+     * alphanumeric runs, never two or more literal dots/underscores in a row. The first replace
+     * below only ever touches characters *outside* [a-z0-9._-] -- "foo..bar" is already entirely
+     * within that set, so it would pass through untouched and still break `docker build`/`docker
+     * save` later with the exact same opaque error this class exists to avoid. The second replace
+     * collapses any run of two or more separator characters (whatever mix of '.', '_', '-'
+     * produced it) down to a single '-', which satisfies Docker's grammar unconditionally rather
      * than special-casing every separator combination it allows.
      */
     private static function sanitize(string $name): string

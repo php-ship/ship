@@ -40,10 +40,10 @@ final class MySqlService implements ServiceDefinition, ProvidesDatabaseShell
                     'MYSQL_DATABASE' => "\${{$prefix}DB_DATABASE:-app}",
                     'MYSQL_USER' => "\${{$prefix}DB_USERNAME:-app}",
                     // A friendly default in dev, but required (docker compose itself refuses to
-                    // run at all otherwise) in production -- a real bug found via an independent
-                    // audit: every project that never set a real DB_PASSWORD in .env.production
-                    // silently shared the exact same publicly-known default, with no error or
-                    // warning. See RequiredEnv's own docblock.
+                    // run at all otherwise) in production -- otherwise every project that never
+                    // set a real DB_PASSWORD in .env.production would silently share the exact
+                    // same publicly-known default, with no error or warning. See RequiredEnv's
+                    // own docblock.
                     'MYSQL_PASSWORD' => RequiredEnv::expr("{$prefix}DB_PASSWORD", 'secret', $environment),
                     // A separate secret from the app user's own DB_PASSWORD, not the same value
                     // doubling as both -- "app" only ever authenticates as MYSQL_USER, never as
@@ -60,15 +60,14 @@ final class MySqlService implements ServiceDefinition, ProvidesDatabaseShell
                 // every stateful service.
                 'volumes' => ["ship-{$name}-data:/var/lib/mysql"],
                 'healthcheck' => [
-                    // 127.0.0.1, not "localhost" -- found the hard way: "localhost" makes mysqladmin
-                    // use the unix socket, and on a fresh volume the image first starts a
-                    // *temporary* server that listens on that socket only (port 0, no TCP), then
-                    // stops it and starts the real one. Measured: the socket ping succeeded from
-                    // ~9s to ~13s while TCP was still refusing connections, so the container went
-                    // "healthy" a few seconds before anything could actually connect to it -- and
-                    // whatever ran right after (`ship up`'s own wait, a deploy command's
-                    // migration) hit "connection refused". A TCP ping only succeeds once the real
-                    // server is up.
+                    // 127.0.0.1, not "localhost" -- "localhost" makes mysqladmin use the unix
+                    // socket, and on a fresh volume the image first starts a *temporary* server
+                    // that listens on that socket only (port 0, no TCP), then stops it and starts
+                    // the real one. The socket ping succeeds from ~9s to ~13s while TCP is still
+                    // refusing connections, so a check against "localhost" would report "healthy"
+                    // a few seconds before anything can actually connect to it -- and whatever
+                    // runs right after (`ship up`'s own wait, a deploy command's migration) would
+                    // hit "connection refused". A TCP ping only succeeds once the real server is up.
                     'test' => ['CMD', 'mysqladmin', 'ping', '-h', '127.0.0.1'],
                     'interval' => '5s',
                     'timeout' => '5s',

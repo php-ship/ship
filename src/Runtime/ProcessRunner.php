@@ -49,12 +49,12 @@ final class ProcessRunner
      * command -- `mutagen sync create` scanning a large project tree before it even returns, say
      * -- without raising the budget for every other caller too.
      *
-     * A real bug found via an independent audit: a command that actually hits the timeout used to
-     * throw ProcessTimedOutException straight out of here, uncaught -- crashing the whole `ship`
-     * process with a raw stack trace instead of a friendly error. Every existing caller already
-     * treats an empty result as "the thing isn't there"/"that didn't work" (see MutagenSync's own
-     * docblock), so a timeout now degrades to that exact same signal instead of a new failure mode
-     * none of them were ever written to expect.
+     * A command that actually hits the timeout degrades to the same empty-string result as any
+     * other failure, rather than letting ProcessTimedOutException escape uncaught and crash the
+     * whole `ship` process with a raw stack trace. Every existing caller already treats an empty
+     * result as "the thing isn't there"/"that didn't work" (see MutagenSync's own docblock), so a
+     * timeout is just that exact same signal, not a new failure mode none of them were ever
+     * written to expect.
      *
      * @param list<string> $command
      */

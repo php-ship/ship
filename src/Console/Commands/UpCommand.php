@@ -35,12 +35,11 @@ final class UpCommand extends Command
 {
     /**
      * $registry, when given (Application passes its own already-populated one), is used as-is
-     * instead of this command loading every extension class all over again -- a real bug found
-     * via an independent re-audit: removing the duplicate *warning* print earlier left the
-     * duplicate *instantiation* itself in place, since this still built and populated its own
-     * fresh registry on every real `ship up` regardless. Left optional (not required) so
-     * constructing this directly -- every existing test does -- still works unchanged, building
-     * its own registry exactly as before.
+     * instead of this command loading every extension class all over again -- building and
+     * populating a fresh registry independently on every real `ship up` would reload the exact
+     * same extension classes, not just print the duplicate warning Application's own constructor
+     * already avoids. Left optional (not required) so constructing this directly -- every
+     * existing test does -- still works unchanged, building its own registry exactly as before.
      */
     public function __construct(
         private readonly string $projectRoot,
@@ -109,16 +108,16 @@ final class UpCommand extends Command
             return $result;
         }
 
-        // Before ensureEveryServiceStarted(), not after -- a real bug found via an independent
-        // re-audit: Reverb (and any Octane runtime) mounts the exact same synced named volume
-        // "app"/"webserver" do in this mode (see ComposeFileBuilder::alignReverbWithApp()), which
-        // is empty until this sync's own first pass finishes. Checking "is everything running"
-        // *before* that pass had a chance to run saw Reverb crash-looping against an empty
-        // /var/www/html (no artisan, no vendor/) and failed `ship up` outright, with Mutagen's own
-        // sync -- the one thing that would have fixed it -- never even starting. Resolving
-        // "app"'s own container only needs it to *exist* (just created/started by `up --build -d`
-        // above), not already be steady-state running, so this doesn't trade one ordering problem
-        // for another -- see MutagenSync::start()'s own containerName resolution.
+        // Before ensureEveryServiceStarted(), not after -- Reverb (and any Octane runtime) mounts
+        // the exact same synced named volume "app"/"webserver" do in this mode (see
+        // ComposeFileBuilder::alignReverbWithApp()), which is empty until this sync's own first
+        // pass finishes. Checking "is everything running" before that pass had a chance to run
+        // would see Reverb crash-looping against an empty /var/www/html (no artisan, no vendor/)
+        // and fail `ship up` outright, with Mutagen's own sync -- the one thing that would fix it
+        // -- never even starting. Resolving "app"'s own container only needs it to *exist* (just
+        // created/started by `up --build -d` above), not already be steady-state running, so this
+        // doesn't trade one ordering problem for another -- see MutagenSync::start()'s own
+        // containerName resolution.
         if ($mutagenSync) {
             $result = (new MutagenSync($this->runner, $this->projectRoot, $config->serviceNames['app'] ?? 'app'))->start($output);
 
@@ -300,16 +299,14 @@ final class UpCommand extends Command
 
     /**
      * Polls until the service's *own* healthcheck would have given up -- not a fixed count. A
-     * real bug found via an independent audit: a flat "15 attempts x 2s = ~30s" budget was well
-     * past MySQL/Postgres/Redis's own interval x retries (5s x 5 = 25s) when that comment was
-     * written, but Garage/RustFS/Silo's own healthcheck (10s start_period + 5s x 10 retries = 60s)
-     * and SeaweedFS's (10s x 5 = 50s) can both legitimately still be "starting" well after this
-     * gave up and reported a false "never became healthy" -- the exact failure a slow first boot
-     * (a fresh volume's own initialization) produces, not a real problem. Computed from the
-     * service's own generated `healthcheck:` block instead, so it's never shorter than Docker's
-     * own patience for it, with a small buffer on top rather than trusting a single reading right
-     * at the edge, since a container can sit at "starting" for several polls before Docker marks
-     * it "healthy".
+     * flat budget sized for MySQL/Postgres/Redis's own interval x retries (5s x 5 = 25s) would be
+     * too short for Garage/RustFS/Silo's own healthcheck (10s start_period + 5s x 10 retries =
+     * 60s) or SeaweedFS's (10s x 5 = 50s), both of which can legitimately still be "starting"
+     * well past that -- reporting a false "never became healthy" for what's really just a slow
+     * first boot (a fresh volume's own initialization). Computed from the service's own generated
+     * `healthcheck:` block instead, so it's never shorter than Docker's own patience for it, with
+     * a small buffer on top rather than trusting a single reading right at the edge, since a
+     * container can sit at "starting" for several polls before Docker marks it "healthy".
      *
      * @param array{interval?: string, retries?: int, start_period?: string} $healthcheck
      */
@@ -385,10 +382,10 @@ final class UpCommand extends Command
      * instead of trusting whatever the first read says.
      *
      * Reads `docker compose config` (Compose's own fully-resolved view), not the raw generated
-     * YAML the other ensure*() methods parse -- found from real use: Vite's own port mapping
-     * (see ComposeFileBuilder) has "${VITE_PORT:-5173}" on *both* sides, not just the host side
-     * every other mapping here has, so the container side is no longer always a bare literal a
-     * simple string split could pull out safely. `docker compose config` already resolves every
+     * YAML the other ensure*() methods parse -- Vite's own port mapping (see ComposeFileBuilder)
+     * has "${VITE_PORT:-5173}" on *both* sides, not just the host side every other mapping here
+     * has, so the container side isn't always a bare literal a simple string split could pull
+     * out safely. `docker compose config` already resolves every
      * "${VAR:-default}" the same way `docker compose up` itself would (env var, then .env, then
      * the inline default), handing back a real "target" port number directly instead of text this
      * class would otherwise have to re-parse.

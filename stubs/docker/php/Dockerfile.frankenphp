@@ -25,11 +25,10 @@ RUN install-php-extensions pdo_pgsql pdo_mysql intl mbstring opcache redis-$REDI
 ARG PHP_EXTENSIONS=""
 RUN if [ -n "$PHP_EXTENSIONS" ]; then install-php-extensions $PHP_EXTENSIONS; fi
 
-# Found live, not guessed: this base image has neither ext-zip nor an unzip/7z binary, so Composer
-# can't extract a single package distributed as a zip -- which is the normal case for anything
-# pulled from Packagist, not an edge case -- failing the "builder" stage below outright on the
-# first real composer.lock (confirmed with a plain `composer require laravel/octane`). The main
-# Dockerfile doesn't need this: Alpine's php:*-fpm-alpine base already ships unzip.
+# This base image has neither ext-zip nor an unzip/7z binary, so Composer can't extract a single
+# package distributed as a zip -- which is the normal case for anything pulled from Packagist,
+# not an edge case -- failing the "builder" stage below outright on the first real composer.lock.
+# The main Dockerfile doesn't need this: Alpine's php:*-fpm-alpine base already ships unzip.
 RUN apt-get update && apt-get install -y --no-install-recommends unzip && rm -rf /var/lib/apt/lists/*
 
 # Copied from the official node image at the pinned NODE_VERSION -- glibc-built (matches this
@@ -116,10 +115,10 @@ RUN chown -R www-data:www-data /data/caddy /config/caddy
 ENTRYPOINT ["/usr/local/bin/ship-entrypoint"]
 
 # Disables the base image's own inherited HEALTHCHECK (curl against Caddy's admin metrics
-# endpoint, localhost:2019/metrics) rather than silently keeping it. Confirmed live, not assumed:
-# Octane's own StartFrankenPhpCommand does run the real `frankenphp` binary against a real
-# Caddyfile (`frankenphp run -c <path>`) with that admin endpoint genuinely configured and
-# listening -- so the base image's healthcheck isn't pointed at nothing, as a first read of
+# endpoint, localhost:2019/metrics) rather than silently keeping it. Octane's own
+# StartFrankenPhpCommand does run the real `frankenphp` binary against a real Caddyfile
+# (`frankenphp run -c <path>`) with that admin endpoint genuinely configured and listening -- so
+# the base image's healthcheck isn't pointed at nothing, as a first read of
 # "Octane manages this through an embedded extension" might suggest. The real problem is narrower
 # but still real: /metrics reports whether Caddy's own HTTP server process is alive, which is a
 # fixed property of the control plane, not of whatever the embedded PHP worker is actually doing

@@ -67,12 +67,12 @@ final class ConfigTestCommand extends Command
         }
 
         // Checked independently, up front, rather than solely by attempting the real build()
-        // below -- a real bug found via a fourth independent audit: ComposeFileBuilder::build()
-        // throws on the *first* problem it hits, so an unregistered service key hid a bad
-        // `processes` name behind it (or vice versa), directly contradicting this command's own
-        // "reports everything in one pass" promise. Both checks are environment-independent (a
-        // key is either registered or not; a name is either shaped right or not, regardless of
-        // dev/prod), so one pass here covers both builds below at once.
+        // below -- ComposeFileBuilder::build() throws on the *first* problem it hits, so an
+        // unregistered service key would otherwise hide a bad `processes` name behind it (or vice
+        // versa), contradicting this command's own "reports everything in one pass" promise. Both
+        // checks are environment-independent (a key is either registered or not; a name is either
+        // shaped right or not, regardless of dev/prod), so one pass here covers both builds below
+        // at once.
         $problemsBeforeBuild = $this->problems;
         $this->checkServiceKeysAreRegistered($registry, $config, $output);
         $this->checkProcessNames($config, $output);

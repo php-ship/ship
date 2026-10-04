@@ -2,9 +2,9 @@
 # below (see garage.toml's own comment) happens in this separate "config" stage instead, which has
 # one, then only the already-substituted file is copied into the real, shell-less final stage.
 #
-# Pinned to a specific version, not the floating "3" major tag -- a real bug found via an
-# independent re-audit: this was the one floating tag the earlier build-input-pinning pass (see
-# the main Dockerfile) missed, since this file was only written afterward.
+# Pinned to a specific version, not the floating "3" major tag -- same reasoning as every other
+# pinned build input in the main Dockerfile: an unpinned tag can silently change what a build
+# produces weeks apart with no corresponding change to this repo.
 FROM alpine:3.24.2 AS config
 ARG GARAGE_RPC_PUBLIC_ADDR=garage:3901
 COPY garage.toml /garage.toml

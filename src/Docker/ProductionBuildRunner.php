@@ -69,10 +69,10 @@ final class ProductionBuildRunner
         if (!is_dir($composeDir)) {
             mkdir($composeDir, recursive: true);
         }
-        // ComposeCommand::PRODUCTION_COMPOSE_FILE, never docker-compose.generated.yml -- a real
-        // bug found via an independent audit: sharing the dev file meant ship build/ship release
-        // silently overwrote it with a production compose until the next ship up regenerated it,
-        // during which ship exec/shell/composer/npm would all read the wrong target.
+        // ComposeCommand::PRODUCTION_COMPOSE_FILE, never docker-compose.generated.yml -- sharing
+        // the dev file would mean ship build/ship release overwrite it with a production compose
+        // until the next ship up regenerates it, during which ship exec/shell/composer/npm would
+        // all read the wrong target.
         file_put_contents(
             $projectRoot . '/' . ComposeCommand::PRODUCTION_COMPOSE_FILE,
             Yaml::dump($parsed, inline: 6, indent: 2, flags: Yaml::DUMP_EMPTY_ARRAY_AS_SEQUENCE),

@@ -8,15 +8,14 @@ use Ship\Config\ShipConfig;
 
 /**
  * Renaming the app service (ship.json's serviceNames) only ever rewrites the *published*
- * ship/nginx/default.conf at `ship init` time (see InitCommand::publishStubs()) -- a real bug
- * found via an independent re-audit: hand-editing serviceNames afterward, without re-running
- * `ship init`, leaves that file pointing at the *old* name while ComposeFileBuilder renames the
- * actual compose service to the new one on every `ship up`/`ship build`/`ship release`, so nginx
- * fails to resolve its upstream the moment the stale name no longer matches anything in the
- * stack. Shared by all three commands (not just UpCommand, where this first lived) -- a second
- * re-audit pointed out that `ship build`/`ship release` build the exact same prod-nginx image
- * from this exact same stale file, so a rename can ship a webserver that can't reach the app
- * either, with nothing warning about it there.
+ * ship/nginx/default.conf at `ship init` time (see InitCommand::publishStubs()) -- hand-editing
+ * serviceNames afterward, without re-running `ship init`, leaves that file pointing at the *old*
+ * name while ComposeFileBuilder renames the actual compose service to the new one on every `ship
+ * up`/`ship build`/`ship release`, so nginx fails to resolve its upstream the moment the stale
+ * name no longer matches anything in the stack. Shared by all three commands (not just
+ * UpCommand, where this first lived) -- `ship build`/`ship release` build the exact same
+ * prod-nginx image from this exact same stale file, so a rename can ship a webserver that can't
+ * reach the app either, with nothing warning about it there.
  */
 final class NginxUpstreamMismatch
 {

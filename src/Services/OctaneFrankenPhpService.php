@@ -52,7 +52,7 @@ final class OctaneFrankenPhpService implements ServiceDefinition
                 // with no master-drops-workers split, so without this it runs as root. See
                 // Dockerfile.frankenphp's prod stage for the matching chown of Caddy's own
                 // directories, and EntrypointScriptBuilder for the actual drop (setpriv here --
-                // Debian has no su-exec, but does have setpriv already, confirmed live).
+                // Debian has no su-exec, but does have setpriv already).
                 'environment' => $environment->isDevelopment() ? [] : ['SHIP_RUN_AS' => 'www-data'],
             ],
         ];

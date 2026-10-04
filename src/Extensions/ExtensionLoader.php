@@ -21,13 +21,12 @@ use Throwable;
 final class ExtensionLoader
 {
     /**
-     * One instantiation pass per class, not two — a real bug found via an independent audit: this
-     * used to return only warnings, with a separate loadFrameworkAdapters() re-instantiating every
-     * class all over again just to pick out the FrameworkAdapter ones. Every caller that needed
-     * both (Application, and ProductionBuildRunner by way of ship build/ship release) was
-     * constructing each extension class twice per run, and a constructor with a side effect (e.g.
-     * logging, a warning of its own) would fire twice too. Returning both results from this single
-     * loop removes the second pass entirely.
+     * One instantiation pass per class, not two -- a separate loadFrameworkAdapters()
+     * re-instantiating every class all over again just to pick out the FrameworkAdapter ones
+     * would mean every caller that needs both (Application, and ProductionBuildRunner by way of
+     * ship build/ship release) constructs each extension class twice per run, and a constructor
+     * with a side effect (e.g. logging, a warning of its own) would fire twice too. Returning
+     * both results from this single loop avoids the second pass entirely.
      *
      * @param list<string> $extensionClasses
      * @return array{warnings: list<string>, frameworkAdapters: list<FrameworkAdapter>}

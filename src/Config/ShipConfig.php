@@ -112,15 +112,15 @@ final class ShipConfig
 
         $data = json_decode((string) file_get_contents($path), associative: true, flags: JSON_THROW_ON_ERROR);
 
-        // A real gap found via an independent re-audit, confirmed live: a top-level JSON value
-        // that isn't even an object at all -- a bare string, or a JSON array like "[1,2,3]" --
-        // reached validate()'s own `array $data` parameter type hint (an uncaught TypeError for a
-        // non-array value) or, for an array-shaped-but-positional JSON array, silently proceeded
-        // with every field defaulted, discarding the fact the file was never ship.json-shaped to
-        // begin with rather than naming the problem. array_is_list() can't perfectly distinguish
-        // a JSON array from a JSON object using only-numeric string keys once both have been
-        // decoded into a PHP array the same way -- a limitation accepted here, since a real
-        // ship.json never has a reason to use numeric keys at its top level anyway.
+        // A top-level JSON value that isn't even an object at all -- a bare string, or a JSON
+        // array like "[1,2,3]" -- would otherwise reach validate()'s own `array $data` parameter
+        // type hint (an uncaught TypeError for a non-array value) or, for an array-shaped-but-
+        // positional JSON array, silently proceed with every field defaulted, discarding the fact
+        // the file was never ship.json-shaped to begin with rather than naming the problem.
+        // array_is_list() can't perfectly distinguish a JSON array from a JSON object using
+        // only-numeric string keys once both have been decoded into a PHP array the same way --
+        // a limitation accepted here, since a real ship.json never has a reason to use numeric
+        // keys at its top level anyway.
         //
         // Deliberately checked (and validate() called) before the @var annotation below asserts
         // a shape -- asserting it first, the way an earlier version of this method did, made
@@ -169,14 +169,14 @@ final class ShipConfig
 
     /**
      * Best-effort read for `InitCommand::readExistingConfig()` -- preserving whatever's already
-     * there across a re-run matters more here than validating it. A real bug found via an
-     * independent re-audit of that very fix: `readExistingConfig()` calls `fromFile()`, which now
-     * validates (see this class's own `validate()`) and throws on the first invalid field it
-     * finds -- one bad `serviceNames` value reintroduced the exact data-loss bug the preservation
-     * fix exists to prevent, discarding every *other* hand-edited field right along with it.
-     * `fromFile()`'s own strict validate-then-throw behavior is still exactly right for the
-     * operational path (`ship up`/`build`/`release` actually using the config) -- this is a
-     * separate, deliberately lenient reader only `readExistingConfig()` uses.
+     * there across a re-run matters more here than validating it. Deliberately separate from
+     * `fromFile()`, which validates (see this class's own `validate()`) and throws on the first
+     * invalid field it finds -- using that method here would mean one bad `serviceNames` value
+     * discards every *other* hand-edited field right along with it, reintroducing the exact
+     * data-loss this exists to prevent. `fromFile()`'s own strict validate-then-throw behavior is
+     * still exactly right for the operational path (`ship up`/`build`/`release` actually using
+     * the config) -- this is a separate, deliberately lenient reader only
+     * `readExistingConfig()` uses.
      *
      * Only filters by *type* (a list is actually a list of strings, a map is actually
      * string-keyed with string values, ...), not by `validate()`'s own stricter *format* checks
@@ -279,34 +279,31 @@ final class ShipConfig
     }
 
     /**
-     * Two real gaps found via an independent audit: `"php": 8.4` (a bare JSON number, an easy
-     * hand-edit mistake -- the quotes around the string are easy to drop) previously reached the
-     * constructor's own strict `string $phpVersion` type unchecked, surfacing as a raw
-     * "Argument #1 ($phpVersion) must be of type string, float given" TypeError instead of a
-     * message naming ship.json at all. And `serviceNames`/`additionalServices` names went
-     * straight into generated compose keys (and, for `additionalServices`, a `.env`-style env var
-     * prefix) with no validation at all -- unlike `processes` names, which already get exactly
-     * this check in `ComposeFileBuilder::addProcessServices()`. The regexes themselves aren't new:
+     * Every field below has a failure mode that would otherwise reach a raw PHP TypeError/warning
+     * instead of a message naming ship.json at all. `"php": 8.4` (a bare JSON number, an easy
+     * hand-edit mistake -- the quotes around the string are easy to drop) would otherwise reach
+     * the constructor's own strict `string $phpVersion` type unchecked, surfacing as "Argument
+     * #1 ($phpVersion) must be of type string, float given". `serviceNames`/`additionalServices`
+     * names go straight into generated compose keys (and, for `additionalServices`, a
+     * `.env`-style env var prefix), so they get the same shape check `processes` names already
+     * get in `ComposeFileBuilder::addProcessServices()`. The regexes themselves aren't new:
      * `serviceNames` reuses `processes`'s own (a compose key only, so a hyphen is fine);
      * `additionalServices` reuses `ship init`'s own interactive prompt validation (also an env var
      * prefix, so no hyphen -- a `.env` file's own KEY=VALUE syntax doesn't allow one).
      *
      * `serviceNames`/`additionalServices`/`processes`/`deployCommands` each get their own
-     * top-level array-type check below too -- a real gap found via an independent re-audit of the
-     * fix above: `serviceNames`/`additionalServices` being some non-array value (a bare string,
-     * say) reached a raw `foreach() argument must be of type array|object` PHP warning followed by
-     * an uncaught constructor `TypeError`, the exact "no message naming ship.json at all" failure
-     * mode this method exists to replace -- confirmed live. `processes`/`deployCommands` had no
-     * validation at all before this, of any kind.
+     * top-level array-type check below too: any of them being some non-array value (a bare
+     * string, say) would otherwise reach a raw `foreach() argument must be of type array|object`
+     * PHP warning followed by an uncaught constructor `TypeError`.
      *
-     * A second independent re-audit reproduced several more of the same failure mode, all fixed
-     * together below: `publishPorts`/`hostUser` as a quoted `"false"` instead of a real boolean,
-     * `extensions`/`phpExtensions` as some non-list value, `name`/`externalNetwork` as a non-string
-     * (an `int`, say), a non-string value under `services`, and an `additionalServices` entry
-     * missing its `group`/`service` key entirely (previously reaching an "Undefined array key"
-     * PHP warning in `ComposeFileBuilder::build()` instead, confirmed live) -- every one of these
-     * used to reach a raw constructor `TypeError` or warning instead of a message naming
-     * ship.json.
+     * The remaining checks below cover the same failure mode for every other field:
+     * `publishPorts`/`hostUser` as a quoted `"false"` instead of a real boolean,
+     * `extensions`/`phpExtensions` as some non-list value, `name`/`externalNetwork` as a
+     * non-string (an `int`, say), a non-string value under `services`, and an
+     * `additionalServices` entry missing its `group`/`service` key entirely (which would
+     * otherwise reach an "Undefined array key" PHP warning in `ComposeFileBuilder::build()`
+     * instead) -- every one of these would otherwise reach a raw constructor `TypeError` or
+     * warning instead of a message naming ship.json.
      *
      * @param array<string, mixed> $data
      */

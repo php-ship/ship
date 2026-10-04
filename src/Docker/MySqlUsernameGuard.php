@@ -7,16 +7,16 @@ namespace Ship\Docker;
 use Ship\Config\ShipConfig;
 
 /**
- * Found via an independent audit, confirmed against the official image's own documented
- * behavior: `mysql`'s entrypoint explicitly refuses to start at all when `MYSQL_USER=root` --
- * "MYSQL_USER=root, MYSQL_USER and MYSQL_PASSWORD are for configuring a regular user" -- crashing
- * the whole container, not just one query. `DB_USERNAME=root` is a real value to find in a
- * project's own `.env`: it was Laravel's own stock default for years before the framework's
- * sqlite-first skeleton. ship can't catch this inside `ComposeFileBuilder` itself --
- * `MYSQL_USER` is set to the Compose expression `${DB_USERNAME:-app}`, never the actual resolved
- * value, which only exists once a real `.env`/`.env.production` is read -- so this checks that
- * file directly instead, early enough to fail with a clear, specific message instead of the
- * generic "mysql never became healthy" a crashed container would otherwise produce.
+ * Per the official image's own documented behavior, `mysql`'s entrypoint explicitly refuses to
+ * start at all when `MYSQL_USER=root` -- "MYSQL_USER=root, MYSQL_USER and MYSQL_PASSWORD are for
+ * configuring a regular user" -- crashing the whole container, not just one query.
+ * `DB_USERNAME=root` is a real value to find in a project's own `.env`: it was Laravel's own
+ * stock default for years before the framework's sqlite-first skeleton. ship can't catch this
+ * inside `ComposeFileBuilder` itself -- `MYSQL_USER` is set to the Compose expression
+ * `${DB_USERNAME:-app}`, never the actual resolved value, which only exists once a real
+ * `.env`/`.env.production` is read -- so this checks that file directly instead, early enough to
+ * fail with a clear, specific message instead of the generic "mysql never became healthy" a
+ * crashed container would otherwise produce.
  */
 final class MySqlUsernameGuard
 {
