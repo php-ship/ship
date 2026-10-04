@@ -211,63 +211,39 @@
   success, not just until session creation returns, since the container
   starts out empty at that path until the sync backfills it.
 
-  That "starts out empty" fact caught a real bug during live
-  verification, not just a hypothetical: the dev entrypoint's existing
-  `composer install`-if-`vendor/`-missing fallback assumed a bind mount,
-  where the real project files (if not `vendor/`) are always already
-  there. Against the named volume this mode uses instead, `composer.json`
-  itself doesn't exist yet either at first boot -- `composer install`
-  failed outright, and `set -e` turned that into the whole entrypoint
-  script exiting, which `restart: unless-stopped` turned into an infinite
-  crash loop racing against Mutagen's own sync, which needs a *running*
-  container to inject its agent into. Fixed by also requiring
-  `composer.json` to actually exist before attempting the install --
-  letting php-fpm boot against a harmlessly empty directory instead,
-  until Mutagen catches up.
+  The dev entrypoint's own `composer install`-if-`vendor/`-missing fallback also requires
+  `composer.json` to actually exist before attempting the install, not just assume a bind mount
+  where it's always already there -- against the named volume this mode uses instead,
+  `composer.json` itself doesn't exist yet either at first boot, and attempting the install
+  anyway fails outright, which `set -e` turns into the whole entrypoint script exiting, which
+  `restart: unless-stopped` turns into an infinite crash loop racing against Mutagen's own sync
+  (which needs a *running* container to inject its agent into). Requiring `composer.json` to
+  exist first lets php-fpm boot against a harmlessly empty directory instead, until Mutagen
+  catches up.
 
-  A second real bug, this one caught by CI rather than local
-  verification (v0.3.0 shipped with it, fixed in the next release):
-  excluding `vendor/` from the sync means nothing ever installs it in
-  this mode at all -- the entrypoint's own fallback only ever runs at
-  container *boot*, before the sync session exists yet, so it always
-  finds `composer.json` missing too and skips, exactly as designed for
-  the crash-loop fix above. Nothing re-triggers it once the sync
-  actually lands. The result: `ship up` itself reported success, but
-  `ship exec app php artisan migrate` immediately after failed on a
-  missing `vendor/autoload.php` -- caught by CI's own docker-build job
-  running exactly that sequence, not by any local testing, since local
-  verification up to that point only checked raw file sync, never an
-  actual command needing Composer dependencies. Fixed by running the
-  same guarded install (`composer.json` present, `vendor/autoload.php`
-  missing) inside the container via `docker compose exec` once the sync
-  reaches "Watching," instead of relying on the entrypoint. Idempotent
-  by the same guard -- a second `ship up` costs one quick `exec` since
-  `vendor/` persists in the named volume like everything else written
-  inside the container.
+  `vendor/` is excluded from the sync itself (see above), so nothing else ever installs it in
+  this mode -- the entrypoint's own fallback only ever runs at container *boot*, before the sync
+  session exists yet, so it always finds `composer.json` missing too and skips, and nothing
+  re-triggers it once the sync actually lands. `ship up` instead runs the same guarded install
+  (`composer.json` present, `vendor/autoload.php` missing) inside the container via `docker
+  compose exec` once the sync reaches "Watching" -- idempotent by the same guard, so a second
+  `ship up` costs one quick `exec` since `vendor/` persists in the named volume like everything
+  else written inside the container.
 
-  A third real bug, also caught by CI (v0.3.1 fixed the one above but
-  still shipped with this one, fixed in the next release): the
-  `vendor/` fix got `artisan migrate` working, but every actual HTTP
-  request to the app still 403'd with nginx's own "is forbidden (13:
-  Permission denied)". `webserver`'s dev-nginx stage never runs as
-  root -- unlike `app`'s dev php-fpm pool, which already does, for the
-  same underlying reason (see that `RUN sed` line's own docblock) --
-  so its unprivileged worker processes couldn't read files Mutagen had
-  just synced in, which land owned by whatever user Mutagen's own
-  agent injection runs as via `docker exec`. Fixed the same way:
-  `sed`-ing nginx's own `user nginx;` directive to `user root;`, dev
-  only -- `prod-nginx`'s files are baked into the image at build time
-  at a known, consistent ownership, so it keeps nginx's own default.
+  `webserver`'s dev-nginx stage also runs as root in this mode (`sed`-ing nginx's own `user
+  nginx;` directive to `user root;`, dev only) -- unlike `app`'s dev php-fpm pool, which already
+  does for the same underlying reason (see that `RUN sed` line's own docblock), its unprivileged
+  worker processes would otherwise be unable to read files Mutagen just synced in, which land
+  owned by whatever user Mutagen's own agent injection runs as via `docker exec`. `prod-nginx`'s
+  files are baked into the image at build time at a known, consistent ownership instead, so it
+  keeps nginx's own default.
 
-  Verified live end-to-end against a real Docker daemon and the real
-  `mutagen` binary beyond all three bugs above (also tracking down a
-  fourth gotcha along the way: a `mutagen` install missing its separate
-  agent-bundle archive fails sync creation outright with no indication
-  why beyond "unable to locate agent bundle") -- covered by CI's
-  `docker-build` job too, checking a real file round-trip in both
-  directions and that `ship down` actually terminates the sync session,
-  not just unit tests around the deterministic parts
-  (`ComposeFileBuilderMutagenTest`, `MutagenSyncTest`).
+  A `mutagen` install missing its separate agent-bundle archive fails sync creation outright with
+  no indication why beyond "unable to locate agent bundle" -- worth checking first if sync
+  creation fails mysteriously. Covered by CI's `docker-build` job too, checking a real file
+  round-trip in both directions and that `ship down` actually terminates the sync session, not
+  just unit tests around the deterministic parts (`ComposeFileBuilderMutagenTest`,
+  `MutagenSyncTest`).
 - Direct test coverage for everything that previously had none:
   `ShipConfig` (defaults, malformed-file handling, round-trip),
   `Application` (command registration with no `ship.json` yet, a
@@ -305,26 +281,17 @@
   fixed `app`/`webserver`/`mysql`/... keys they've always used, unaware
   anything downstream renames the result.
 
-  A real bug surfaced building this, not caught until an actual test
-  asserted the *right* thing rather than just the renamed thing: a
-  service's own hostname env var (`DB_HOST` => "mysql") has to follow a
-  rename or the app can no longer reach it, but some services also set an
-  unrelated driver identifier that happens to be spelled exactly like
-  their own compose name by coincidence (`RedisService`'s own
-  `CACHE_STORE`/`SESSION_DRIVER` => "redis", `MySqlService`'s own
-  `DB_CONNECTION` => "mysql") -- a first pass keyed only on *value*
-  equality renamed those right along with the real hostname, which would
-  have silently changed the app's own cache driver to a name Laravel
-  doesn't recognize the moment anyone renamed their "redis" service.
-  Fixed by also requiring the *key* to actually look like a hostname
-  (ends in `_HOST` or `_ENDPOINT`) before touching a value at all --
-  caught by a unit test asserting `CACHE_STORE` survives a Redis rename
-  unchanged, not by any live Docker check, since nothing about it
-  actually depends on a real daemon. `DbCommand` (`ship db`) needed its
-  own fix too -- it independently recomputes a service's compose name at
-  command-execution time, so it has to resolve that same name through
-  `serviceNames` itself rather than reusing whatever `ComposeFileBuilder`
-  decided when the compose file was generated.
+  A service's own hostname env var (`DB_HOST` => "mysql") has to follow a rename, or the app can
+  no longer reach it -- but some services also set an unrelated driver identifier that happens to
+  be spelled exactly like their own compose name by coincidence (`RedisService`'s own
+  `CACHE_STORE`/`SESSION_DRIVER` => "redis", `MySqlService`'s own `DB_CONNECTION` => "mysql"),
+  which a rename must NOT touch, or it would silently change the app's own cache driver to a name
+  Laravel doesn't recognize the moment anyone renamed their "redis" service. The rename only
+  touches a value whose *key* actually looks like a hostname (ends in `_HOST` or `_ENDPOINT`), not
+  every value that happens to equal the old name -- a unit test asserts `CACHE_STORE` survives a
+  Redis rename unchanged. `DbCommand` (`ship db`) independently recomputes a service's compose
+  name at command-execution time, so it resolves that same name through `serviceNames` itself
+  rather than reusing whatever `ComposeFileBuilder` decided when the compose file was generated.
 
   Verified live against a real Docker daemon, both scenarios: a fixture
   project renamed to `client-app`/`client-web`, attached to a real
@@ -345,29 +312,25 @@
   of MinIO's actual server codebase restoring both; RustFS is an
   independent, from-scratch Rust rewrite.
 
-  Verified live against a real Docker daemon before committing to
-  either, not just from documentation, which is exactly what caught two
-  real gaps: (1) neither has a Garage-style `--default-bucket` flag --
-  confirmed directly that a write to a bucket that was never created
-  fails outright with "NoSuchBucket," so unlike Garage, the app's own
-  bucket needs creating by hand once, via a console or any S3 client;
-  (2) RustFS's own web console -- the actual reason to reach for either
-  of these over SeaweedFS/Garage -- currently just returns the S3 API's
-  own "AccessDenied" response instead of rendering, on both
-  `--console-enable` and an explicit `--console-address` flag, which
-  turned out to match a currently-open upstream bug
+  Neither has a Garage-style `--default-bucket` flag -- a write to a
+  bucket that was never created fails outright with "NoSuchBucket," so
+  unlike Garage, the app's own bucket needs creating by hand once, via a
+  console or any S3 client. RustFS's own web console -- the actual
+  reason to reach for either of these over SeaweedFS/Garage -- currently
+  just returns the S3 API's own "AccessDenied" response instead of
+  rendering, on both `--console-enable` and an explicit
+  `--console-address` flag, matching a currently-open upstream bug
   (rustfs/rustfs#8013), not a misconfiguration on this end. `RustFsService`
   is deliberately positioned the same as SeaweedFS/Garage (no published
   console port) until that's fixed upstream, while `SiloService` publishes
-  one -- verified live to be a real, working HTML/JS console, not just a
-  200 status.
+  one -- a real, working HTML/JS console, not just a 200 status.
 
-  Also confirmed live: RustFS's container runs as a non-root user
-  (10001:10001) baked into the image with `/data` already chowned to
-  match, so ship's own named-volume pattern (not a bind mount) for its
-  dev data Just Works without needing any of the manual host-side
-  `chown` the image's own docs otherwise call for -- Silo runs as root,
-  so this never came up for it at all. Both storage services support
+  RustFS's container runs as a non-root user (10001:10001) baked into
+  the image with `/data` already chowned to match, so ship's own
+  named-volume pattern (not a bind mount) for its dev data Just Works
+  without needing any of the manual host-side `chown` the image's own
+  docs otherwise call for -- Silo runs as root, so this never comes up
+  for it at all. Both storage services support
   `additionalServices` (a second, differently-purposed instance) like
   SeaweedFS/Garage already do; since both host-publish a console port
   (Silo always, RustFS once its bug is fixed), that port's own env var
@@ -376,55 +339,35 @@
   host port -- a class of collision no existing storage service had to
   consider before, since neither SeaweedFS nor Garage publishes anything
   to the host at all.
-- Fixed a real bug reported from live use of a project actually built on
-  `ship` (two real Laravel apps sharing infrastructure via
-  `serviceNames`/`externalNetwork`): `APP_URL` was unconditionally
-  injected into the compose `environment:` block for every project,
-  which always wins over whatever real, host-reachable `APP_URL` the
-  project's own `.env` already set (`environment:` always beats
-  `env_file:`, see `ComposeFileBuilder::OPTIONAL_ENV_FILE`'s own
-  docblock). That silently rewrote every user-facing absolute URL
-  (queued emails, signed URLs, artisan command output) to an internal
-  Docker hostname (`http://app`/`http://webserver`) no browser outside
-  the container can resolve — invisible in the common case of hitting
-  `http://localhost` directly in a browser, but broken for anything
-  generated outside that one request. The only genuine consumer of that
-  internal hostname is Dusk's own Selenium container, which really does
-  need it (a separate container reaching "app"/"webserver" over the
-  `ship` network, not any host-reachable URL) — fixed by only injecting
-  `APP_URL` at all when Dusk is selected; every other project now keeps
-  whatever its own `.env` already sets, untouched. Verified live: a
-  fixture with a custom `.env` `APP_URL` (a non-default port and
-  hostname) came through into the "app" container completely unmangled.
-- Fixed another real bug from the same report: Vite's dev server port
-  mapping only ever let the *host* side follow `${VITE_PORT:-5173}` --
-  the container side was a fixed `5173` regardless, so a project whose
-  own `vite.config.js` actually listens on a different port (reading
-  its own `VITE_PORT`) never got that port published at all, and HMR
-  never connected. Both sides now read the same `${VITE_PORT:-5173}` --
-  README's Vite HMR section and `ship init`'s own printed reminder
-  snippet updated to read `process.env.VITE_PORT` in `vite.config.js`
-  accordingly, so one `.env` value drives both the compose mapping and
-  Vite's own bind port.
+- `APP_URL` is only ever injected into the compose `environment:` block when Dusk is selected --
+  Dusk's own Selenium container is the only genuine consumer of the internal Docker hostname
+  (`http://app`/`http://webserver`, a separate container reaching "app"/"webserver" over the
+  `ship` network, not any host-reachable URL); every other project keeps whatever its own `.env`
+  already sets, untouched. Unconditionally injecting it would otherwise always win over whatever
+  real, host-reachable `APP_URL` the project's own `.env` sets (`environment:` always beats
+  `env_file:`, see `ComposeFileBuilder::OPTIONAL_ENV_FILE`'s own docblock), silently rewriting
+  every user-facing absolute URL (queued emails, signed URLs, artisan command output) to a Docker
+  hostname no browser outside the container can resolve -- invisible when hitting
+  `http://localhost` directly in a browser, but broken for anything generated outside that one
+  request. Verified live: a fixture with a custom `.env` `APP_URL` (a non-default port and
+  hostname) comes through into the "app" container completely unmangled.
+- Vite's dev server port mapping follows `${VITE_PORT:-5173}` on both the host *and* container
+  side, not just the host -- a project whose own `vite.config.js` actually listens on a different
+  port (reading its own `VITE_PORT`) would otherwise never get that port published at all, and HMR
+  would never connect. README's Vite HMR section and `ship init`'s own printed reminder snippet
+  read `process.env.VITE_PORT` in `vite.config.js` accordingly, so one `.env` value drives both the
+  compose mapping and Vite's own bind port.
 
-  Fixing this surfaced a real regression in `UpCommand`'s own port-bind
-  verification: `ensurePublishedPortsAreBound()`'s `containerPortFrom()`
-  blindly split every mapping string on `:`, which every *other* mapping
-  in this codebase tolerates fine (only ever the host side has
-  `${VAR:-default}` syntax, so the container side was always a bare
-  trailing literal) -- but Vite's new both-sides mapping has a literal
-  `:` inside `${VITE_PORT:-5173}` on the container side too, so the
-  naive split grabbed a garbled fragment instead (caught immediately by
-  an actual `ship up`, not a unit test: `docker compose port` was handed
-  literal garbage and `ship up` failed outright with a nonsense port in
-  its own error message). Fixed by reading `docker compose config`'s
-  already-fully-resolved view instead of re-parsing the raw generated
-  YAML text for this one check -- Compose resolves every
-  `${VAR:-default}` the exact same way `docker compose up` itself does
-  (env var, then `.env`, then the inline default) and hands back a real
-  numeric `target` port directly, so nothing here needs to reimplement
-  that resolution by hand. Verified live: a fixture with `VITE_PORT=5199`
-  in `.env` published as `5199:5199` and `ship up` completed successfully.
+  `UpCommand`'s own port-bind verification (`ensurePublishedPortsAreBound()`'s
+  `containerPortFrom()`) reads `docker compose config`'s already-fully-resolved view rather than
+  splitting the raw mapping string on `:` -- every *other* mapping in this codebase only ever has
+  `${VAR:-default}` syntax on the host side, with the container side a bare trailing literal, but
+  Vite's both-sides mapping has a literal `:` inside `${VITE_PORT:-5173}` on the container side
+  too, which a naive split would grab a garbled fragment from instead. Compose resolves every
+  `${VAR:-default}` the exact same way `docker compose up` itself does (env var, then `.env`, then
+  the inline default) and hands back a real numeric `target` port directly, so nothing here needs
+  to reimplement that resolution by hand. Verified live: a fixture with `VITE_PORT=5199` in `.env`
+  published as `5199:5199` and `ship up` completed successfully.
 - Configurable PHP extensions (`ship.json`'s `phpExtensions`, a plain
   list of extension names) beyond the fixed set every project already
   gets unconditionally (pdo_pgsql, pdo_mysql, intl, mbstring, opcache,
@@ -536,20 +479,13 @@
   user's own `ls -la`, and `ship exec app chown -R $(id -u):$(id -g)
   vendor` really does flip it back to the WSL user afterward.
 
-- A real bug CI caught immediately after the `--watch` addition above
-  went public (not caught locally first, unlike most bugs documented in
-  this file): unconditionally passing `--watch` crash-loops Octane's
-  own watcher subprocess with "Cannot find module 'chokidar'" the
-  instant it's missing -- which is most fresh Laravel installs, not a
-  rare case, including CI's own plain `laravel/laravel` + `laravel/octane`
-  Swoole fixture. Fixed by moving the decision from a static PHP-side
-  flag to a shell conditional resolved at container *boot*
-  (`if [ -d node_modules/chokidar ]; then ... --watch; else ...; fi`),
-  checking the actual mounted project for chokidar's real presence
-  instead of assuming it's always there -- the only place that question
-  can be answered correctly, and it also means a project adding
-  chokidar later just gets `--watch` on its next `ship up`, no
-  ship-side change needed.
+- Whether `--watch` is actually passed is resolved at container *boot*, via a shell conditional
+  (`if [ -d node_modules/chokidar ]; then ... --watch; else ...; fi`), not a static PHP-side flag
+  -- unconditionally passing it crash-loops Octane's own watcher subprocess with "Cannot find
+  module 'chokidar'" the instant it's missing, which is most fresh Laravel installs, not a rare
+  case. Checking the actual mounted project for chokidar's real presence at boot is the only place
+  that question can be answered correctly, and it also means a project adding chokidar later just
+  gets `--watch` on its next `ship up`, no ship-side change needed.
 
   Verified live both ways against a real `laravel/laravel` +
   `laravel/octane` Swoole fixture, not just unit tests: without
@@ -596,22 +532,17 @@
   completed successfully, both containers showed only internal ports
   (no host mapping), and a request to the host's port 80 got no response.
 
-- Fixed a real race in MySQL's healthcheck, found while live-testing
-  `deployCommands`: `mysqladmin ping -h localhost` makes `mysqladmin` use
-  the unix socket, and on a fresh volume the image first starts a
-  *temporary* server that listens on that socket only (`port: 0`, no
-  TCP), stops it, then starts the real one. Measured directly: the socket
-  ping succeeded from ~9s to ~13s while TCP was still refusing
-  connections, so the container went "healthy" a few seconds before
-  anything could connect to it -- and whatever ran right after (a deploy
-  command's migration here; `ship up`'s own healthcheck wait, or a
-  `ship artisan migrate` typed right after it, for any project) hit
-  "connection refused". Now pings `127.0.0.1`, which only succeeds once
-  the real server is up. Measured both ways on a fresh container: at the
-  instant the old check first reported healthy a TCP login was refused;
-  at the instant the new one did, it succeeded. Checked Postgres for the
-  same pattern rather than assuming: `pg_isready` over the socket never
-  succeeded before TCP did, so it's left alone.
+- MySQL's healthcheck pings `127.0.0.1`, not `localhost` -- `mysqladmin ping -h localhost` makes
+  `mysqladmin` use the unix socket, and on a fresh volume the image first starts a *temporary*
+  server that listens on that socket only (`port: 0`, no TCP), stops it, then starts the real
+  one. The socket ping succeeds from ~9s to ~13s while TCP is still refusing connections, so a
+  check against `localhost` reports "healthy" a few seconds before anything can actually connect
+  to it -- and whatever runs right after (a deploy command's migration, `ship up`'s own
+  healthcheck wait, or a `ship artisan migrate` typed right after it) hits "connection refused".
+  Pinging `127.0.0.1` instead only succeeds once the real server is up: at the instant the
+  `localhost` check would first report healthy a TCP login is refused; at the instant the
+  `127.0.0.1` one does, it succeeds. Postgres doesn't have this problem -- `pg_isready` over the
+  socket never succeeds before TCP does there, so it's left pinging the socket.
 
 - `ship.json`'s `deployCommands`: shell commands meant to run exactly once
   per deploy, after the images are built and before any new container
@@ -777,17 +708,12 @@
   `composer.lock` and the new `vendor/` package owned by `1000:1000`
   too. `ship shell` reported uid/gid 1000 with `HOME=/home/ship`.
 
-- Fixed a real bug found while live-testing the three FrankenPHP items
-  above, unrelated to any of them: the `dunglas/frankenphp` base image
-  has neither `ext-zip` nor an `unzip`/`7z` binary, so Composer can't
-  extract a single package distributed as a zip -- the normal case for
-  anything pulled from Packagist, not an edge case. This failed the
-  `builder` stage outright on the very first real `composer.lock`
-  (confirmed with a plain `composer require laravel/octane`), meaning
-  production FrankenPHP builds with any real dependencies were already
-  broken before today. Fixed with `apt-get install unzip` in the `base`
-  stage. The main Dockerfile doesn't need this -- Alpine's
-  `php:*-fpm-alpine` base already ships `unzip`.
+- `Dockerfile.frankenphp`'s `base` stage runs `apt-get install unzip`: the `dunglas/frankenphp`
+  base image has neither `ext-zip` nor an `unzip`/`7z` binary on its own, so without this Composer
+  can't extract a single package distributed as a zip -- the normal case for anything pulled from
+  Packagist, not an edge case, failing the `builder` stage outright on the very first real
+  `composer.lock` (reproduces with a plain `composer require laravel/octane`). The main Dockerfile
+  doesn't need this -- Alpine's `php:*-fpm-alpine` base already ships `unzip`.
 
 - Replaced `ship up --prod` with two new commands, `ship build` and
   `ship release --tag <tag>` -- a deliberate breaking change, not an
@@ -831,27 +757,21 @@
   operator to run on the server once the images are loaded -- `ship`
   itself still never deploys anywhere.
 
-  A real bug found live, not in review: the first non-interactive `--tag`
-  check only looked at `$input->isInteractive()`, which Symfony only ever
-  sets false from an explicit `--no-interaction`/`-n` flag, never from
-  detecting a non-tty stdin on its own. Piping from `/dev/null` with no
-  `-n` -- exactly a plain CI `run:` step, no flag added -- left `ship
-  release` printing "Release tag:" and hanging forever instead of failing
-  fast. Fixed by also checking `stream_isatty(STDIN)` directly (unlike
-  `posix_isatty`, available on every platform this package already
-  claims to run).
+  The non-interactive `--tag` check also checks `stream_isatty(STDIN)` directly, not just
+  `$input->isInteractive()` -- Symfony only ever sets that false from an explicit
+  `--no-interaction`/`-n` flag, never from detecting a non-tty stdin on its own, so piping from
+  `/dev/null` with no `-n` (exactly a plain CI `run:` step, no flag added) would otherwise leave
+  `ship release` printing "Release tag:" and hanging forever instead of failing fast.
+  `stream_isatty`, not `posix_isatty`, since the latter isn't available on every platform this
+  package already claims to run.
 
-  A second real bug found live: `deploy-commands.sh`'s own "bring up
-  infrastructure first" step initially read the *release's* final
-  `docker-compose.yml` to decide what counts as infrastructure -- but
-  that file has already had `build:` stripped from every project-owned
-  service by the time it's written, so "no `build:` key" (the same test
-  `DeployPlan::infrastructureServices()` uses) misclassified "app" and
-  "webserver" as infrastructure too, meaning the script would have
-  started them *before* running migrations, defeating the entire reason
-  the ordering exists. Fixed by reading `ship/docker-compose.generated.yml`
-  instead -- `ProductionBuildRunner`'s own working copy, still carrying
-  `build:` at that point.
+  `deploy-commands.sh`'s own "bring up infrastructure first" step reads
+  `ship/docker-compose.generated.yml` -- `ProductionBuildRunner`'s own working copy, still
+  carrying `build:` -- not the release's final `docker-compose.yml`, which has already had
+  `build:` stripped from every project-owned service by the time it's written. Reading the
+  stripped file would make "no `build:` key" (the same test `DeployPlan::infrastructureServices()`
+  uses) misclassify "app" and "webserver" as infrastructure too, starting them *before* running
+  migrations and defeating the entire reason the ordering exists.
 
   Verified live end-to-end against a real `laravel/laravel` + MySQL +
   Redis fixture, not just unit tests: `ship build` produced
@@ -945,78 +865,67 @@
   `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` to `.env` and recreated the container, confirming
   those same env vars now read the overridden values instead.
 
-- Fixed a real secret leak found via an independent audit: `ship init`'s own `.dockerignore`
-  entries (`.env`, `.env.*`) only ever match at the build context *root* -- confirmed live, not
-  assumed, by building a minimal image with ship's exact file. `dist/ship/<tag>/.env` (`ship
-  release`'s own copy of `.env.production`) was never excluded, and the builder stage's `COPY . .`
-  picked it straight up, landing readable inside the very next image built in that project --
-  carrying every earlier release's own tars forward too. Fixed with `**`-prefixed patterns
-  (`**/.env`, `**/.env.*`, `!**/.env.example`), which match at any depth, plus an outright `/dist`
-  exclusion. Verified live: the same minimal-image test, with the fixed patterns, excluded both the
-  nested `.env` and the whole `dist/` tree, while still preserving a root `.env.example`.
+- `ship init`'s own `.dockerignore` entries use `**`-prefixed patterns (`**/.env`, `**/.env.*`,
+  `!**/.env.example`), which match at any depth, plus an outright `/dist` exclusion -- a bare
+  `.env`/`.env.*` pattern only ever matches at the build context *root*. Without the recursive
+  form, `dist/ship/<tag>/.env` (`ship release`'s own copy of `.env.production`) is never excluded,
+  and the builder stage's `COPY . .` picks it straight up, landing readable inside the very next
+  image built in that project -- carrying every earlier release's own tars forward too. Verified
+  live: a minimal image built with these exact patterns excludes both the nested `.env` and the
+  whole `dist/` tree, while still preserving a root `.env.example`.
 
-- Fixed another real bug found via the same independent audit: `MailpitService`/`DuskService`
-  never checked `$environment` at all, so production got a Mailpit and a Selenium container too
-  whenever selected -- dev/test-only tooling with no business in a production release. Worse than
-  just unwanted containers: Mailpit's `MAIL_HOST` unconditionally overrode whatever real mail
-  config `.env.production` actually set (`environment:` always wins over `env_file:`), so real
-  mail -- including password reset links -- was silently captured into an unauthenticated web UI
-  instead of ever being sent.
+- An empty `composeFragment()` is a service's own signal to `ComposeFileBuilder::applyService()`
+  that it contributes nothing at all in this environment -- no compose service, no env vars
+  injected into `app`, no `removes()` either. `MailpitService`/`DuskService` use this to stay out
+  of production entirely: both are dev/test-only tooling with no business in a production release,
+  and -- since `environment:` always wins over `env_file:` -- Mailpit's `MAIL_HOST` would otherwise
+  unconditionally override whatever real mail config `.env.production` actually sets, silently
+  capturing real mail (including password reset links) into an unauthenticated web UI instead of
+  ever sending it. Any third-party `ServiceDefinition` gets the same opt-out for free.
 
-  Fixed generically, not with two one-off special cases: an empty `composeFragment()` is now a
-  service's own signal to `ComposeFileBuilder::applyService()` that it contributes nothing at all
-  in this environment -- no compose service, no env vars injected into `app`, no `removes()`
-  either. Any third-party `ServiceDefinition` gets the same opt-out for free. Every built-in
-  service's fragment was already never empty, so this is fully backward compatible.
+- Re-running `ship init` reads the existing `ship.json` (if any) before writing the new one, and
+  carries its hand-edited-only fields forward unchanged -- `extensions`, `serviceNames`,
+  `externalNetwork`, `phpExtensions`, `publishPorts`, `deployCommands`, `processes`, `hostUser`,
+  `name`, none of which its own prompts (`php`, `node`, `services`, `additionalServices`) touch at
+  all. Without this, re-running `ship init` -- what the README calls "always safe", and what `ship
+  up` itself tells users to do after a stub-version mismatch -- would silently discard every one of
+  them: losing `publishPorts: false` alone re-exposes ports a project turned off deliberately,
+  losing `hostUser: true` goes back to root-owned files, losing `deployCommands` stops migrations
+  from running on the next deploy, all with no error, warning, or diff to notice. Reading the
+  existing file returns `null` (not an exception) when there's nothing to preserve yet (a
+  first-ever `ship init`) or the existing file is malformed, since a broken `ship.json` is exactly
+  what re-running `ship init` might be trying to fix in the first place.
 
-- Fixed a third real bug found via the same independent audit, the most severe of the three:
-  re-running `ship init` rebuilt `ShipConfig` from only the four fields its own prompts ever touch
-  (`php`, `node`, `services`, `additionalServices`), silently discarding every other field --
-  `extensions`, `serviceNames`, `externalNetwork`, `phpExtensions`, `publishPorts`,
-  `deployCommands`, `processes`, `hostUser`, `name`. The README called re-running "always safe",
-  and `ship up` itself tells users to do exactly that after a stub-version mismatch. Losing
-  `publishPorts: false` alone silently re-exposes ports a project turned off deliberately; losing
-  `hostUser: true` silently goes back to root-owned files; losing `deployCommands` silently stops
-  migrations from running on the next deploy -- all without any error, warning, or diff to notice.
+- `ship release`'s `exportImages()` stops immediately on the first `docker save` failure, without
+  writing `release.json`/`deploy-commands.sh` against an incomplete `images/` directory --
+  otherwise a release could claim "release ready" with a missing or truncated tar in it (disk
+  full, a bad tag, a docker daemon hiccup, anything `docker save` itself would have failed loudly
+  for on its own) if that exit code were ignored.
 
-  Fixed by reading the existing `ship.json` (if any) before writing the new one, and carrying its
-  hand-edited-only fields forward unchanged -- `null` (not an exception) when there's nothing to
-  preserve yet (a first-ever `ship init`), or the existing file is malformed, since a broken
-  `ship.json` is exactly what re-running `ship init` might be trying to fix in the first place.
-
-- Fixed `ship release` reporting success when `docker save` fails (an independent audit catch):
-  `exportImages()`'s own exit code was ignored entirely, so a release could claim "release ready"
-  with a missing or truncated tar in it -- disk full, a bad tag, a docker daemon hiccup, anything
-  `docker save` itself would have failed loudly for on its own. Fixed to stop immediately on the
-  first failure, without writing `release.json`/`deploy-commands.sh` against an incomplete
-  `images/` directory.
-
-- Fixed three real Reverb bugs found via the same independent audit, all from the same root
-  cause: `ReverbService`'s own `composeFragment()` has no access to `$appEnv`, `$config`, or
-  `$hostUser`, so it could never align itself with `app` on its own. Reverb never got `app`'s own
-  injected environment (`DB_*`, `REDIS_*`, ...), so anything it touched that needed the database
-  (a private-channel auth callback, say) failed to connect; it never got `SHIP_RUN_AS`, so it ran
-  as root in production, the same gap already fixed for every Octane runtime and `processes`
-  entry; and its own build args were missing `OCTANE_RUNTIME`/`HOST_UID`/`HOST_GID`, forcing a
-  second, wasteful image build for content that should be identical to `app`'s.
-
-  Fixed in `ComposeFileBuilder`, after `app`'s own environment and build args are already final --
+- `ComposeFileBuilder` aligns Reverb with `app`: Reverb gets `app`'s own injected environment
+  (`DB_*`, `REDIS_*`, ...), so anything it touches that needs the database (a private-channel auth
+  callback, say) can connect; it gets `SHIP_RUN_AS`, so it runs as a non-root user in production,
+  the same as every Octane runtime and `processes` entry; and its own build args include
+  `OCTANE_RUNTIME`/`HOST_UID`/`HOST_GID`, matching `app`'s so both build to identical image content
+  instead of two separate, wasteful builds. `ReverbService`'s own `composeFragment()` has no
+  access to `$appEnv`, `$config`, or `$hostUser` on its own, so this alignment happens in
+  `ComposeFileBuilder` instead, after `app`'s own environment and build args are already final --
   only the build *args* are copied, not the whole build block, so FrankenPHP overriding `app`'s own
   dockerfile never leaks onto Reverb, which never needs Caddy's image just to run a plain `php
   artisan reverb:start`.
 
-- Fixed two real nginx bugs found via the same independent audit. `location ~ \.php$` passed *any*
-  request path ending in `.php` to PHP-FPM, existing file or not -- restricted to an exact
-  `location = /index.php` match, the only path that block should ever see; a `.php` file somehow
-  ending up under `public/` some other way now gets served statically by `location /`'s
-  `try_files` instead of executed. Separately, the upstream host was hardcoded to `app:9000` --
-  renaming the app service via `ship.json`'s `serviceNames` left nginx 502ing every request
-  against a DNS name nothing in the stack answers to anymore. `ship init` now substitutes the
-  resolved app service name into the published config when it differs from `app` -- a no-op for
-  the overwhelming majority of projects that never touch `serviceNames`.
+- nginx's `location ~ \.php$` is restricted to an exact `location = /index.php` match, the only
+  path that block should ever see -- a bare regex would pass *any* request path ending in `.php`
+  to PHP-FPM, existing file or not; a `.php` file somehow ending up under `public/` some other way
+  instead gets served statically by `location /`'s `try_files`. Its upstream host also follows
+  `ship.json`'s `serviceNames`: `ship init` substitutes the resolved app service name into the
+  published config whenever it differs from the hardcoded `app:9000` default -- a no-op for the
+  overwhelming majority of projects that never touch `serviceNames`, but otherwise nginx 502s
+  every request against a DNS name nothing in the stack answers to once the app service is
+  renamed.
 
-- Fixed a real credentials bug found via the same independent audit: `${DB_PASSWORD:-secret}`,
-  `shipsearchkey`, and `ship`/`shipsecret` all used the exact same `${VAR:-default}` expression in
+- `${DB_PASSWORD:-secret}`, `shipsearchkey`, and `ship`/`shipsecret` all use the exact same
+  `${VAR:-default}` expression in
   both environments, so a `.env.production` that forgot (or never had) a real value silently
   shared the same publicly-known default every such project would -- with no error, warning, or
   way to notice short of reading the generated compose file by hand.
@@ -1037,200 +946,157 @@
   single `:?` anywhere in it aborts the whole command before any service, the app included, ever
   starts.
 
-- Gave SeaweedFS real S3 authentication -- found via the same independent audit, confirmed live:
-  the base image's S3 gateway has no authentication at all unless handed an identity config file
-  via `-s3.config`. An unsigned, credential-less request against a plain `weed server -s3`
-  returned 200 with a real bucket listing. There's no env-var-driven auth option, only a config
-  *file*, which the real secret (known only once `.env.production` exists, long after `ship init`
-  published anything) can't be baked into ahead of time. Fixed by overriding the image's own
-  ENTRYPOINT with a shell that generates that file from the already-injected
-  `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` env vars at container *boot*, then execs the real
-  server against it.
+- SeaweedFS's own identity file gives it real S3 authentication: the base image's S3 gateway has
+  no authentication at all unless handed an identity config file via `-s3.config` -- an unsigned,
+  credential-less request against a plain `weed server -s3` returns 200 with a real bucket
+  listing otherwise. There's no env-var-driven auth option, only a config *file*, which the real
+  secret (known only once `.env.production` exists, long after `ship init` published anything)
+  can't be baked into ahead of time -- the image's own ENTRYPOINT is overridden with a shell that
+  generates that file from the already-injected `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` env
+  vars at container *boot*, then execs the real server against it. The generating script uses
+  `$$`, not a bare `$VAR` -- Compose interpolates a bare `$VAR` in a compose `command:` string
+  itself (against the host's own environment, empty) before the container's shell ever runs it,
+  which `docker compose config`'s own resolved output confirms would otherwise leave both
+  credentials blank; `$$` is the escape Compose's own docs call for.
 
-  Hit the same bug class the audit separately flagged for `ship.json`'s own `processes` commands
-  while implementing this: a bare `$VAR` in a compose `command:` string gets interpolated by
-  Compose itself (against the host's own environment, empty) before the container's shell ever
-  runs it -- confirmed live by inspecting `docker compose config`'s actual resolved output, which
-  showed both credentials blank. Fixed with `$$`, the same escape Compose's own docs call for.
+  Verified live both ways: an unsigned request against the base image alone returns 200 with a
+  real bucket listing, and the same request against the real `ship up`-generated compose file,
+  with the identity file holding real credentials, returns 403.
 
-  Verified live twice: once showing the *before* state (unsigned request -> 200, real bucket
-  listing) to prove the bug concretely rather than just reasoning about it, and once after the fix
-  (through the real `ship up`-generated compose file, not a hand-rolled one) showing the identity
-  file with real credentials and the same unsigned request now returning 403.
+- Garage reads its RPC secret and admin token from `GARAGE_RPC_SECRET`/`GARAGE_ADMIN_TOKEN` env
+  vars directly (both explicitly documented to override `config.toml`), required (not just
+  overridable) in production via `RequiredEnv` -- not a hardcoded, all-zero `rpc_secret` in the
+  published `garage.toml` stub shared by every project that ever selected Garage, and not an
+  admin API (bucket/key management, reachable by anything else on the "ship" network) with no
+  token at all. No wrapper script or generated file is needed the way SeaweedFS's identity config
+  requires, since Garage's own CLI already reads both as plain env vars.
 
-- Gave Garage a real RPC secret and admin token -- found via the same independent audit: the
-  published `garage.toml` stub hardcoded an all-zero `rpc_secret` shared by every project that
-  ever selected Garage, and the admin API (bucket/key management, reachable by anything else on
-  the "ship" network) had no token at all. Garage's own CLI reads both `GARAGE_RPC_SECRET` and
-  `GARAGE_ADMIN_TOKEN` as env vars directly, explicitly documented to override `config.toml`, so no
-  wrapper script or generated file was needed the way SeaweedFS's identity config required --
-  removed `rpc_secret` from `garage.toml` entirely and set both through the usual env var
-  mechanism, required (not just overridable) in production via `RequiredEnv`.
+  The dev defaults for both are long enough to satisfy this image's own `--default-access-key`
+  minimum-length validation, which refuses to start otherwise -- an 8-character minimum for the
+  access key, a separate 16-character minimum for the secret.
 
-  While verifying this live, found and fixed two more real, pre-existing bugs blocking Garage from
-  booting at all, unrelated to the audit: this image's own `--default-access-key` validates
-  minimum lengths and refuses to start otherwise -- `"ship"` (4 chars) failed an 8-character
-  minimum, and once that was raised, `"shipsecret"` (10 chars) failed a separate 16-character
-  minimum for the secret. Both defaults are now long enough.
-
-  Verified live end-to-end through the real `ship up`-generated compose file: the container now
+  Verified live end-to-end through the real `ship up`-generated compose file: the container
   reports healthy (the healthcheck's own `garage status` call picks up `GARAGE_RPC_SECRET` from
   the container's environment automatically), an unsigned admin API request gets a 403 with
-  "Bearer token must be provided" where it previously had no gate at all, the correct token gets a
-  200, and a wrong one gets a 403.
+  "Bearer token must be provided", the correct token gets a 200, and a wrong one gets a 403.
 
-- Fixed Garage being misclassified as application code in deploy ordering -- found via the same
-  independent audit: `DeployPlan::infrastructureServices()` used "has a `build:` at all" as a
-  proxy for "is this the app's own code," correct for `app`/`webserver`/`reverb`/`processes`
-  (which all build from `ship/Dockerfile`), but it also caught Garage, a project-owned service
-  with its own small packaging Dockerfile for unrelated reasons. A "create the bucket" deploy
-  command would run against a Garage that `deploy-commands.sh`'s own "bring up infrastructure
-  first" step never started. Fixed by checking the build's own dockerfile path instead of just
-  whether `build:` is present at all: only `ship/Dockerfile`/`ship/Dockerfile.frankenphp` count as
-  application code that must not start until deploy commands succeed -- everything else, Garage
-  included, is infrastructure.
+- `DeployPlan::infrastructureServices()` checks a service's own build's dockerfile path, not just
+  whether `build:` is present at all -- only `ship/Dockerfile`/`ship/Dockerfile.frankenphp` count
+  as application code that must not start until deploy commands succeed; everything else, Garage
+  included, is infrastructure. "Has a `build:` at all" alone would also catch Garage, a
+  project-owned service with its own small packaging Dockerfile for unrelated reasons, running a
+  "create the bucket" deploy command against a Garage that `deploy-commands.sh`'s own "bring up
+  infrastructure first" step never started.
 
-- Fixed `docker-compose.override.yml` leaking into production builds -- found via the same
-  independent audit: the override file is a dev convenience (see `ComposeCommand::baseArgs()`'s
-  own docblock), but `ProductionBuildRunner`'s production build picked it up unconditionally like
-  every other caller. A project's dev-only `build:` customization silently leaked into the
-  production image, and the release's own exported `docker-compose.yml` (built from
-  `ship/docker-compose.generated.yml` alone) never matched what was actually built as a result.
+- `ProductionBuildRunner`'s production build passes `includeOverride: false` to
+  `ComposeCommand::baseArgs()` (every other caller still defaults to `true`) -- the override file
+  is a dev convenience (see `baseArgs()`'s own docblock), and picking it up during a production
+  build would otherwise let a project's dev-only `build:` customization leak into the production
+  image, with the release's own exported `docker-compose.yml` (built from
+  `ship/docker-compose.generated.yml` alone) never matching what was actually built as a result.
 
-  Fixed with a new `includeOverride` parameter on `baseArgs()`, defaulting to `true` (every
-  existing caller unaffected) except `ProductionBuildRunner`'s own call, which now passes `false`.
-  Omitting it from the build entirely fixes both problems at once: nothing to leak, and nothing
-  for the artifact to disagree with.
+- `ship up`'s own healthcheck wait is computed from each service's own generated `healthcheck:`
+  block (`start_period` + `interval` x `retries`, plus a small buffer), not a flat budget -- a
+  fixed "15 attempts x 2s = ~30s" would be well past MySQL/Postgres/Redis's own interval x retries
+  (5s x 5 = 25s), but Garage/RustFS/Silo's own healthcheck (10s `start_period` + 5s x 10 retries =
+  60s) and SeaweedFS's (10s x 5 = 50s) can both legitimately still be "starting" well past that, on
+  a slow first boot (a fresh volume's own initialization) rather than a real problem. Computing the
+  wait from the actual healthcheck means it's never shorter than Docker's own patience for it,
+  whatever a service happens to be configured with.
 
-- Fixed `ship up`'s own healthcheck wait being shorter than some services' own healthcheck allows
-  -- found via the same independent audit. The wait was a flat "15 attempts x 2s = ~30s" budget,
-  well past MySQL/Postgres/Redis's own interval x retries (5s x 5 = 25s) when that comment was
-  written, but Garage/RustFS/Silo's own healthcheck (10s `start_period` + 5s x 10 retries = 60s)
-  and SeaweedFS's (10s x 5 = 50s) can both legitimately still be "starting" well after this gave
-  up, producing a false "never became healthy" on a slow first boot (a fresh volume's own
-  initialization) rather than a real problem.
+- `ShipConfig::fromFile()` validates `php`/`node` (must be strings -- `"php": 8.4`, a bare JSON
+  number, would otherwise reach the constructor's own strict `string $phpVersion` type unchecked,
+  surfacing as a raw TypeError instead of a message naming `ship.json` at all) and
+  `serviceNames`/`additionalServices` names (which go straight into generated compose keys, and
+  for `additionalServices`, an env var prefix): `serviceNames` values reuse `processes`'s own
+  regex (a compose key only, so a hyphen is fine), and `additionalServices` names reuse `ship
+  init`'s own interactive prompt validation (also an env var prefix, so no hyphen) -- the same
+  validation `processes` names already had.
 
-  Computed from the service's own generated `healthcheck:` block instead (`start_period` +
-  `interval` x `retries`, plus a small buffer), so the wait is never shorter than Docker's own
-  patience for it, whatever a service's healthcheck happens to be configured with.
-
-- Validated `ship.json`'s `php`/`node` versions and service names -- found via the same
-  independent audit: `"php": 8.4` (a bare JSON number) previously reached the constructor's own
-  strict `string $phpVersion` type unchecked, surfacing as a raw TypeError instead of a message
-  naming `ship.json` at all. `serviceNames`/`additionalServices` names also went straight into
-  generated compose keys (and, for `additionalServices`, an env var prefix) with no validation,
-  unlike `processes` names, which already get exactly this check.
-
-  Fixed with a single `validate()` step in `ShipConfig::fromFile()`: `php`/`node` must be strings,
-  `serviceNames` values reuse `processes`'s own regex (a compose key only, so a hyphen is fine),
-  and `additionalServices` names reuse `ship init`'s own interactive prompt validation (also an
-  env var prefix, so no hyphen).
-
-- Escaped `$` in `ship.json`'s `processes` commands -- found via the same independent audit, the
-  same bug class fixing SeaweedFS's own identity config hit earlier this session: Compose
-  interpolates a bare `$VAR` in a command string itself (against the host's own environment, not
-  the container's) the same way it does `${VAR}`. A `processes` command referencing a real shell
+- `ship.json`'s `processes` commands escape a literal `$` before Compose ever sees them -- the
+  same reasoning as SeaweedFS's own identity config above: Compose interpolates a bare `$VAR` in a
+  command string itself (against the host's own environment, not the container's) the same way it
+  does `${VAR}`. A `processes` command referencing a real shell
   variable (e.g. `"php artisan queue:work --queue=$QUEUE"`) had it silently blanked out before the
   container's shell ever ran it. A project writing a `processes` entry expects to write a plain
   shell command, not a Compose-interpolated string, so every literal `$` is now escaped to `$$`
   automatically rather than asking every entry to know Compose's own syntax.
 
-- Fail clearly when `DB_USERNAME=root` would crash MySQL outright -- found via the same
-  independent audit, confirmed against the official image's own documented behavior: `mysql`'s
-  entrypoint refuses to start at all when `MYSQL_USER=root`, crashing the whole container.
-  `DB_USERNAME=root` is a real value to find in a project's own `.env` -- Laravel's own stock
-  default for years before the framework's sqlite-first skeleton.
+- `Ship\Docker\MySqlUsernameGuard` fails clearly when `DB_USERNAME=root` would crash MySQL
+  outright, matching the official image's own documented behavior: `mysql`'s entrypoint refuses
+  to start at all when `MYSQL_USER=root`, crashing the whole container -- a real value to find in
+  a project's own `.env`, since it was Laravel's own stock default for years before the
+  framework's sqlite-first skeleton. `ComposeFileBuilder` itself can't catch this: `MYSQL_USER` is
+  set to the Compose expression `${DB_USERNAME:-app}`, never the actual resolved value, which only
+  exists once a real `.env`/`.env.production` is read. Checked in `UpCommand` (reading `.env`,
+  since `ship up` actually starts the container) and `ReleaseCommand` (reading `.env.production`,
+  since `ship` itself is never present later to catch this once a release ships to a server with
+  no `ship` installed at all). Verified live: the official `mysql:9.7` image really does crash
+  with exactly that error given `MYSQL_USER=root`; `ship up` with `DB_USERNAME=root` in `.env`
+  fails immediately with a specific, actionable message instead of attempting to boot at all; a
+  legitimate username proceeds normally.
 
-  ship can't catch this inside `ComposeFileBuilder` itself -- `MYSQL_USER` is set to the Compose
-  expression `${DB_USERNAME:-app}`, never the actual resolved value, which only exists once a
-  real `.env`/`.env.production` is read. Added `Ship\Docker\MySqlUsernameGuard`, checked in
-  `UpCommand` (reading `.env`, since `ship up` actually starts the container) and `ReleaseCommand`
-  (reading `.env.production`, since `ship` itself is never present later to catch this once a
-  release ships to a server with no `ship` installed at all).
-
-  Verified live: the official `mysql:9.7` image really does crash with exactly that error given
-  `MYSQL_USER=root`; `ship up` with `DB_USERNAME=root` in `.env` now fails immediately with a
-  specific, actionable message instead of attempting to boot at all; and a legitimate username
-  proceeds normally.
-
-- Stopped `ship build`/`ship release` from overwriting the dev compose file -- found via the same
-  independent audit: `ProductionBuildRunner` wrote to the exact same
-  `ship/docker-compose.generated.yml` file `ship up` itself generates and every dev command
-  (`ship exec`, `ship shell`, `ship composer`, `ship npm`) reads. Running either production command
-  after `ship up` silently left the dev compose file overwritten with a production one until the
-  next `ship up` regenerated it -- during which those commands would all target the wrong
-  environment, `hostUser`'s `--user` flag included, since production never sets the `x-ship`
-  marker.
-
-  Fixed with a new `ComposeCommand::PRODUCTION_COMPOSE_FILE` constant
-  (`ship/docker-compose.production.yml`) and an optional `$composeFile` parameter on
-  `baseArgs()`, defaulting to the dev file so every existing caller is unaffected.
-  `ProductionBuildRunner` now writes and reads its own file explicitly; `ReleaseCommand`'s two
-  reads follow it too.
-
-  Verified live: after `ship up`, `ship build` now produces a *separate*
+- `ship build`/`ship release` write to their own `ComposeCommand::PRODUCTION_COMPOSE_FILE`
+  (`ship/docker-compose.production.yml`), via an optional `$composeFile` parameter on
+  `baseArgs()` defaulting to the dev file, rather than sharing
+  `ship/docker-compose.generated.yml` with `ship up` and every dev command (`ship exec`, `ship
+  shell`, `ship composer`, `ship npm`). Sharing one file would mean running either production
+  command after `ship up` leaves the dev compose file overwritten with a production one until the
+  next `ship up` regenerates it, during which those dev commands all target the wrong
+  environment -- `hostUser`'s `--user` flag included, since production never sets the `x-ship`
+  marker. Verified live: after `ship up`, `ship build` produces a *separate*
   `ship/docker-compose.production.yml` (`target: prod`/`prod-nginx`) while
   `ship/docker-compose.generated.yml` stays byte-for-byte the dev one (`target: dev`/`dev-nginx`),
   and `ship exec app php -v` immediately afterward still correctly reports the running dev
   container (Xdebug installed, confirming it's the dev image).
 
-- Extension classes were constructed twice per run, and their warnings printed twice on `ship
-  up`/`build`/`release` -- found via the same independent audit. `ExtensionLoader::load()` and a
-  separate `loadFrameworkAdapters()` each independently instantiated every class listed in
-  `ship.json`'s `extensions` array, so any extension implementing `FrameworkAdapter` was built
-  once by each method within the same `Application` boot, and `ProductionBuildRunner`'s own
-  `detectFrameworkAdapters()` built it a third time on `ship build`/`ship release`. A third-party
-  extension whose constructor has any side effect (logging, a network call, anything) would have
-  run it that many times per invocation.
+- `ExtensionLoader::load()` resolves warnings and `FrameworkAdapter` instances in a single pass,
+  returning both, rather than each being resolved by its own separate method
+  (`loadFrameworkAdapters()`, now gone) -- two separate instantiation passes would otherwise
+  construct every extension class listed in `ship.json`'s `extensions` array twice within the
+  same `Application` boot (once per method), and a third time in `ProductionBuildRunner`'s own
+  `detectFrameworkAdapters()` on `ship build`/`ship release`, running a third-party extension's
+  constructor side effects (logging, a network call, anything) that many times per invocation.
+  `ProductionBuildRunner::build()` takes the already-resolved list from its caller instead of
+  re-instantiating every class itself.
 
-  `load()` now resolves warnings and `FrameworkAdapter` instances in a single pass, returning
-  both; `loadFrameworkAdapters()` is gone. `ProductionBuildRunner::build()` takes the
-  already-resolved list from its caller instead of re-instantiating every class itself.
+  `Application`'s constructor is the only place that prints an extension-loading warning to
+  STDERR -- `UpCommand`/`BuildCommand`/`ReleaseCommand` each load the extensions again for their
+  own fresh `ServiceRegistry`, but don't re-print what `Application` already surfaced once.
+  Verified live: a `ship.json` extension class that doesn't exist prints exactly one `ship:
+  warning: ...` line on both `ship up` and `ship build`, not two.
 
-  Separately, `Application`'s constructor always printed every warning to STDERR, and
-  `UpCommand`/`BuildCommand`/`ReleaseCommand` each loaded the extensions again for their own
-  fresh `ServiceRegistry` and printed the same warning a second time via `$output`. Those three
-  commands no longer re-print what `Application` already surfaced once.
+- Every floating build input in the generated Dockerfiles is pinned: `install-php-extensions` is
+  fetched from a specific release tag with its SHA-256 checksum verified before it's ever executed
+  (not `/latest/download/`, which nothing would otherwise verify the response of); `composer`,
+  `nginx`, and the Selenium image are pinned to a specific version instead of a moving tag
+  (`composer:2`/`nginx:alpine`/`selenium/standalone-chrome:4`); redis/swoole/xdebug each take an
+  explicit `ARG *_EXTENSION_VERSION` instead of an unversioned `pecl install`/
+  `install-php-extensions` call. An unpinned build input can otherwise silently change what a
+  build produces weeks apart with no corresponding change to this repo.
 
-  Verified live: a `ship.json` extension class that doesn't exist now prints exactly one
-  `ship: warning: ...` line on both `ship up` and `ship build`, not two.
-
-- Pinned every floating build input in the generated Dockerfiles -- found via the same
-  independent audit: `install-php-extensions` was fetched from `/latest/download/` with nothing
-  verifying the response, `composer:2`/`nginx:alpine`/`selenium/standalone-chrome:4` all track a
-  moving tag, and `pecl install redis`/`swoole` plus `install-php-extensions xdebug` took no
-  version at all -- any of these can silently change what a build produces weeks apart with no
-  corresponding change to this repo.
-
-  `install-php-extensions` is now pinned to a specific release tag with its SHA-256 checksum
-  verified before it's ever executed; `composer`, `nginx`, and the Selenium image are pinned to a
-  specific version; redis/swoole/xdebug each take an explicit `ARG *_EXTENSION_VERSION`.
-
-  Also stopped `npm ci || npm install` from silently masking `npm ci`'s own lockfile-drift
-  failure by falling back to `npm install` (which resolves and writes a *new* lockfile instead of
-  failing) -- `npm install` is now only the fallback when no `package-lock.json` exists at all.
+  `npm install` is only ever the fallback when no `package-lock.json` exists at all, not
+  `npm ci || npm install` unconditionally -- that fallback also catches `npm ci`'s own
+  lockfile-drift failure (package.json and package-lock.json out of sync) and silently retries
+  with `npm install`, which resolves and writes a *new* lockfile instead of surfacing the
+  mismatch `npm ci` exists to catch.
 
   Verified live: a full `ship build` (Octane Swoole + Dusk + a `phpExtensions` entry, exercising
   the checksum-verified `install-php-extensions` path, both pinned PECL installs, the pinned
   composer copy, and the `npm ci` branch) completes successfully; the pinned nginx tag resolves
   and pulls.
 
-- Warn when `deploy-commands.sh`'s executable bit can't actually be set -- found via the same
-  independent audit: `chmod()` on it is a real, working executable-bit set on Linux/macOS, but a
-  silent no-op on Windows, since NTFS has no Unix executable bit for it to set at all. `ship
-  release` has no requirement to run on Linux/macOS specifically, so a release built on a Windows
-  dev machine shipped a `deploy-commands.sh` that was never actually executable once copied to
-  the server, with nothing telling the operator why `./deploy-commands.sh` would fail there.
+- `ReleaseCommand` warns explicitly when `deployCommands` is set and `PHP_OS_FAMILY` is Windows,
+  pointing at the `chmod +x`/`sh deploy-commands.sh` workarounds instead of claiming an executable
+  bit that was never actually set -- `chmod()` on `deploy-commands.sh` is a real, working
+  executable-bit set on Linux/macOS, but a silent no-op on Windows, since NTFS has no Unix
+  executable bit for it to set at all, and `ship release` has no requirement to run on
+  Linux/macOS specifically.
 
-  `ReleaseCommand` now warns explicitly when `deployCommands` is set and `PHP_OS_FAMILY` is
-  Windows, pointing at the `chmod +x`/`sh deploy-commands.sh` workarounds instead of claiming an
-  executable bit that was never actually set.
-
-- Publish Garage's stub for an additional-instance-only selection too, and fix its hardcoded RPC
-  address -- found via the same independent audit. `publishStubs()` only ever checked the default
-  storage pick, so Garage selected *only* as a named `additionalServices` instance never got its
-  stub files published at all -- that instance's own `build: {context: ./ship/garage}` had
-  nothing to build from. Now also checks `additionalServices` for a `"garage"` entry.
+- `publishStubs()` checks `additionalServices` for a `"garage"` entry too, not just the default
+  storage pick -- Garage selected *only* as a named `additionalServices` instance still needs its
+  stub files published, or that instance's own `build: {context: ./ship/garage}` has nothing to
+  build from.
 
   Separately, `garage.toml`'s `rpc_public_addr` was hardcoded to the literal `"garage:3901"`,
   correct for the default instance but wrong for any named instance, whose real compose service
@@ -1246,82 +1112,54 @@
   GARAGE_RPC_PUBLIC_ADDR=garage-archive:3901` bakes `rpc_public_addr = "garage-archive:3901"`
   into the image, and the container starts cleanly with it.
 
-- Switch Reverb to the synced named volume when Mutagen is active -- found via the same
-  independent audit: `ReverbService`'s own `composeFragment()` has no access to `$mutagenSync`,
-  so its dev volume was always the raw bind mount (`.:/var/www/html`), even when `SHIP_MUTAGEN`
-  is active and "app"/"webserver" both switch to the synced named volume instead. Reverb kept
-  bind-mounting the unsynced host tree, reading stale code "app" itself no longer saw once
-  Mutagen's sync caught up.
+- `alignReverbWithApp()` -- already the one place that backfills what `ReverbService` can't
+  compute on its own (env vars, `SHIP_RUN_AS`, build args) -- also overrides Reverb's `volumes` to
+  the same `ship-app-sync` named volume "app"/"webserver" use whenever Mutagen is active.
+  `ReverbService`'s own `composeFragment()` has no access to `$mutagenSync`, so without this its
+  dev volume would stay the raw bind mount (`.:/var/www/html`) even when `SHIP_MUTAGEN` is active
+  and "app"/"webserver" both switch to the synced named volume instead -- bind-mounting the
+  unsynced host tree, reading stale code "app" itself no longer sees once Mutagen's sync catches
+  up.
 
-  `alignReverbWithApp()` -- already the one place that backfills what `ReverbService` can't
-  compute on its own (env vars, `SHIP_RUN_AS`, build args) -- now also overrides Reverb's
-  `volumes` to the same `ship-app-sync` named volume "app"/"webserver" use, whenever Mutagen is
-  active.
+- `ProjectName::sanitize()` collapses any run of two or more separator characters -- whatever mix
+  of `.`, `_`, `-` produced it -- down to a single `-`, satisfying Docker's actual grammar for an
+  image name component (`[a-z0-9]+((\.|_|__|-+)[a-z0-9]+)*`: a single separator between two
+  alphanumeric runs, never two or more literal dots/underscores in a row) unconditionally, instead
+  of only touching characters outside `[a-z0-9._-]`. An input like `"foo..bar"` is already
+  entirely within that narrower set, so without the collapse it would pass straight through and
+  still break `docker build`/`docker save` later with the exact opaque "invalid reference format"
+  error this class exists to avoid (confirmed live: `docker build -t foo..bar-app:local` fails
+  outright with that message).
 
-- Collapse consecutive separators so `ProjectName` always produces a valid tag -- found via the
-  same independent audit, confirmed live (`docker build -t foo..bar-app:local` fails outright with
-  "invalid reference format"). Docker's actual grammar for an image name component is
-  `[a-z0-9]+((\.|_|__|-+)[a-z0-9]+)*` -- a single separator between two alphanumeric runs, never
-  two or more literal dots/underscores in a row. `ProjectName::sanitize()` only ever touched
-  characters outside `[a-z0-9._-]`, so an input like `"foo..bar"` (already entirely within that
-  set) passed straight through and still broke `docker build`/`docker save` later with the exact
-  opaque error this class exists to avoid.
+- `ProcessRunner::runQuiet()` degrades a command that actually hits its timeout to the same empty
+  string every other `runQuiet()` failure already produces, rather than letting
+  `ProcessTimedOutException` escape uncaught and crash the whole `ship` process with a raw stack
+  trace -- every existing caller already treats an empty result as "the thing isn't there"/"that
+  didn't work", so a timeout now degrades to that exact same signal. `runQuiet()` also takes an
+  optional per-call timeout, so a caller expecting something genuinely slower (`mutagen sync
+  create` scanning a large project tree, say) isn't stuck with the same 30s budget as `docker
+  compose version` -- `MutagenSync`'s own call uses a 60s budget for exactly that reason.
 
-  A second pass now collapses any run of two or more separator characters, whatever mix of `.`,
-  `_`, `-` produced it, down to a single `-` -- satisfying Docker's grammar unconditionally
-  instead of special-casing every separator combination it allows.
+- `.github/workflows/ci.yml` sets `permissions: {contents: read}` at the top level, scoping this
+  workflow down to what it actually uses (read-only checkout, no pushes/releases/PR comments)
+  instead of running with whatever the repo-wide default token permissions happen to be.
+  `actions/checkout`/`shivammathur/setup-php` are pinned to the exact commit their version tag
+  currently resolves to, with a version comment for readability, not a mutable tag either
+  repository's maintainer (or anyone who compromised their account) could repoint at different
+  code without this repo ever changing. The Mutagen release tarball is downloaded and checked
+  against the release's own published `SHA256SUMS` file, not fetched over plain HTTPS with
+  nothing verifying the response was actually what Mutagen's maintainer published -- not a
+  hardcoded hash either, which would go stale the moment `MUTAGEN_VERSION` is bumped. Verified
+  live: the checksum step actually verifies the real v0.18.1 tarball successfully; the edited
+  workflow file still parses as valid YAML.
 
-- Stopped `runQuiet()`'s timeout from crashing `ship` with a raw stack trace -- found via the same
-  independent audit. A command that actually hits its hardcoded 30s timeout (`mutagen sync
-  create` scanning a large project tree, say) threw `ProcessTimedOutException` straight out of
-  it, uncaught, crashing the whole process instead of failing with a friendly error. Every
-  existing caller already treats an empty `runQuiet()` result as "the thing isn't there"/"that
-  didn't work", so a timeout now degrades to that exact same signal.
-
-  `runQuiet()` also takes an optional per-call timeout now, so a caller expecting something
-  genuinely slower isn't stuck with the same 30s budget as `docker compose version`.
-  `MutagenSync`'s own `mutagen sync create` call -- the audit's example -- uses a 60s budget for
-  exactly that reason.
-
-- Hardened `.github/workflows/ci.yml` -- found via the same independent audit. No top-level
-  `permissions:` block meant this workflow ran with whatever the repo-wide default token
-  permissions happened to be, never scoped down to what it actually uses (read-only checkout, no
-  pushes/releases/PR comments); added `permissions: {contents: read}`.
-
-  `actions/checkout@v4` and `shivammathur/setup-php@v2` were pinned by a mutable tag, not a
-  commit -- either repository's maintainer (or anyone who compromised their account) could point
-  that tag at different code without this repo ever changing. Both are now pinned to the exact
-  commit the tag currently resolves to, with a version comment for readability.
-
-  The Mutagen release tarball was fetched over plain HTTPS with nothing verifying the response
-  was actually what Mutagen's maintainer published. Now downloads and checks against the
-  release's own published `SHA256SUMS` file -- not a hardcoded hash that would go stale the
-  moment `MUTAGEN_VERSION` is bumped.
-
-  Verified live: the checksum step actually verifies the real v0.18.1 tarball successfully; the
-  edited workflow file still parses as valid YAML.
-
-- Housekeeping from the same independent audit: `Application`'s version was hardcoded to the
-  literal `"0.1.0-dev"` forever instead of using `ShipVersion::current()` (Composer's own
-  `InstalledVersions`), which already exists for exactly this purpose -- `ship --version` never
-  reflected whatever was actually installed. Falls back to the same literal when
-  `InstalledVersions` can't answer at all (running from a git checkout with no Composer
-  metadata).
-
-  `ShellCommand`'s docblocks referenced a nonexistent `ship.json` field (`"appName"` -- the real
-  field is `serviceNames['app']`) and a nonexistent `Application` method
-  (`"readExtensionClassesIfConfigured()"` -- the real method is `readConfigIfPresent()`).
-
-  Deleted `stubs/docker/nginx/Dockerfile`: confirmed via grep to be referenced nowhere -- nginx
-  now builds through `ship/Dockerfile`'s own `dev-nginx`/`prod-nginx` targets instead, and only
-  `default.conf` from this directory is ever published.
-
-  (The `composer.lock` sub-point from the same audit item is moot: this library doesn't commit a
-  lock file at all.)
-
-A second, independent re-audit of the fixes above found eight more real issues -- two still open
-from the first list, four new regressions the first round's own fixes introduced, and two smaller
-gaps:
+- `Application`'s version comes from `ShipVersion::current()` (Composer's own
+  `InstalledVersions`), not a hardcoded literal -- `ship --version` reflects whatever is actually
+  installed, falling back to `"0.1.0-dev"` only when `InstalledVersions` can't answer at all
+  (running from a git checkout with no Composer metadata). `stubs/docker/nginx/Dockerfile` is
+  deleted -- referenced nowhere, since nginx builds through `ship/Dockerfile`'s own
+  `dev-nginx`/`prod-nginx` targets instead, and only `default.conf` from that directory is ever
+  published. This library doesn't commit a `composer.lock` at all.
 
 - Gated Dusk's `APP_URL` override on `isDevelopment()`, not just the `ship.json` pick --
   `"testing": "dusk"` doesn't vary by environment, so this block still fired in production too,
@@ -1385,10 +1223,9 @@ gaps:
   written straight back to `ship.json`, since silently dropping it would just be a second,
   quieter way to lose it with no error at all.
 
-- Validated `serviceNames`/`additionalServices`/`processes`/`deployCommands` types -- a non-array
-  value for any of the first two used to reach a raw `foreach()` PHP warning followed by an
-  uncaught constructor `TypeError`, confirmed live, instead of a clean message naming `ship.json`.
-  `processes`/`deployCommands` had no validation at all before this.
+- Validates `serviceNames`/`additionalServices`/`processes`/`deployCommands` types -- a non-array
+  value for any of them is caught with a clean message naming `ship.json`, rather than reaching a
+  raw `foreach()` PHP warning followed by an uncaught constructor `TypeError`.
 
 - Escaped credentials before embedding them in SeaweedFS's identity JSON -- the raw
   `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` values went straight into the `printf %s`
@@ -1408,11 +1245,6 @@ gaps:
   `exportImages()`'s own handling of a genuine failure. Now checks `docker --version` first and
   skips with a clear message otherwise.
 
-A third independent audit found one real reliability gap (the Mutagen/Reverb fix two rounds ago
-was incomplete), several more `ship.json` validation gaps, and one more command that needed the
-nginx-staleness warning. The user also asked for a `ship config:test` command, `nginx -t`'s
-equivalent for `ship.json`.
-
 - Made the dev entrypoint wait for real files before exec'ing a non-`php-fpm` command -- php-fpm
   tolerates an empty `/var/www/html` (it just 404s), but anything else that's its own long-lived
   program (an Octane server, or Reverb, a separate container sharing the exact same
@@ -1430,12 +1262,12 @@ equivalent for `ship.json`.
   once, started cleanly on its first attempt, never ran its own `composer install`, and the full
   stack (migrations, HTTP) works.
 
-- Closed the remaining `ship.json` validation gaps: `publishPorts`/`hostUser` as a quoted string
+- Validates the remaining `ship.json` shapes too: `publishPorts`/`hostUser` as a quoted string
   instead of a real boolean, `extensions`/`phpExtensions` as a non-list value,
   `name`/`externalNetwork` as a non-string, a non-string value under `services`, an
   `additionalServices` entry missing its `group`/`service` key, and a top-level JSON value that
-  isn't even an object at all -- every one of these used to reach a raw constructor `TypeError`
-  or PHP warning instead of a message naming `ship.json`, confirmed live for each case.
+  isn't even an object at all -- each gets a message naming `ship.json`, not a raw constructor
+  `TypeError` or PHP warning.
 
 - Extracted the nginx-upstream-mismatch check (see the earlier entry on
   `warnAboutNginxUpstreamMismatch()`) into a shared `Ship\Docker\NginxUpstreamMismatch` class and
@@ -1452,9 +1284,6 @@ equivalent for `ship.json`.
   `ship release` ever covered: a missing required production credential was never caught until
   `docker compose` itself aborted. Verified live for every check it performs, including multiple
   unrelated problems reported together in one run.
-
-A fourth independent audit, run after `ship config:test` shipped, found one more reliability gap
-in the Mutagen fix and two bugs in `ship config:test` itself.
 
 - Stopped "app" itself racing `ship up`'s own `composer install` under `SHIP_MUTAGEN` with an
   Octane runtime selected -- with Octane, "app" is not `php-fpm`, so its own dev entrypoint raced
@@ -1484,9 +1313,6 @@ in the Mutagen fix and two bugs in `ship config:test` itself.
   attempting the real build. Added `ServiceRegistry::has()` as the non-throwing complement to
   `get()`, used by the new check.
 
-A fifth independent audit, run after the fourth round's fixes, found one more `EnvFile` parsing
-gap and one more narrow edge of the Mutagen composer-install race.
-
 - Fixed `EnvFile::parse()` misreading a *quoted* value followed by a comment --
   `KEY="three" # note` was still misread as the literal `"three" # note`, quotes and comment
   both included. The previous fix's quote-stripping only matched when the closing quote was the
@@ -1508,8 +1334,6 @@ gap and one more narrow edge of the Mutagen composer-install race.
   entrypoint doesn't attempt its own install and starts `php-fpm` immediately regardless, then
   confirmed a real `ship up` run afterward still completes the one correct install, with
   `composer.lock`'s hash unchanged throughout and `RestartCount=0`.
-
-A sixth independent audit found one trivial leftover in `EnvFile::parse()`.
 
 - Fixed `EnvFile::parse()` cutting a double-quoted value short at an *escaped* quote --
   `E="a\"b"` parsed as the literal `"a\"` (truncated at the escaped quote) instead of `a"b`. The
