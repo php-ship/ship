@@ -108,6 +108,29 @@ final class ReleaseCommandTest extends TestCase
         self::assertNull($method->invoke($command, $withCommands, 'Linux'));
     }
 
+    public function test_copied_production_environment_is_private_on_posix(): void
+    {
+        if (PHP_OS_FAMILY === 'Windows') {
+            self::markTestSkipped('Windows file access is controlled by ACLs rather than POSIX modes.');
+        }
+
+        $releaseDir = sys_get_temp_dir() . '/ship-release-permissions-' . bin2hex(random_bytes(8));
+        mkdir($releaseDir, 0o700);
+        $source = $releaseDir . '/source.env';
+        file_put_contents($source, "APP_KEY=secret\n");
+        chmod($source, 0o644);
+
+        try {
+            $command = new ReleaseCommand(sys_get_temp_dir(), new ProcessRunner());
+            (new \ReflectionMethod($command, 'copyProductionEnv'))->invoke($command, $source, $releaseDir);
+
+            self::assertSame(file_get_contents($source), file_get_contents($releaseDir . '/.env'));
+            self::assertSame(0o600, fileperms($releaseDir . '/.env') & 0o777);
+        } finally {
+            (new Filesystem())->remove($releaseDir);
+        }
+    }
+
     /**
      * `ship release` checks that every variable Compose will actually require is set in
      * .env.production, not just that the file *exists* (the same check ConfigTestCommand's own

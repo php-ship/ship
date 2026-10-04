@@ -479,8 +479,11 @@ dist/ship/1.2.0/
 
 `dist/ship/` is git-ignored (`ship init` adds it to `.gitignore` for you) —
 a release is generated output, and often genuinely sensitive (it carries
-your `.env.production`), so it's never meant to be committed. It's also
-excluded from the Docker build context itself (`.dockerignore`,
+your `.env.production`), so it's never meant to be committed. On POSIX systems,
+`ship release` makes the release directory accessible only to its owner and
+sets `.env` permissions to `0600`. On Windows, restrict access to the release
+folder with filesystem ACLs before sharing or uploading it. The artifact is
+also excluded from the Docker build context (`.dockerignore`,
 `/dist/ship` specifically — not your project's whole `dist/`, in case you
 keep other build output there), along with `.env`/`.env.*`, `auth.json`,
 and `.npmrc` — without that, a second release built in the same project

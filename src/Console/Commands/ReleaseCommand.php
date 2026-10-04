@@ -148,10 +148,11 @@ final class ReleaseCommand extends Command
         $releaseDir = $this->projectRoot . '/dist/ship/' . $tag;
         $filesystem = new Filesystem();
         $filesystem->remove($releaseDir);
-        $filesystem->mkdir($releaseDir . '/images');
+        $filesystem->mkdir($releaseDir . '/images', 0o700);
+        $filesystem->chmod($releaseDir, 0o700);
 
         $this->writeReleaseCompose($releaseDir);
-        $filesystem->copy($envProductionPath, $releaseDir . '/.env');
+        $this->copyProductionEnv($envProductionPath, $releaseDir);
 
         if (!$this->exportImages($result['images'], $releaseDir, $output)) {
             $output->writeln('<error>ship: exporting one or more images failed -- the release is incomplete, not '
@@ -245,6 +246,14 @@ final class ReleaseCommand extends Command
             $releaseDir . '/docker-compose.yml',
             Yaml::dump($parsed, inline: 6, indent: 2, flags: Yaml::DUMP_EMPTY_ARRAY_AS_SEQUENCE),
         );
+    }
+
+    private function copyProductionEnv(string $source, string $releaseDir): void
+    {
+        $filesystem = new Filesystem();
+        $destination = $releaseDir . '/.env';
+        $filesystem->copy($source, $destination);
+        $filesystem->chmod($destination, 0o600);
     }
 
     /**
