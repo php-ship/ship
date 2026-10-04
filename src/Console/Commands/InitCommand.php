@@ -432,31 +432,30 @@ final class InitCommand extends Command
         }
 
         DockerignoreGuard::ensure($this->projectRoot);
-        $this->ensureGitignoreExcludesDist();
+        $this->ensureGitignoreExcludesSecrets();
     }
 
     /**
-     * `ship release --tag` writes a release's images (docker save tars, often hundreds of MB) and
-     * `.env` (copied from `.env.production`) under here -- generated output, and a real secrets
-     * leak risk, neither of which belongs in the project's own git history. Merged into any
-     * existing .gitignore, not overwritten, and a no-op when the project already ignores it under
-     * some wider pattern.
+     * Keep the production credential source and release output out of the project's history.
+     * Merge these rules into any existing .gitignore without overwriting project-owned entries.
      */
-    private function ensureGitignoreExcludesDist(): void
+    private function ensureGitignoreExcludesSecrets(): void
     {
         $path = $this->projectRoot . '/.gitignore';
-        $required = '/dist/ship/';
+        $required = ['/.env.production', '/dist/ship/'];
 
         $fileLines = is_file($path) ? file($path, FILE_IGNORE_NEW_LINES) : [];
         $existing = $fileLines === false ? [] : $fileLines;
 
-        if (in_array($required, $existing, true)) {
+        $missing = array_values(array_diff($required, $existing));
+
+        if ($missing === []) {
             return;
         }
 
-        $header = $existing === [] ? "# Added by `ship init` -- `ship release`'s own generated output.\n" : "\n# Added by `ship init`:\n";
+        $header = $existing === [] ? "# Added by `ship init` -- production secrets and release output.\n" : "\n# Added by `ship init`:\n";
 
-        file_put_contents($path, $header . $required . "\n", FILE_APPEND);
+        file_put_contents($path, $header . implode("\n", $missing) . "\n", FILE_APPEND);
     }
 
     /**

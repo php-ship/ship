@@ -441,7 +441,9 @@ same one with a flag flipped:
 
 A single project-level file, `.env.production`, is the one source of
 production credentials and config — you create and fill it; `ship` never
-generates one. `ship build`/`ship release` make its values available to
+generates one. `ship init` adds it to the project's `.gitignore`; if it was
+previously committed, remove it from history and rotate its secrets.
+`ship build`/`ship release` make its values available to
 `docker compose build` (for a hand-edited `ship/Dockerfile`'s own build
 args, via Compose's own `${VAR}` substitution — nothing is baked into an
 image layer just because it's in this file), and `ship release` copies the

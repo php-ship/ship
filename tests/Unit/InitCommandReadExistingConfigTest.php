@@ -30,6 +30,22 @@ final class InitCommandReadExistingConfigTest extends TestCase
         self::assertNull($this->invoke());
     }
 
+    public function test_it_adds_production_secret_and_release_ignore_rules_without_duplicates(): void
+    {
+        file_put_contents($this->projectRoot . '/.gitignore', "/vendor/\n/dist/ship/\n");
+        $command = new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults()));
+        $method = new \ReflectionMethod($command, 'ensureGitignoreExcludesSecrets');
+
+        $method->invoke($command);
+        $first = file_get_contents($this->projectRoot . '/.gitignore');
+        $method->invoke($command);
+
+        self::assertSame($first, file_get_contents($this->projectRoot . '/.gitignore'));
+        self::assertSame(1, substr_count($first, '/.env.production'));
+        self::assertSame(1, substr_count($first, '/dist/ship/'));
+        self::assertStringContainsString('/vendor/', $first);
+    }
+
     /**
      * Re-running `ship init` must not rebuild ShipConfig from only the four fields its own
      * prompts touch -- every hand-edited field it never asks about has to survive too, or
