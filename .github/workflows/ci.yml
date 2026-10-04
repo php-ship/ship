@@ -153,6 +153,7 @@ jobs:
           php -r '
           $config = json_decode(file_get_contents("ship.json"), true);
           $config["deployCommands"] = ["php artisan migrate --force"];
+          $config["publishPorts"] = true;
           file_put_contents("ship.json", json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
           '
           cp .env .env.production
