@@ -16,10 +16,8 @@ final class RequiredEnvTest extends TestCase
     }
 
     /**
-     * Production uses `:?`, not the same `${VAR:-default}` expression development uses -- a
-     * `.env.production` that forgot (or never had) a real value would otherwise silently share
-     * the same publicly-known default every such project would. `:?` makes `docker compose`
-     * itself refuse to run at all instead.
+     * Production uses `:?`, so `docker compose` refuses to run without a real value instead of
+     * falling back to the development default.
      */
     public function test_production_requires_a_real_value_instead_of_a_default(): void
     {

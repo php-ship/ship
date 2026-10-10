@@ -33,11 +33,8 @@ final class RedisService implements ServiceDefinition
         return [
             $name => [
                 'image' => 'redis:8-alpine',
-                // Persisted (and RDB saves left on) in both environments -- see MySqlService's own
-                // comment on why production needs this generally. Sessions specifically make this
-                // matter here even though ship only ever wires this as a cache/session store, never
-                // a queue: losing every session on each redeploy logs out every active user, which
-                // is a real, user-visible regression, not a theoretical one.
+                // Persisted, with RDB saves on, in both environments: losing every session on a
+                // redeploy logs out every user.
                 'command' => ['redis-server', '--save', '60 1'],
                 'volumes' => ["ship-{$name}-data:/data"],
                 'healthcheck' => [
@@ -55,9 +52,8 @@ final class RedisService implements ServiceDefinition
         $name = $this->composeServiceName($instanceName);
         $prefix = $this->envPrefix($instanceName);
 
-        // CACHE_STORE/SESSION_DRIVER pick the app's *default* store -- a named instance adds a
-        // second reachable Redis, it doesn't change what the app uses by default, so only the
-        // default (null) instance sets them.
+        // CACHE_STORE/SESSION_DRIVER pick the app's default store, so only the default instance
+        // sets them.
         return [
             ...($instanceName === null ? ['CACHE_STORE' => 'redis', 'SESSION_DRIVER' => 'redis'] : []),
             "{$prefix}REDIS_HOST" => $name,

@@ -33,12 +33,8 @@ final class GarageServiceTest extends TestCase
     }
 
     /**
-     * These must only ever be *defaults* a project's own .env/.env.production can override -- a
-     * bare literal would mean every Garage deployment everywhere shares one publicly-known,
-     * hardcoded credential, unlike every other credentialed service in the registry
-     * (MySqlService's DB_PASSWORD, ...). Longer than every other storage service's own
-     * "ship"/"shipsecret" -- this image's own `--default-access-key` validates minimum lengths
-     * and refuses to start at all otherwise, confirmed live (see GarageService's own comment).
+     * Credentials are overridable defaults, not literals. They are longer than the other storage
+     * services' defaults because the image enforces minimum lengths.
      */
     public function test_credentials_are_overridable_defaults_not_hardcoded_literals(): void
     {
@@ -51,11 +47,7 @@ final class GarageServiceTest extends TestCase
     }
 
     /**
-     * Production must require a real value instead of falling back to the same
-     * `${AWS_SECRET_ACCESS_KEY:-shipsecretplaceholder}` expression development uses --
-     * `docker compose` itself refuses to run at all when none was set in .env.production. The
-     * access key id -- access-key-ID-shaped, not secret-shaped -- stays a plain default, same
-     * reasoning DB_USERNAME is never required either.
+     * Production requires a real secret key; the access key id keeps a plain default.
      */
     public function test_the_secret_key_is_required_in_production_not_just_overridable(): void
     {
@@ -67,10 +59,8 @@ final class GarageServiceTest extends TestCase
     }
 
     /**
-     * Both the rpc_secret and the admin API token must be required, real values in production --
-     * not an all-zero rpc_secret shared by every project that ever selects Garage, or no admin
-     * token at all. Garage's own CLI reads both as env vars directly, overriding config.toml, so
-     * no wrapper script or generated file is needed.
+     * The RPC secret and admin API token are required in production. Garage reads both from env
+     * vars, overriding its config file.
      */
     public function test_rpc_secret_and_admin_token_are_required_in_production_not_just_overridable(): void
     {
@@ -97,12 +87,8 @@ final class GarageServiceTest extends TestCase
     }
 
     /**
-     * garage.toml's rpc_public_addr has to match whatever the instance's own compose service name
-     * actually is, not a hardcoded literal "garage:3901" -- wrong for a named additional instance
-     * (ship.json's additionalServices), whose real compose service name is never just "garage".
-     * The Dockerfile's own "config" stage substitutes this build arg into the file instead -- see
-     * that file's docblock for why it can't be done at container boot (no shell in the final,
-     * FROM-scratch image).
+     * garage.toml's rpc_public_addr must match the instance's compose service name, which for a
+     * named instance isn't "garage". The Dockerfile substitutes this build arg at build time.
      */
     public function test_the_rpc_public_addr_build_arg_matches_the_instances_own_compose_name(): void
     {

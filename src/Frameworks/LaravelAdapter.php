@@ -7,7 +7,7 @@ namespace Ship\Frameworks;
 use Ship\Contracts\FrameworkAdapter;
 
 /**
- * Reference FrameworkAdapter implementation; only talks to Ship through that contract, nothing else.
+ * Reference FrameworkAdapter implementation.
  */
 final class LaravelAdapter implements FrameworkAdapter
 {
@@ -25,9 +25,8 @@ final class LaravelAdapter implements FrameworkAdapter
     }
 
     /**
-     * `optimize` caches config/routes/views (and anything else the installed Laravel version adds to
-     * it) in one call, using whatever real env vars are present -- which is why this runs at container
-     * boot, not build time.
+     * `optimize` caches config/routes/views using the real env vars, which is why it runs at
+     * container boot rather than build time.
      *
      * @return list<string>
      */

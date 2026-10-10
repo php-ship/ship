@@ -16,12 +16,9 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 
 /**
- * Symfony's Application::getDefaultInputDefinition() already defines an argument named "command"
- * (its own command-name resolution), merged into every registered Command's definition via
- * Command::mergeApplicationDefinition() -- which every real `ship exec ...` invocation goes
- * through, but a bare CommandTester(new ExecCommand(...)) never exercises since it skips
- * Application entirely. A second argument also named "command" here throws
- * Symfony\Component\Console\Exception\LogicException the moment a real Application runs it.
+ * Runs through a real Application where it matters: Symfony's default input definition already
+ * has an argument named "command", so declaring a second one would throw a LogicException that a
+ * bare CommandTester never reaches.
  */
 final class ExecCommandTest extends TestCase
 {
@@ -37,9 +34,7 @@ final class ExecCommandTest extends TestCase
     }
 
     /**
-     * Reads raw argv (see rawServiceAndCommand()'s docblock) precisely so a flag meant for the
-     * executed command, like "--force" here, reaches it intact instead of Console's own option
-     * parser rejecting it as unknown on `ship` itself.
+     * A flag meant for the executed command, like "--force", must reach it intact.
      */
     public function test_it_forwards_flags_meant_for_the_executed_command_untouched(): void
     {
@@ -52,10 +47,8 @@ final class ExecCommandTest extends TestCase
     }
 
     /**
-     * A global option ahead of "exec" in argv (modeled as a --env option ship doesn't define
-     * today, to prove any that might be added later are handled automatically without touching
-     * ExecCommand at all) is resolved via getFirstArgument()'s own option-aware scan, not a
-     * string search for "exec" -- the case rawServiceAndCommand()'s own docblock describes.
+     * A global option ahead of "exec" (a hypothetical --env) is skipped by Symfony's option-aware
+     * scan rather than a string search for "exec".
      */
     public function test_it_resolves_the_command_correctly_past_an_earlier_global_option(): void
     {
@@ -64,8 +57,7 @@ final class ExecCommandTest extends TestCase
             new InputArgument('args', InputArgument::IS_ARRAY),
         ]);
         $input = new ArgvInput(['ship', '--env', 'production', 'exec', 'app', 'php', 'artisan', 'migrate', '--force']);
-        // ignoreValidationErrors()-equivalent: Command::run() does the same swallow before
-        // execute() ever sees $input, since "--force" isn't declared on $definition either.
+        // Command::run() swallows the same validation error before execute() sees $input.
         try {
             $input->bind($definition);
         } catch (\Throwable) {
@@ -78,9 +70,8 @@ final class ExecCommandTest extends TestCase
     }
 
     /**
-     * CommandTester's ArrayInput can't represent "unparsed" arguments at all -- ExecCommand falls
-     * back to a plain $_SERVER['argv'] search in that case (see rawServiceAndCommand()'s
-     * docblock), which only a test drives directly, never a real `ship exec ...` invocation.
+     * Without a real ArgvInput (CommandTester's ArrayInput), ExecCommand falls back to
+     * $_SERVER['argv'].
      */
     public function test_it_falls_back_to_raw_argv_without_a_real_argv_input(): void
     {

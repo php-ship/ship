@@ -28,9 +28,8 @@ final class ReverbServiceTest extends TestCase
     }
 
     /**
-     * A bare `HOST:CONTAINER` mapping binds every interface, not just loopback -- development
-     * binds this to 127.0.0.1 instead (see DevPortBinding), but production is left unbound:
-     * Reverb's published port often does need to be reachable from outside there.
+     * Development binds the port to 127.0.0.1 (see DevPortBinding); production mappings are left
+     * alone.
      */
     public function test_the_port_is_not_loopback_bound_in_production(): void
     {
@@ -40,10 +39,8 @@ final class ReverbServiceTest extends TestCase
     }
 
     /**
-     * Server-side (app -> reverb) and browser-side (Echo in the user's
-     * browser -> reverb) need different hosts: the Docker service name is
-     * meaningless to a browser, and "localhost" from inside the "app"
-     * container means the "app" container itself, not "reverb".
+     * "app" reaches Reverb by its Docker service name; Echo in the browser reaches it through
+     * the host.
      */
     public function test_server_side_and_browser_side_env_vars_point_at_different_hosts(): void
     {

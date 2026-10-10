@@ -25,43 +25,27 @@ final class OctaneSwooleService implements ServiceDefinition
         return 'runtime';
     }
 
-    // Only one application runtime ever makes sense per project, so $instanceName -- always null
-    // here in practice, nothing ever offers a second one to select -- is unused.
+    // Only one application runtime makes sense per project, so $instanceName is unused.
 
     public function composeFragment(ShipEnvironment $environment, ?string $instanceName = null): array
     {
-        // Targets the already-defined "app" service — ComposeFileBuilder
-        // merges this into it rather than replacing it, so build/volumes
-        // from baseServices() are preserved.
+        // Merged into the existing "app" service, so its build/volumes are kept.
         return [
             'app' => [
                 'command' => ['sh', '-c', $this->command($environment)],
                 'ports' => [DevPortBinding::bind('${APP_PORT:-8000}:8000', $environment)],
-                // Production only (dev's own entrypoint is a different, static file that never
-                // reads this): an Octane server is its own long-lived program with no
-                // master-drops-workers split the way php-fpm has, so without this it -- every
-                // request handler included -- runs as root. See EntrypointScriptBuilder.
+                // An Octane server would otherwise run as root in production. See
+                // EntrypointScriptBuilder.
                 'environment' => $environment->isDevelopment() ? [] : ['SHIP_RUN_AS' => 'www-data'],
             ],
         ];
     }
 
     /**
-     * --watch (dev only, same as Laravel Sail's own Octane setup): without it, Octane keeps
-     * serving the worker process's already-booted code, so a PHP change needs a manual
-     * `php artisan octane:reload` before it's actually picked up -- surprising for anyone used to
-     * plain php-fpm, where every request reloads from disk. Requires Node (already unconditional
-     * in the base image) and the project's own "chokidar" npm package -- an app-level dependency
-     * `ship` can't install for you, same as every other package in the Services table's own
-     * "Still needed in the app" column.
-     *
-     * Checked at container *boot*, inside the actual mounted project, not decided once by ship
-     * itself at compose-generation time -- unconditionally passing --watch crash-loops Octane's
-     * own watcher subprocess with "Cannot find module 'chokidar'" the instant it's missing,
-     * which is most fresh Laravel installs, not a rare case. A shell conditional resolved at
-     * boot is the only place "is chokidar actually there" can be answered correctly, and it also
-     * means a project that adds chokidar later just gets --watch on its next `ship up`, no
-     * ship-side change needed.
+     * --watch in dev: without it Octane keeps serving already-booted code until a manual
+     * `octane:reload`. It needs the project's own "chokidar" npm package, so the check happens at
+     * container boot: passing --watch without chokidar crash-loops Octane's watcher, and a
+     * project that adds it later gets --watch on its next `ship up`.
      */
     private function command(ShipEnvironment $environment): string
     {

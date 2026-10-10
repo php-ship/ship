@@ -5,21 +5,16 @@ declare(strict_types=1);
 namespace Ship\Docker;
 
 /**
- * Decides which generated compose services are project-owned images `ship build`/`ship release` must
- * build and tag, and groups the ones that are really the *same* image under one tag.
+ * Decides which generated compose services are project-owned images to build and tag, and groups
+ * the ones that are the same image under one tag.
  *
- * "app", "reverb", and every `ship.json` `processes` entry build from the exact same Dockerfile,
- * target and args whenever a project selects more than one of them (see
- * ComposeFileBuilder::addProcessServices(), which literally copies "app"'s own `build:`) -- building,
- * tagging and `docker save`-ing each separately would triple a release's size for content that's
- * byte-for-byte identical. Grouped by the service's own `build:` array instead: any two services
- * whose `build:` matches end up sharing one tag, one build, and one exported tar.
+ * "app", "reverb" and every `processes` entry usually share one Dockerfile, target and args.
+ * Services whose `build:` matches share one tag, one build and one exported tar.
  */
 final class ProductionImagePlan
 {
     /**
-     * Services with no `build:` (the registry-pulled infrastructure) are returned completely
-     * untouched -- this only ever adds `image:` to, and groups, the ones that have one.
+     * Services with no `build:` are returned untouched; the others get an `image:`.
      *
      * @param array<string, array<string, mixed>> $services
      * @return array{
@@ -43,9 +38,8 @@ final class ProductionImagePlan
         $images = [];
 
         foreach ($groups as $members) {
-            // "app" wins when it's part of the group, since it's the service a reader of the
-            // release would expect the shared image to be named after -- otherwise the first
-            // member in a stable (insertion) order, so the same project always picks the same name.
+            // "app" names the shared image when it's in the group; otherwise the first member,
+            // so the name is stable.
             $canonical = in_array($appServiceName, $members, true) ? $appServiceName : $members[0];
             $tag = sprintf('%s-%s:%s', $projectName, $canonical, $tagSuffix);
 

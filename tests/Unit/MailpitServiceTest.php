@@ -18,10 +18,7 @@ final class MailpitServiceTest extends TestCase
     }
 
     /**
-     * A bare `HOST:CONTAINER` mapping binds every interface, not just loopback, for a web UI
-     * that only ever needs to reach the developer's own machine -- bound to 127.0.0.1 instead.
-     * Mailpit is dev-only tooling entirely (see the production test below), so there's no
-     * production case to leave unbound here.
+     * The web UI only needs to reach the developer's machine, so it binds 127.0.0.1.
      */
     public function test_the_web_ui_port_binds_loopback_only(): void
     {
@@ -31,9 +28,7 @@ final class MailpitServiceTest extends TestCase
     }
 
     /**
-     * There's no single sane default host port for an arbitrary number of named instances without
-     * risking a collision -- a named instance's web UI stays reachable inside the Docker network
-     * only, unless a project adds its own docker-compose.override.yml entry.
+     * There's no collision-free default host port for named instances, so they publish none.
      */
     public function test_a_named_instance_does_not_publish_a_web_ui_port(): void
     {
@@ -51,11 +46,8 @@ final class MailpitServiceTest extends TestCase
     }
 
     /**
-     * Dev/test tooling, not infrastructure -- production must not get a Mailpit container, or
-     * its MAIL_HOST would unconditionally override whatever real mail config .env.production sets
-     * (environment: always wins over env_file:). An empty fragment is this class's own signal to
-     * ComposeFileBuilder that it contributes nothing in production -- no container, no env vars
-     * injected into "app" either.
+     * In production Mailpit's MAIL_HOST would override the real mail config, so it contributes
+     * no container and no env vars there.
      */
     public function test_it_contributes_nothing_in_production(): void
     {

@@ -7,33 +7,16 @@ FROM node:${NODE_VERSION}-alpine AS node
 FROM php:${PHP_VERSION}-fpm-alpine AS base
 ARG OCTANE_RUNTIME
 
-# pdo_pgsql/pdo_mysql/pcntl are installed unconditionally regardless of
-# which database or runtime is selected: cheap enough to always install,
-# and avoids plumbing a second build arg through ComposeFileBuilder just
-# for extension selection. pcntl specifically is needed by Laravel Octane
-# (graceful reload/shutdown signal handling) and Laravel Reverb (its
-# server references the SIGINT/SIGTERM/SIGTSTP constants pcntl defines).
+# pdo_pgsql/pdo_mysql/pcntl are installed regardless of which database or runtime is selected:
+# cheap, and it avoids a build arg per extension. pcntl is needed by Octane and Reverb for signal
+# handling.
 RUN apk add --no-cache libpq-dev icu-dev oniguruma-dev \
     && docker-php-ext-install pdo_pgsql pdo_mysql intl mbstring opcache pcntl
 
-# Anything beyond the fixed set above -- a Composer package's own platform requirement (gd for
-# maatwebsite/excel, bcmath for a money library, ...) that ship.json's own service selections give
-# no way to infer. Fed from ship.json's phpExtensions (see ShipConfig's own docblock), empty by
-# default so a project that never needs this pays no cost at all -- no network call, no extra
-# build time. mlocati/docker-php-extension-installer over hand-writing each one the way redis
-# above does: it already knows every extension's own build dependencies and PECL-vs-bundled
-# quirks, which is exactly the apk-install/pecl-install/enable dance this file would otherwise
-# have to duplicate per extension, for an open-ended, project-chosen list. The GitHub Releases
-# URL, not the raw.githubusercontent.com one some older guides use -- verified live: fetching from
-# raw master prints its own "unsupported method" warning (and a deliberate sleep) instead of just
-# working, so this uses the URL the tool's own docs actually ask for.
-#
-# Pinned to a specific release tag with a checksum, not /latest/download/ with nothing verifying
-# the response at all -- "latest" is a floating target that can serve a different script on two
-# builds weeks apart with no corresponding change here, with nothing checking that whatever came
-# back over the wire was actually that script. Bump INSTALL_PHP_EXTENSIONS_VERSION and the
-# checksum together (both published at that same release's own GitHub page) when a newer version
-# is wanted.
+# Extra extensions from ship.json's phpExtensions, installed with
+# mlocati/docker-php-extension-installer, which knows each extension's build dependencies. Skipped
+# entirely when the list is empty. The installer is pinned to a release and checksum-verified;
+# bump INSTALL_PHP_EXTENSIONS_VERSION and the checksum together.
 ARG PHP_EXTENSIONS=""
 ARG INSTALL_PHP_EXTENSIONS_VERSION=2.12.0
 ARG INSTALL_PHP_EXTENSIONS_SHA256=3f49c71fa66c79b8b2b96bc0ce92885dafd7946f3b5a46f545b390d6f1617e2c
@@ -44,43 +27,26 @@ RUN if [ -n "$PHP_EXTENSIONS" ]; then \
         && install-php-extensions $PHP_EXTENSIONS; \
     fi
 
-# Copied from the official node image at the pinned NODE_VERSION -- musl-built (matches this
-# Alpine base), not installed via `apk add nodejs npm`, since Alpine's own package repo only ever
-# carries whatever single Node version happens to ship with that Alpine release, independent of
-# NODE_VERSION. npm has no binary of its own; it's a JS CLI run through node, so its install
-# tree (node_modules/npm) has to come along too, with the executable symlinks recreated here.
+# Copied from the official node image at NODE_VERSION (musl-built, matching this Alpine base),
+# since Alpine's own package only carries one Node version. npm is a JS CLI run through node, so
+# its install tree comes along and the executable symlinks are recreated.
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
 COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
-# phpredis is installed unconditionally (not gated behind a "redis
-# selected" build arg) because RedisService::environmentVariables() sets
-# CACHE_STORE=redis / SESSION_DRIVER=redis on "app" whenever Redis is
-# picked in `ship init` -- and Laravel's default REDIS_CLIENT is
-# "phpredis", which needs this extension, not just a reachable redis
-# container. Cheap enough to always install rather than plumb a second
-# build arg through ComposeFileBuilder just for this.
-#
-# Pinned to a specific PECL release, not a bare `pecl install redis` -- an unpinned extension
-# version is a floating build input exactly like an unpinned image tag, just one PECL's own
-# registry controls instead of a registry like Docker Hub. Bump ARG REDIS_EXTENSION_VERSION
-# deliberately when a newer release is wanted.
+# phpredis is installed unconditionally: selecting Redis sets CACHE_STORE/SESSION_DRIVER=redis,
+# and Laravel's default REDIS_CLIENT is "phpredis". Pinned to an exact PECL release; bump
+# REDIS_EXTENSION_VERSION deliberately.
 ARG REDIS_EXTENSION_VERSION=6.3.0
 RUN apk add --no-cache --virtual .build-deps-redis $PHPIZE_DEPS \
     && pecl install redis-$REDIS_EXTENSION_VERSION \
     && docker-php-ext-enable redis \
     && apk del .build-deps-redis
 
-# Swoole needs a compiled PHP extension; RoadRunner is a standalone Go
-# binary pulled in via Composer (spiral/roadrunner-bin) so it needs
-# nothing here; FrankenPHP is handled separately below since it replaces
-# the base image rather than layering onto it. brotli-dev is there
-# specifically for Swoole's own configure step -- it requests Brotli
-# support (--enable-brotli=yes) by default and aborts the whole build
-# with "Package 'libbrotlienc' not found" without it, even though
-# nothing else here uses Brotli.
-# Pinned for the same reason as REDIS_EXTENSION_VERSION above.
+# Swoole needs a compiled extension. RoadRunner is a Go binary pulled in via Composer and needs
+# nothing here; FrankenPHP has its own Dockerfile. brotli-dev is required by Swoole's configure
+# step. Pinned like REDIS_EXTENSION_VERSION.
 ARG SWOOLE_EXTENSION_VERSION=6.2.3
 RUN if [ "$OCTANE_RUNTIME" = "swoole" ]; then \
         apk add --no-cache --virtual .build-deps $PHPIZE_DEPS linux-headers brotli-dev \
@@ -93,7 +59,7 @@ WORKDIR /var/www/html
 
 # ---- dev -------------------------------------------------------------
 FROM base AS dev
-# Pinned for the same reason as REDIS_EXTENSION_VERSION above.
+# Pinned like REDIS_EXTENSION_VERSION.
 ARG XDEBUG_EXTENSION_VERSION=3.5.3
 RUN apk add --no-cache linux-headers $PHPIZE_DEPS \
     && pecl install xdebug-$XDEBUG_EXTENSION_VERSION \
@@ -102,27 +68,16 @@ COPY ship/dev/php.ini /usr/local/etc/php/conf.d/99-ship-dev.ini
 COPY --from=composer:2.10.3 /usr/bin/composer /usr/bin/composer
 COPY ship/dev/entrypoint.sh /usr/local/bin/ship-entrypoint
 RUN chmod +x /usr/local/bin/ship-entrypoint
-# The project root is bind-mounted straight from the host in dev (see baseServices()), so
-# storage/, bootstrap/cache/, etc. keep whatever host UID/GID created them -- on a real Linux
-# host (any native Linux dev machine, and this project's own CI) that's almost never uid 82
-# (www-data), which is who php-fpm's pool workers run as by default. The result: every request
-# fails outright ("tempnam(): file created in the system's temporary directory", from Laravel's
-# atomic config/view cache writes) the moment it needs to write anything under the project root.
-# Chowning the bind mount to match isn't an option either -- that changes the *host's* files,
-# surprising whoever owns them. Running the pool as root instead sidesteps host permissions
-# entirely without ever touching them; dev already trades hardening for convenience (the entrypoint
-# above already runs `composer install` as root when it falls back), so this doesn't lower the bar
-# dev was already set at. Never done in prod -- see that stage below -- where the files are baked
-# into the image at a known ownership instead.
+# The project root is bind-mounted from the host in dev, so its files keep the host's UID/GID,
+# which is rarely www-data's. The php-fpm pool therefore runs as root, so it can always write to
+# storage/ and bootstrap/cache/ without touching host ownership. Dev only; prod bakes its files
+# into the image at a known ownership.
 #
-# The trade is that everything the container writes is root-owned on a host where you aren't root.
-# ship.json's hostUser (opt-in) builds this stage with the host's own UID/GID instead: the objection
-# above -- a fixed UID only works when it matches the bind mount's -- can't apply when the UID *comes
-# from* the host. HOST_UID stays 0 (root, exactly as before) unless it's set. The user/group are
-# looked up first, not assumed free: a host GID like macOS's 20 already exists in Alpine as
-# "dialout", and reusing it is right -- only the numeric ids matter for file ownership. php-fpm's
-# master still starts as root (see CMD) and drops its *workers* to this user; the entrypoint drops
-# everything else (composer install, an Octane server).
+# ship.json's hostUser (opt-in) builds this stage with the host's UID/GID instead, so files the
+# container writes aren't root-owned on the host. HOST_UID stays 0 unless it's set. An existing
+# user/group with the same id is reused, since only the numeric ids matter. php-fpm's master still
+# starts as root (see CMD) and drops its workers to this user; the entrypoint drops everything
+# else.
 ARG HOST_UID=0
 ARG HOST_GID=0
 RUN apk add --no-cache su-exec
@@ -139,22 +94,12 @@ COPY . .
 RUN composer dump-autoload --optimize --no-dev
 
 # ---- assets --------------------------------------------------------------
-# Runs `npm run build` (Vite's production bundle) so public/build exists
-# before "prod" and "prod-nginx" copy the tree out. Guarded on
-# package.json existing, since not every consuming project has a frontend
-# build step at all -- this must never be a hard requirement. Built from
-# "builder" (not "base") specifically so vendor/ and the composer
-# autoloader already exist, in case any npm build step shells out to
-# artisan (Ziggy route generation, an SSR manifest, ...).
+# Runs `npm run build` so public/build exists before "prod" and "prod-nginx" copy the tree out.
+# Guarded on package.json, since not every project has a frontend build. Built from "builder" so
+# vendor/ exists in case a build step shells out to artisan.
 #
-# `npm ci` only when package-lock.json actually exists, falling back to `npm install` only when
-# it doesn't -- never `npm ci || npm install` unconditionally, which would also catch `npm ci`'s
-# own lockfile-drift failure (package.json and package-lock.json out of sync) and silently retry
-# with `npm install`, masking the exact mismatch `npm ci` exists to catch.
-#
-# node_modules is removed once the build finishes, not copied into "prod" below -- it's a build
-# dependency, not a runtime one: Vite's own output in public/build is static files the webserver
-# serves directly, with no Node process involved at any point after this stage.
+# `npm ci` when a lockfile exists, `npm install` only when it doesn't, so lockfile drift still
+# fails the build. node_modules is a build dependency and is removed afterwards.
 FROM builder AS assets
 RUN if [ -f package.json ]; then \
         if [ -f package-lock.json ]; then npm ci; else npm install; fi \
@@ -166,45 +111,26 @@ RUN if [ -f package.json ]; then \
 FROM base AS prod
 COPY ship/prod/php.ini /usr/local/etc/php/conf.d/99-ship-prod.ini
 COPY --from=assets /var/www/html /var/www/html
-# su-exec: lets the generated entrypoint below drop an Octane server (Swoole, RoadRunner) to www-data
-# after its root-only steps -- see EntrypointScriptBuilder's SHIP_RUN_AS handling for why php-fpm
-# doesn't need it. A ~10KB package, so installed unconditionally rather than gated behind another
-# build arg.
+# su-exec lets the entrypoint drop an Octane server or extra process to www-data after its
+# root-only steps (see EntrypointScriptBuilder).
 RUN apk add --no-cache su-exec
-# Generated by `ship build`/`ship release` (see ProductionBuildRunner +
-# EntrypointScriptBuilder), not a static stub -- its content depends on
-# which FrameworkAdapter matches the project. Runs release commands (e.g.
-# Laravel's config:cache) at container *boot*, using whatever real env
-# vars the orchestrator injects then, and finally execs into CMD.
+# Generated by `ship build`/`ship release` (see EntrypointScriptBuilder), since its content
+# depends on which FrameworkAdapter matches. Runs release commands at container boot, with the
+# real env vars, then execs into CMD.
 COPY ship/prod/entrypoint.sh /usr/local/bin/ship-entrypoint
 RUN chmod +x /usr/local/bin/ship-entrypoint
 ENTRYPOINT ["/usr/local/bin/ship-entrypoint"]
 CMD ["php-fpm"]
 
 # ---- dev-nginx / prod-nginx ----------------------------------------------
-# Independent FROM chains (not built on "base") in the same Dockerfile as
-# the PHP stages specifically so prod-nginx can COPY --from=assets --
-# cross-Dockerfile COPY --from would need the referenced image to already
-# exist at build time with no guaranteed build order, which plain
-# `docker compose build` doesn't provide. Same-Dockerfile multi-stage
-# COPY --from has none of that problem. dev-nginx doesn't need any of
-# this -- nginx and php-fpm both bind-mount the same source tree in dev,
-# see ComposeFileBuilder::baseServices() -- but lives here too so both
-# environments build through one Dockerfile instead of splitting nginx
-# into its own file for no reason other than "it's a different image".
-# Runs as root, not nginx:alpine's own default "nginx" user, for the same reason "app"'s dev
-# php-fpm pool does (see that RUN sed line's own docblock): dev bind-mounts (or, in SHIP_MUTAGEN
-# mode, syncs into a named volume) the project root from the host, so file ownership here isn't
-# baked in at a known value the way it is in "prod" -- Mutagen's own agent injection runs via
-# `docker exec` as this container's default user, and nginx's own unprivileged worker processes
-# can't read what that user just wrote, 403ing every request with "is forbidden (13: Permission
-# denied)" otherwise. Prod keeps nginx's own default -- its files
-# are baked into the image at build time by the COPY below, at a known, consistent ownership.
+# In the same Dockerfile as the PHP stages so prod-nginx can COPY --from=assets without relying
+# on cross-image build ordering.
 #
-# Pinned to a specific version (nginx's own "stable" branch), not the floating "alpine" tag -- an
-# unpinned build input means two `ship up`/`ship build` runs weeks apart can silently get a
-# different nginx without any corresponding change here. Bump deliberately when a newer stable
-# release is wanted.
+# dev-nginx runs as root for the same reason the dev php-fpm pool does: the tree is bind-mounted
+# (or synced by Mutagen) from the host, and nginx's unprivileged workers couldn't read it
+# otherwise. prod-nginx keeps nginx's default user.
+#
+# Pinned to an exact nginx stable release; bump deliberately.
 FROM nginx:1.30.5-alpine AS dev-nginx
 COPY ship/nginx/default.conf /etc/nginx/conf.d/default.conf
 RUN sed -i 's/^user  *nginx;/user root;/' /etc/nginx/nginx.conf
@@ -213,13 +139,6 @@ FROM nginx:1.30.5-alpine AS prod-nginx
 COPY --from=assets /var/www/html/public /var/www/html/public
 COPY ship/nginx/default.conf /etc/nginx/conf.d/default.conf
 
-# FrankenPHP (octane-frankenphp) does not use this file at all — it has its
-# own base image (Debian + Caddy, not php:*-fpm-alpine) and its own
-# Dockerfile.frankenphp in this same directory, selected by
-# OctaneFrankenPhpService overriding "app.build.dockerfile". See that
-# file's header comment for why FrankenPHP can't share this one. It also
-# never needs the *-nginx stages above: FrankenPHP is a full HTTP server
-# and serves public/ itself once Octane hands it the request, so
-# "webserver" is never created when it's selected (see
-# OctaneFrankenPhpService::removes()) -- the same reason no Octane
-# runtime ever coexists with nginx.
+# FrankenPHP (octane-frankenphp) doesn't use this file: it has its own base image and
+# Dockerfile.frankenphp, selected by OctaneFrankenPhpService. No Octane runtime uses the *-nginx
+# stages, since each serves HTTP itself.

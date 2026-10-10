@@ -10,19 +10,13 @@ use Ship\Docker\DevPortBinding;
 use Ship\Docker\RequiredEnv;
 
 /**
- * Alt driver for storage. Silo (pgsty/silo) is a community-maintained fork of the actual MinIO
- * server codebase -- upstream MinIO gutted its own community edition's web console and stopped
- * shipping community binaries, so this restores both on the same, unmodified MinIO protocol/data
- * format. AGPLv3, the same license MinIO itself always shipped under -- unchanged by forking it,
- * not a new consideration introduced by picking this over MinIO directly. This is the storage
- * option with an actually-working console (verified live: a real HTML/JS console page, not just a
- * 200 status) -- see RustFsService's own docblock for the other S3-compatible option considered
- * alongside this one, whose console currently does not work.
+ * Alt driver for storage. Silo (pgsty/silo) is a community-maintained fork of the MinIO server
+ * that keeps the web console and prebuilt images upstream's community edition dropped. Same
+ * protocol and data format, same AGPLv3 license.
  *
- * Like Garage, has no built-in default-bucket provisioning -- MinIO (and so Silo) has never
- * supported auto-creating a bucket on first write; the app's own bucket ("local", see
- * environmentVariables()) has to be created once by hand, via the console at
- * http://localhost:${SILO_CONSOLE_PORT:-9001} or any S3 client, before first use.
+ * There's no default-bucket provisioning: the app's bucket ("local", see environmentVariables())
+ * has to be created once, via the console at http://localhost:${SILO_CONSOLE_PORT:-9001} or any
+ * S3 client, before first use.
  */
 final class SiloService implements ServiceDefinition
 {
@@ -53,26 +47,18 @@ final class SiloService implements ServiceDefinition
                 'image' => 'pgsty/silo:RELEASE.2026-09-16T00-00-00Z',
                 'command' => ['server', '/data', '--console-address', ':9001'],
                 'environment' => [
-                    // Must match environmentVariables() below exactly, or "app"
-                    // authenticates with credentials Silo never provisioned. "ship"/"shipsecret"
-                    // are only the *defaults* -- same `${VAR:-default}` pattern every other
-                    // credentialed service (MySqlService's DB_PASSWORD, ...) already uses. The
-                    // password specifically is required (not just overridable) in production --
-                    // see RequiredEnv's own docblock -- and matters most here of every credentialed
-                    // service: Silo's admin console can be published to the host (see
-                    // 'ports' below), so a missed .env.production value could otherwise expose a
-                    // login page with a publicly-known credential on the open internet.
+                    // Must match environmentVariables() below, or "app" authenticates with
+                    // credentials Silo never provisioned. Overridable defaults; the password is
+                    // required in production (see RequiredEnv), which matters here because the
+                    // console can be published to the host.
                     'MINIO_ROOT_USER' => "\${{$prefix}AWS_ACCESS_KEY_ID:-ship}",
                     'MINIO_ROOT_PASSWORD' => RequiredEnv::expr("{$prefix}AWS_SECRET_ACCESS_KEY", 'shipsecret', $environment),
                 ],
-                // Only the console is host-published -- the S3 API itself is only ever reached by
-                // "app" over the internal "ship" network (see environmentVariables()'s
-                // AWS_ENDPOINT), same as SeaweedFS/Garage's own S3 ports, neither of which
-                // publishes one at all. The console port's own env var is instance-scoped so a
-                // second named instance (storage supports additionalServices) doesn't silently
-                // collide with the default one on the same host port.
+                // Only the console is host-published; "app" reaches the S3 API over the "ship"
+                // network. The port's env var is instance-scoped so a named instance can't
+                // collide with the default one.
                 'ports' => [DevPortBinding::bind($this->consolePortMapping($instanceName), $environment)],
-                // Persisted in both environments -- see MySqlService's own comment for why.
+                // Persisted in both environments, like every stateful service.
                 'volumes' => ["ship-{$name}-data:/data"],
                 'healthcheck' => [
                     'test' => ['CMD', 'curl', '-f', 'http://127.0.0.1:9000/minio/health/live'],
@@ -90,15 +76,12 @@ final class SiloService implements ServiceDefinition
         $name = $this->composeServiceName($instanceName);
         $prefix = $this->envPrefix($instanceName);
 
-        // Generic AWS SDK-standard names, not framework-specific, so any
-        // S3 client (Laravel's Storage facade, aws-sdk-php directly,
-        // Flysystem, ...) can consume them the same way.
+        // AWS SDK-standard names, usable by any S3 client.
         return [
             "{$prefix}AWS_ENDPOINT" => "http://{$name}:9000",
             "{$prefix}AWS_USE_PATH_STYLE_ENDPOINT" => 'true',
             "{$prefix}AWS_DEFAULT_REGION" => 'us-east-1',
-            // Same expressions as composeFragment()'s own MINIO_ROOT_USER/MINIO_ROOT_PASSWORD, so
-            // both sides always resolve from the same source at the same compose-parse time.
+            // The same expressions composeFragment() provisions Silo with.
             "{$prefix}AWS_ACCESS_KEY_ID" => "\${{$prefix}AWS_ACCESS_KEY_ID:-ship}",
             "{$prefix}AWS_SECRET_ACCESS_KEY" => "\${{$prefix}AWS_SECRET_ACCESS_KEY:-shipsecret}",
             "{$prefix}AWS_BUCKET" => 'local',

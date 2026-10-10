@@ -16,11 +16,8 @@ use Symfony\Component\Filesystem\Filesystem;
 final class BuildCommandTest extends TestCase
 {
     /**
-     * `ship build` checks upfront for a required production variable missing from
-     * .env.production (the same check ConfigTestCommand's own dry run makes), rather than letting
-     * it surface as a raw `docker compose build` interpolation error -- which would also assume
-     * Docker is installed to produce one. No Docker involved in this test: failing this check
-     * happens before ProductionBuildRunner -- and therefore Docker -- is ever reached.
+     * A required production variable missing from .env.production fails before
+     * ProductionBuildRunner, and so Docker, is reached.
      */
     public function test_it_fails_fast_on_a_missing_required_production_variable(): void
     {

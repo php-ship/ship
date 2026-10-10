@@ -36,12 +36,11 @@ final class MeilisearchService implements ServiceDefinition
             $name => [
                 'image' => 'getmeili/meilisearch:v1.53',
                 'environment' => [
-                    // A friendly default in dev, but required in production -- see
-                    // RequiredEnv's own docblock and MySqlService's matching comment.
+                    // A default in dev, required in production (see RequiredEnv).
                     'MEILI_MASTER_KEY' => RequiredEnv::expr("{$prefix}MEILISEARCH_KEY", 'shipsearchkey', $environment),
                     'MEILI_NO_ANALYTICS' => 'true',
                 ],
-                // Persisted in both environments -- see MySqlService's own comment for why.
+                // Persisted in both environments, like every stateful service.
                 'volumes' => ["ship-{$name}-data:/meili_data"],
             ],
         ];
@@ -53,15 +52,8 @@ final class MeilisearchService implements ServiceDefinition
         $prefix = $this->envPrefix($instanceName);
 
         return [
-            // Laravel Scout doesn't default to Meilisearch just because a
-            // Meilisearch container exists -- SCOUT_DRIVER has to say so
-            // explicitly, or Scout silently keeps using its own default.
-            // (Scout itself and meilisearch/meilisearch-php are still a
-            // `composer require` the consuming app has to do -- that's an
-            // app-level dependency choice, not something this Docker layer
-            // can or should force.) Only the default instance sets it -- a
-            // named instance adds a second reachable Meilisearch, it doesn't
-            // change which one Scout uses by default.
+            // Scout doesn't use Meilisearch unless SCOUT_DRIVER says so. Only the default
+            // instance sets it; a named instance doesn't change the app's default driver.
             ...($instanceName === null ? ['SCOUT_DRIVER' => 'meilisearch'] : []),
             "{$prefix}MEILISEARCH_HOST" => "http://{$name}:7700",
             "{$prefix}MEILISEARCH_KEY" => "\${{$prefix}MEILISEARCH_KEY:-shipsearchkey}",

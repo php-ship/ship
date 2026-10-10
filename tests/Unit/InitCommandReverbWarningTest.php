@@ -12,9 +12,8 @@ use Symfony\Component\Console\Tester\CommandTester;
 use Symfony\Component\Filesystem\Filesystem;
 
 /**
- * Covers InitCommand::warnAboutMissingReverbPackageIfNeeded(). The registry here only contains
- * ReverbService, so the interactive picker asks exactly one service question (broadcasting), followed
- * by the PHP version prompt -- matching the two lines fed via setInputs().
+ * Covers InitCommand::warnAboutMissingReverbPackageIfNeeded(). The registry only contains
+ * ReverbService, so the picker asks one service question before the version prompts.
  */
 final class InitCommandReverbWarningTest extends TestCase
 {

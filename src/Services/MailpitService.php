@@ -29,13 +29,9 @@ final class MailpitService implements ServiceDefinition
 
     public function composeFragment(ShipEnvironment $environment, ?string $instanceName = null): array
     {
-        // Dev/test tooling, not infrastructure -- in production, this class's MAIL_HOST would
-        // unconditionally override whatever real mail config .env.production actually set
-        // (environment: always wins over env_file:, see ComposeFileBuilder::OPTIONAL_ENV_FILE),
-        // capturing real mail -- password reset links included -- into an unauthenticated web UI
-        // instead of ever sending it. An empty fragment is this class's signal that it
-        // contributes nothing in production at all -- see ComposeFileBuilder::applyService() for
-        // how that's honored generically.
+        // Dev/test tooling. In production its MAIL_HOST would override the real mail config in
+        // .env.production (`environment:` beats `env_file:`) and capture real mail, so an empty
+        // fragment keeps it out entirely (see ComposeFileBuilder::applyService()).
         if (!$environment->isDevelopment()) {
             return [];
         }
@@ -45,10 +41,9 @@ final class MailpitService implements ServiceDefinition
         return [
             $name => [
                 'image' => 'axllent/mailpit:v1.31',
-                // Only the default instance publishes its web UI on a host port -- there's no
-                // single sane default host port for an arbitrary number of named instances
-                // without risking a collision. A named instance's UI is still reachable inside
-                // the Docker network; add a docker-compose.override.yml entry to publish one too.
+                // Only the default instance publishes its web UI: there's no collision-free
+                // default host port for named instances. Publish one via
+                // docker-compose.override.yml if needed.
                 'ports' => $instanceName === null ? [DevPortBinding::bind('${MAILPIT_WEB_PORT:-8025}:8025', $environment)] : [],
             ],
         ];

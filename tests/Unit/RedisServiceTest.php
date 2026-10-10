@@ -11,8 +11,7 @@ use Ship\Services\RedisService;
 final class RedisServiceTest extends TestCase
 {
     /**
-     * A named instance adds a second reachable Redis -- it doesn't change what the app uses by
-     * default, so only the default instance may set these.
+     * A named instance doesn't change the app's default cache/session store.
      */
     public function test_only_the_default_instance_sets_cache_store_and_session_driver(): void
     {
@@ -27,8 +26,7 @@ final class RedisServiceTest extends TestCase
     }
 
     /**
-     * Sessions make this matter even though ship only ever wires Redis as a cache/session store,
-     * never a queue: losing every session on each redeploy logs out every active user.
+     * Losing every session on a redeploy would log out every user.
      */
     public function test_the_data_volume_persists_in_both_environments(): void
     {

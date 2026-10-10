@@ -8,11 +8,8 @@ use PHPUnit\Framework\TestCase;
 use Ship\Runtime\ProcessRunner;
 
 /**
- * Runs real, trivial, cross-platform processes rather than mocking Symfony's Process -- the
- * interesting behavior here (TTY-vs-not stdin wiring, output streaming) is exactly the kind of
- * thing a mock would assert "was called correctly" without ever proving actually works; a real
- * php -r invocation costs nothing and proves it for real, the same standard the rest of this
- * project holds Docker-touching code to.
+ * Runs real, trivial, cross-platform processes rather than mocking Symfony's Process, so stdin
+ * wiring and output capture are actually exercised.
  */
 final class ProcessRunnerTest extends TestCase
 {
@@ -54,9 +51,8 @@ final class ProcessRunnerTest extends TestCase
     }
 
     /**
-     * A command that actually hits the timeout degrades to the same empty string every other
-     * runQuiet() failure already produces, instead of letting ProcessTimedOutException escape
-     * uncaught and crash the whole `ship` process with a raw stack trace.
+     * A timeout yields the same empty string as any other runQuiet() failure, not an uncaught
+     * ProcessTimedOutException.
      */
     public function test_run_quiet_returns_an_empty_string_instead_of_throwing_on_timeout(): void
     {
@@ -73,11 +69,8 @@ final class ProcessRunnerTest extends TestCase
     }
 
     /**
-     * MutagenSync::start() needs this to tell a real `mutagen sync create` failure apart from
-     * "succeeded with no output" -- confirmed against the actual `mutagen` binary: a nonexistent
-     * container gives exit 1 and a specific "container does not exist" stderr message, which lets
-     * start() fail fast with the real cause instead of falling through to a 120-second polling
-     * loop that was never going to succeed.
+     * MutagenSync::start() uses the exit code and stderr to fail fast on a real
+     * `mutagen sync create` error.
      */
     public function test_run_quiet_with_result_captures_exit_code_and_both_streams(): void
     {

@@ -9,8 +9,7 @@ use Ship\Contracts\ShipEnvironment;
 use Ship\Services\PostgresService;
 
 /**
- * Cross-checks what the "pgsql" container is provisioned with against what "app" is told to
- * connect with, rather than asserting either side in isolation.
+ * Cross-checks what the "pgsql" container is provisioned with against what "app" connects with.
  */
 final class PostgresServiceTest extends TestCase
 {
@@ -26,9 +25,7 @@ final class PostgresServiceTest extends TestCase
     }
 
     /**
-     * Production requires a real value instead of falling back to the same friendly default
-     * development uses -- `docker compose` itself refuses to run at all when no real value is
-     * set in .env.production.
+     * Production requires a real password instead of the development default.
      */
     public function test_the_password_is_required_in_production_not_just_overridable(): void
     {

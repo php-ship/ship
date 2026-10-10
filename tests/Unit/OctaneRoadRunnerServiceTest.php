@@ -22,9 +22,8 @@ final class OctaneRoadRunnerServiceTest extends TestCase
     }
 
     /**
-     * Dev only, and gated on node_modules/chokidar actually existing, checked at container boot
-     * -- see OctaneSwooleServiceTest's own equivalent for why (a real CI failure, not
-     * hypothesized).
+     * Dev only, and gated at container boot on node_modules/chokidar existing (see
+     * OctaneSwooleServiceTest).
      */
     public function test_watch_is_conditional_on_chokidar_and_only_checked_in_development(): void
     {
@@ -45,9 +44,7 @@ final class OctaneRoadRunnerServiceTest extends TestCase
     }
 
     /**
-     * Every Octane runtime serves HTTP itself, so nginx ("webserver") is never needed alongside
-     * one -- see ComposeFileBuilder::baseServices()'s own docblock for the primary check this
-     * backstops.
+     * Every Octane runtime serves HTTP itself, so nginx ("webserver") isn't needed.
      */
     public function test_it_removes_the_webserver_service(): void
     {
@@ -55,10 +52,8 @@ final class OctaneRoadRunnerServiceTest extends TestCase
     }
 
     /**
-     * An Octane server has no master-drops-workers split the way php-fpm does, so in production the
-     * generated entrypoint has to be told to drop it to www-data (see EntrypointScriptBuilder) --
-     * otherwise every request handler runs as root. Dev never reads it (its own entrypoint is a
-     * different, static file), so it isn't set there.
+     * An Octane server would otherwise run as root in production (see EntrypointScriptBuilder).
+     * Dev doesn't read SHIP_RUN_AS.
      */
     public function test_it_asks_the_entrypoint_to_drop_to_www_data_in_production_only(): void
     {

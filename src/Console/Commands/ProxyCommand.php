@@ -37,10 +37,8 @@ final class ProxyCommand extends Command
 
     protected function configure(): void
     {
-        // Declared for --help output only. Actual forwarding reads raw
-        // argv (see execute()) so Console's option parser never sees
-        // flags meant for the proxied binary, e.g. the `-m` in
-        // `ship artisan make:model Post -m`.
+        // Declared for --help only. Forwarding reads raw argv (see execute()), so flags meant
+        // for the proxied binary (`-m` in `ship artisan make:model Post -m`) pass through.
         $this->addArgument('args', InputArgument::IS_ARRAY, 'Arguments forwarded as-is');
     }
 
@@ -56,20 +54,11 @@ final class ProxyCommand extends Command
     }
 
     /**
-     * Everything typed after `ship <name>`, exactly as typed, with no option/flag interpretation applied.
+     * Everything typed after `ship <name>`, as typed.
      *
-     * A real `ship <name> ...` always hands execute() a genuine ArgvInput, already bound (in
-     * Command::run(), before execute() ever runs) to the full Application+Command definition --
-     * so ArgvInput::getRawTokens(strip: true), which resolves the split point via
-     * getFirstArgument(), correctly skips any global option and its value ahead of the command
-     * name in argv, unlike array_search($this->getName(), $argv), which took the first literal
-     * match anywhere, global option value or not. Doesn't (can't, short of reimplementing
-     * getFirstArgument()'s own scan by hand) tell apart a value some earlier option took from an
-     * *identical-looking* command name -- getRawTokens() re-finds its split point by string
-     * equality, not the position getFirstArgument() actually resolved -- but `ship` defines no
-     * such global option today (see docs/roadmap.md). Only reached without a real ArgvInput --
-     * CommandTester's ArrayInput in tests, most notably, which can't represent "unparsed"
-     * arguments at all.
+     * ArgvInput::getRawTokens(strip: true) skips any global option and its value ahead of the
+     * command name. The $_SERVER['argv'] fallback is only reached without a real ArgvInput
+     * (CommandTester).
      *
      * @return list<string>
      */

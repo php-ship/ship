@@ -8,8 +8,7 @@ use Ship\Runtime\ProcessRunner;
 use Ship\Support\ShipVersion;
 
 /**
- * release.json's content -- metadata only, never a secret: no `.env.production` value ever passes
- * through this class.
+ * release.json's content. Metadata only; no `.env.production` value passes through this class.
  */
 final class ReleaseManifest
 {
@@ -36,8 +35,8 @@ final class ReleaseManifest
     }
 
     /**
-     * Null when the project isn't a git repository at all, or `git` itself isn't on PATH -- a
-     * release has to succeed either way, this is metadata, not a requirement.
+     * Null when the project isn't a git repository or `git` isn't on PATH; this is metadata, not
+     * a requirement.
      */
     private static function gitCommit(string $projectRoot, ProcessRunner $runner): ?string
     {

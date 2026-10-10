@@ -1,8 +1,5 @@
-# FrankenPHP has its own base image (Debian + Caddy + embedded PHP), so this
-# mirrors stubs/docker/php/Dockerfile's dev/builder/prod stage structure but
-# can't share it — see OctaneFrankenPhpService's docblock for why. Image tag
-# format and the bundled install-php-extensions script are both confirmed
-# against FrankenPHP's own docs (frankenphp.dev/docs/docker), not guessed.
+# FrankenPHP has its own base image (Debian + Caddy + embedded PHP), so this mirrors the
+# dev/builder/assets/prod stages of stubs/docker/php/Dockerfile without sharing it.
 
 ARG PHP_VERSION=8.4
 ARG NODE_VERSION=24
@@ -11,32 +8,19 @@ FROM node:${NODE_VERSION}-bookworm-slim AS node
 
 FROM dunglas/frankenphp:1-php${PHP_VERSION}-bookworm AS base
 
-# pdo_pgsql/pdo_mysql/redis/pcntl are all unconditional, same as the main
-# Dockerfile -- see that file's comment for why. redis is pinned to a specific release for the
-# same reason the main Dockerfile's REDIS_EXTENSION_VERSION is -- an unpinned extension version
-# is still an unpinned build input, even through this bundled installer.
+# The same unconditional extension set as the main Dockerfile, with redis pinned the same way.
 ARG REDIS_EXTENSION_VERSION=6.3.0
 RUN install-php-extensions pdo_pgsql pdo_mysql intl mbstring opcache redis-$REDIS_EXTENSION_VERSION pcntl
 
-# ship.json's phpExtensions (see ShipConfig's own docblock) -- the same build arg the main
-# Dockerfile already takes, declared here too so a FrankenPHP build doesn't just silently ignore
-# it. install-php-extensions is already present in this base image (used above for redis/xdebug),
-# so this is one line instead of the main Dockerfile's own curl+checksum dance.
+# ship.json's phpExtensions. install-php-extensions is already in this base image.
 ARG PHP_EXTENSIONS=""
 RUN if [ -n "$PHP_EXTENSIONS" ]; then install-php-extensions $PHP_EXTENSIONS; fi
 
-# This base image has neither ext-zip nor an unzip/7z binary, so Composer can't extract a single
-# package distributed as a zip -- which is the normal case for anything pulled from Packagist,
-# not an edge case -- failing the "builder" stage below outright on the first real composer.lock.
-# The main Dockerfile doesn't need this: Alpine's php:*-fpm-alpine base already ships unzip.
+# The base image has neither ext-zip nor unzip, which Composer needs to extract packages.
 RUN apt-get update && apt-get install -y --no-install-recommends unzip && rm -rf /var/lib/apt/lists/*
 
-# Copied from the official node image at the pinned NODE_VERSION -- glibc-built (matches this
-# Debian bookworm base, unlike the main Dockerfile's musl/Alpine node image), not installed via
-# `apt-get install nodejs npm`, for the same reason the main Dockerfile doesn't: the OS package
-# repo only ever carries one fixed Node version, independent of NODE_VERSION. See that file's
-# comment on the npm symlinks -- identical reasoning, duplicated here since the base images
-# (and therefore the exact node image variant needed) differ.
+# Copied from the official node image at NODE_VERSION (glibc-built, matching this Debian base),
+# as in the main Dockerfile.
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
 COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
@@ -46,19 +30,16 @@ WORKDIR /var/www/html
 
 # ---- dev -------------------------------------------------------------
 FROM base AS dev
-# Pinned to a specific release, not a bare `install-php-extensions xdebug` -- see the main
-# Dockerfile's matching ARG for why an unpinned extension version is still an unpinned build
-# input, even once the installer binary itself is already baked into the base image.
+# Pinned to an exact release, as in the main Dockerfile.
 ARG XDEBUG_EXTENSION_VERSION=3.5.3
 RUN install-php-extensions xdebug-$XDEBUG_EXTENSION_VERSION
 COPY ship/dev/php.ini /usr/local/etc/php/conf.d/99-ship-dev.ini
 COPY --from=composer:2.10.3 /usr/bin/composer /usr/bin/composer
 COPY ship/dev/entrypoint.sh /usr/local/bin/ship-entrypoint
 RUN chmod +x /usr/local/bin/ship-entrypoint
-# ship.json's hostUser (opt-in, see stubs/docker/php/Dockerfile's matching, more-commented block --
-# identical reasoning, Debian's useradd/getent instead of Alpine's adduser/addgroup). "www-data"
-# (33:33) already exists in this base image, so a host UID of 33 reuses it rather than creating a
-# second one. HOST_UID stays 0 (root, today's behavior) unless it's set.
+# ship.json's hostUser (opt-in): see the matching block in stubs/docker/php/Dockerfile. Uses
+# Debian's useradd/groupadd. "www-data" (33:33) already exists here, so a host UID of 33 reuses
+# it. HOST_UID stays 0 unless it's set.
 ARG HOST_UID=0
 ARG HOST_GID=0
 RUN if [ "$HOST_UID" != "0" ]; then \
@@ -68,16 +49,12 @@ RUN if [ "$HOST_UID" != "0" ]; then \
         [ -n "$user" ] || { useradd -u "$HOST_UID" -g "$group" -M ship && user=ship; }; \
         mkdir -p /home/ship && chown "$HOST_UID:$HOST_GID" /home/ship; \
     fi
-# Caddy's own state/certificate directories -- root-owned in the base image -- have to be writable
-# by whoever FrankenPHP actually runs as. Chowning to 0:0 when HOST_UID is unset is a no-op (already
-# root-owned), so this costs nothing when the option is off.
+# Caddy's state/certificate directories must be writable by whoever FrankenPHP runs as. A no-op
+# when HOST_UID is unset (already root-owned).
 RUN chown -R "$HOST_UID:$HOST_GID" /data/caddy /config/caddy
 ENTRYPOINT ["/usr/local/bin/ship-entrypoint"]
-# No CMD here: FrankenPHP's default CMD from its base image would start
-# Caddy directly off a Caddyfile, but Octane manages FrankenPHP itself via
-# `php artisan octane:start --server=frankenphp` -- that's what
-# OctaneFrankenPhpService sets as the compose-level `command:`, which
-# becomes this ENTRYPOINT's "$@" regardless of what CMD would have been.
+# No CMD: Octane manages FrankenPHP itself via `php artisan octane:start --server=frankenphp`,
+# which OctaneFrankenPhpService sets as the compose `command:`.
 
 # ---- builder -----------------------------------------------------------
 FROM base AS builder
@@ -88,10 +65,7 @@ COPY . .
 RUN composer dump-autoload --optimize --no-dev
 
 # ---- assets --------------------------------------------------------------
-# See stubs/docker/php/Dockerfile's "assets" stage -- identical reasoning,
-# duplicated here rather than shared since this Dockerfile can't FROM the
-# other one (different base images entirely), including the npm ci/npm
-# install split and the node_modules removal, both documented there.
+# See the "assets" stage in stubs/docker/php/Dockerfile.
 FROM builder AS assets
 RUN if [ -f package.json ]; then \
         if [ -f package-lock.json ]; then npm ci; else npm install; fi \
@@ -103,28 +77,15 @@ RUN if [ -f package.json ]; then \
 FROM base AS prod
 COPY ship/prod/php.ini /usr/local/etc/php/conf.d/99-ship-prod.ini
 COPY --from=assets /var/www/html /var/www/html
-# See stubs/docker/php/Dockerfile's matching entrypoint wiring -- same
-# generated-not-static file, same reasoning.
+# The generated entrypoint: see stubs/docker/php/Dockerfile.
 COPY ship/prod/entrypoint.sh /usr/local/bin/ship-entrypoint
 RUN chmod +x /usr/local/bin/ship-entrypoint
-# Matches Swoole/RoadRunner's own prod stage: Octane is its own long-lived program with no
-# master-drops-workers split, so OctaneFrankenPhpService sets SHIP_RUN_AS=www-data and the
-# generated entrypoint drops to it -- which needs Caddy's own state/certificate directories
-# (root-owned in the base image) writable by www-data first.
+# OctaneFrankenPhpService sets SHIP_RUN_AS=www-data and the entrypoint drops to it, so Caddy's
+# state/certificate directories must be writable by www-data.
 RUN chown -R www-data:www-data /data/caddy /config/caddy
 ENTRYPOINT ["/usr/local/bin/ship-entrypoint"]
 
-# Disables the base image's own inherited HEALTHCHECK (curl against Caddy's admin metrics
-# endpoint, localhost:2019/metrics) rather than silently keeping it. Octane's own
-# StartFrankenPhpCommand does run the real `frankenphp` binary against a real Caddyfile
-# (`frankenphp run -c <path>`) with that admin endpoint genuinely configured and listening -- so
-# the base image's healthcheck isn't pointed at nothing, as a first read of
-# "Octane manages this through an embedded extension" might suggest. The real problem is narrower
-# but still real: /metrics reports whether Caddy's own HTTP server process is alive, which is a
-# fixed property of the control plane, not of whatever the embedded PHP worker is actually doing
-# with each request -- a worker crash-looping on every real request would still read "healthy"
-# forever. No Octane runtime ship generates has ever had a healthcheck of its own (Swoole/
-# RoadRunner's php:*-fpm-alpine base ships none), so this isn't removing a feature parallel to
-# them, just removing a false sense of one that FrankenPHP alone happened to inherit by accident
-# of its base image.
+# Disables the base image's HEALTHCHECK (Caddy's admin /metrics endpoint): it reports whether
+# Caddy is alive, not whether the PHP worker can serve requests, so a broken app would still read
+# "healthy". No Octane runtime has a healthcheck.
 HEALTHCHECK NONE

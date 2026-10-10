@@ -22,11 +22,9 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
 /**
- * Builds every project-owned production image (see ProductionImagePlan), tagged under a fixed local
- * name -- never the release tag, since this command doesn't take one at all. Useful on its own as a
- * "does production actually build" check; `ship release --tag <tag>` runs the same build again
- * through ProductionBuildRunner with the real tag rather than reusing this command's output, so
- * there's no staleness to worry about between the two.
+ * Builds every project-owned production image (see ProductionImagePlan) under a fixed local tag.
+ * Useful as a "does production build" check; `ship release --tag` runs the same build again with
+ * the real tag rather than reusing this output.
  */
 #[AsCommand(name: 'build', description: 'Build production images')]
 final class BuildCommand extends Command
@@ -34,10 +32,8 @@ final class BuildCommand extends Command
     private const LOCAL_TAG = 'local';
 
     /**
-     * $registry/$frameworkAdapters, when given (Application passes its own already-populated
-     * ones), are used as-is instead of this command loading every extension class all over
-     * again -- see UpCommand's matching constructor docblock for why. Left optional so
-     * constructing this directly -- every existing test does -- still works unchanged.
+     * $registry/$frameworkAdapters are the ones Application already populated. Optional so the
+     * command can be constructed directly (tests), in which case it loads its own.
      *
      * @param list<FrameworkAdapter>|null $frameworkAdapters
      */
@@ -54,8 +50,7 @@ final class BuildCommand extends Command
     {
         $config = ShipConfig::fromFile($this->projectRoot . '/ship.json');
 
-        // The prod-nginx image builds from this exact same published file -- a stale upstream
-        // breaks it here too, not just in dev (see NginxUpstreamMismatch's own docblock).
+        // The prod-nginx image builds from this published file, so a stale upstream breaks it.
         $nginxWarning = NginxUpstreamMismatch::warning($this->projectRoot, $config);
         if ($nginxWarning !== null) {
             $output->writeln($nginxWarning);
@@ -66,20 +61,16 @@ final class BuildCommand extends Command
             $frameworkAdapters = $this->frameworkAdapters;
         } else {
             $registry = new ServiceRegistry(ServiceRegistry::defaults());
-            // Not printing these warnings here — Application's own constructor
-            // already surfaced them once; see UpCommand's own docblock for why.
+            // Loading warnings aren't printed here; Application already did.
             $loaded = (new ExtensionLoader())->load($config->extensions, $registry);
             $frameworkAdapters = $loaded['frameworkAdapters'];
         }
 
         $projectName = ProjectName::resolve($config, $this->projectRoot);
 
-        // Found here, before Docker is ever invoked, not left to surface as a raw `docker compose
-        // build` interpolation error once ProductionBuildRunner actually runs -- same check
-        // ConfigTestCommand's own dry run already makes (see RequiredEnv::missingFrom()). Leniently
-        // reads .env.production (EnvFile::parse() returns [] if it doesn't exist at all) rather
-        // than requiring the file outright -- unlike `ship release`, a project with no credentialed
-        // service selected has nothing that needs one, so `ship build` doesn't force it to exist.
+        // Fail on a missing required credential before Docker is invoked (see
+        // RequiredEnv::missingFrom()). .env.production is read leniently: a project with no
+        // credentialed service doesn't need the file.
         $prodCompose = (new ComposeFileBuilder($registry))->build($config, ShipEnvironment::Production, projectName: $projectName);
         $missingEnv = RequiredEnv::missingFrom($prodCompose, EnvFile::parse($this->projectRoot . '/.env.production'));
         if ($missingEnv !== []) {

@@ -26,9 +26,7 @@ final class ProjectNameTest extends TestCase
     }
 
     /**
-     * Docker image names only allow lowercase letters, digits, and "." "_" "-" -- a directory
-     * basename like "My Project" or a hand-typed ship.json value has to be normalized into that,
-     * not handed straight to `docker build` where it would fail with an opaque error.
+     * A directory basename like "My Project" is normalized into a valid Docker image name.
      */
     public function test_characters_docker_rejects_are_normalized(): void
     {
@@ -45,11 +43,8 @@ final class ProjectNameTest extends TestCase
     }
 
     /**
-     * Docker's actual grammar only allows a *single* separator between alphanumeric runs, never
-     * two or more literal dots/underscores in a row -- confirmed live: `docker build -t
-     * foo..bar-app:local` fails outright with "invalid reference format". "foo..bar" is already
-     * entirely within the allowed character set, so a sanitizer that only checks characters (not
-     * run length) would let it straight through.
+     * Docker allows only a single separator between alphanumeric runs: "foo..bar" is rejected as
+     * "invalid reference format" even though every character in it is allowed.
      */
     public function test_consecutive_separator_characters_are_collapsed_to_one(): void
     {

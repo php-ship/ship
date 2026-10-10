@@ -42,10 +42,7 @@ final class ShipConfigTest extends TestCase
     }
 
     /**
-     * `"php": 8.4` (a bare JSON number -- the quotes around the string are an easy hand-edit
-     * mistake to drop) must be caught here with a message naming ship.json, not reach the
-     * constructor's own strict `string $phpVersion` type unchecked -- that surfaces as a raw
-     * "Argument #1 ($phpVersion) must be of type string, float given" TypeError instead.
+     * `"php": 8.4` (a bare JSON number) gets a message naming ship.json, not a raw TypeError.
      */
     public function test_from_file_rejects_a_non_string_php_version_with_a_clear_error(): void
     {
@@ -68,8 +65,7 @@ final class ShipConfigTest extends TestCase
     }
 
     /**
-     * serviceNames values go straight into generated compose keys, so they need the same format
-     * check `processes` names already get.
+     * serviceNames values become compose keys, so their format is checked.
      */
     public function test_from_file_rejects_an_invalid_service_name(): void
     {
@@ -85,8 +81,7 @@ final class ShipConfigTest extends TestCase
     }
 
     /**
-     * additionalServices names are stricter than serviceNames -- no hyphen -- because they also
-     * become a `.env`-style env var prefix, which a hyphen breaks.
+     * additionalServices names also become an env var prefix, so a hyphen is rejected.
      */
     public function test_from_file_rejects_an_additional_service_name_with_a_hyphen(): void
     {
@@ -102,9 +97,7 @@ final class ShipConfigTest extends TestCase
     }
 
     /**
-     * A non-array serviceNames/additionalServices/processes/deployCommands must be caught here
-     * with a clean message naming ship.json, not reach a raw `foreach() argument must be of type
-     * array|object` PHP warning followed by an uncaught constructor TypeError.
+     * A non-array value gets a message naming ship.json, not a PHP warning and a TypeError.
      *
      * @return iterable<string, array{string, mixed}>
      */
@@ -131,9 +124,7 @@ final class ShipConfigTest extends TestCase
     }
 
     /**
-     * processes/deployCommands need the same validation as every other field -- a non-string
-     * command (or, for processes, a non-string name) would otherwise reach whatever uses it
-     * downstream unchecked.
+     * A non-string process command is rejected.
      */
     public function test_from_file_rejects_a_non_string_process_command(): void
     {
@@ -175,8 +166,7 @@ final class ShipConfigTest extends TestCase
     }
 
     /**
-     * Each of these must be caught with a message naming ship.json, not reach a raw constructor
-     * TypeError.
+     * Each of these gets a message naming ship.json, not a raw constructor TypeError.
      *
      * @return iterable<string, array{array<string, mixed>, string}>
      */
@@ -206,9 +196,8 @@ final class ShipConfigTest extends TestCase
     }
 
     /**
-     * An additionalServices entry missing its "service" key must be caught with a message naming
-     * ship.json at the point the config is actually loaded, not reach an "Undefined array key"
-     * PHP warning in ComposeFileBuilder::build() instead.
+     * A missing "service" key is caught when the config is loaded, not as an "Undefined array
+     * key" warning in ComposeFileBuilder.
      */
     public function test_from_file_rejects_an_additional_service_entry_missing_the_service_key(): void
     {
@@ -224,10 +213,7 @@ final class ShipConfigTest extends TestCase
     }
 
     /**
-     * A top-level JSON value that isn't even an object at all -- a plain array, or a bare string
-     * -- must be caught with a message naming ship.json, not silently proceed with every field
-     * defaulted (discarding the fact the file was never ship.json-shaped) or reach a raw
-     * TypeError from validate()'s own parameter type hint.
+     * A top-level value that isn't an object gets a message naming ship.json.
      *
      * @return iterable<string, array{string}>
      */
@@ -250,10 +236,7 @@ final class ShipConfigTest extends TestCase
     }
 
     /**
-     * Every one of these is what a project genuinely on an old ship.json (predating a field
-     * that's since been added -- nodeVersion, additionalServices) would have on disk. Silently
-     * defaulting keeps `ship up` working for it without forcing a re-`ship init` just to pick up
-     * a schema addition that doesn't concern that project at all.
+     * A ship.json written before a field existed keeps working: omitted fields are defaulted.
      */
     public function test_from_file_defaults_every_field_a_minimal_ship_json_omits(): void
     {
@@ -302,10 +285,8 @@ final class ShipConfigTest extends TestCase
     }
 
     /**
-     * A plain `ship init` project (the overwhelming majority) never touches serviceNames/
-     * externalNetwork/phpExtensions -- their ship.json should read exactly as it did before these
-     * features existed, not grow new lines nobody asked for. See ShipConfig::toFile()'s own
-     * comment.
+     * Optional fields left at their defaults aren't written, so a plain project's ship.json
+     * stays minimal.
      */
     public function test_to_file_omits_service_names_external_network_and_php_extensions_when_left_at_default(): void
     {
@@ -357,14 +338,8 @@ final class ShipConfigTest extends TestCase
     }
 
     /**
-     * fromFile() validates and throws on the first invalid field it finds, which
-     * InitCommand::readExistingConfig() treats as "nothing to preserve at all" if it calls
-     * fromFile() directly -- one bad serviceNames value would then discard every other hand-edited
-     * field right along with it. tryFromFile() preserves a field that's merely the wrong *format*
-     * (not the wrong *type*) as-is instead of dropping it -- silently discarding it here would
-     * just be a second, quieter way to lose a hand-edited value with no error at all;
-     * fromFile()'s own validation still catches it for real, with a clear and actionable error,
-     * the next time anything actually uses the config.
+     * tryFromFile() keeps a field with the wrong format (but the right type) as-is, so one bad
+     * value doesn't discard the rest. fromFile() still rejects it when the config is used.
      */
     public function test_try_from_file_preserves_a_field_that_fails_formatting_rules_as_is(): void
     {

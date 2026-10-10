@@ -47,10 +47,7 @@ final class InitCommandReadExistingConfigTest extends TestCase
     }
 
     /**
-     * Re-running `ship init` must not rebuild ShipConfig from only the four fields its own
-     * prompts touch -- every hand-edited field it never asks about has to survive too, or
-     * publishPorts: false alone being lost would re-expose ports a project turned off
-     * deliberately.
+     * Fields `ship init` never prompts for must survive a re-run.
      */
     public function test_it_reads_hand_edited_fields_a_fresh_init_run_never_prompts_for(): void
     {
@@ -81,11 +78,7 @@ final class InitCommandReadExistingConfigTest extends TestCase
     }
 
     /**
-     * readExistingConfig() must read services/additionalServices back too, not hardcode them to
-     * [] -- InitCommand's own prompts always supply fresh *values* for ship.json, but the
-     * prompts' own defaults read this object back to avoid resetting every group to "None" on a
-     * second `ship init` run. Hardcoding either to [] here would feed every prompt the "nothing
-     * is currently selected" default regardless of what ship.json actually has.
+     * services/additionalServices are read back too, since the prompts default to them.
      */
     public function test_it_reads_services_and_additional_services_too(): void
     {
@@ -113,12 +106,8 @@ final class InitCommandReadExistingConfigTest extends TestCase
     }
 
     /**
-     * One field failing fromFile()'s own stricter format check (serviceNames.app here, which
-     * fails the compose-name regex) must not discard every *other* hand-edited field right along
-     * with it -- or itself: readExistingConfig() uses the lenient ShipConfig::tryFromFile(), not
-     * fromFile() (which validates and throws on the first invalid field it finds), so a field
-     * failing validation is preserved as-is instead of the whole read being treated as "nothing
-     * to preserve" (see ShipConfig::tryFromFile()'s own docblock for why).
+     * One field failing fromFile()'s format check (serviceNames.app here) must not discard the
+     * others, or itself: readExistingConfig() uses the lenient ShipConfig::tryFromFile().
      */
     public function test_one_invalid_field_does_not_discard_every_other_hand_edited_field(): void
     {

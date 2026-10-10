@@ -14,10 +14,8 @@ use Ship\Services\ServiceRegistry;
 use Symfony\Component\Yaml\Yaml;
 
 /**
- * Covers ComposeFileBuilder::build()'s $mutagenSync parameter -- see Ship\Sync\MutagenSync's own
- * docblock for why the sync target has to be a named volume, not the bind mount it replaces
- * (nginx's "webserver" needs the same tree Mutagen syncs into "app", and named volumes are the
- * only way two containers see identical, single-copy content without a second sync session).
+ * Covers ComposeFileBuilder::build()'s $mutagenSync parameter: the sync target is a named volume
+ * that "app" and "webserver" share.
  */
 final class ComposeFileBuilderMutagenTest extends TestCase
 {
@@ -38,9 +36,7 @@ final class ComposeFileBuilderMutagenTest extends TestCase
     }
 
     /**
-     * "webserver" only exists when no Octane runtime is selected (see OctaneSwooleService's own
-     * removes()) -- it needs the *same* synced tree as "app" for its own static-file serving, so
-     * it has to share the identical named volume rather than get its own separate sync session.
+     * "webserver" serves static files from the same tree, so it mounts the same named volume.
      */
     public function test_mutagen_mode_shares_the_same_named_volume_with_webserver(): void
     {
@@ -65,8 +61,7 @@ final class ComposeFileBuilderMutagenTest extends TestCase
     }
 
     /**
-     * Production bakes the source into the image at build time (see the "builder"/"prod" build
-     * stages) -- there's no bind mount there to begin with, so $mutagenSync changes nothing.
+     * Production has no bind mount to replace, so $mutagenSync changes nothing.
      */
     public function test_mutagen_mode_never_applies_in_production(): void
     {

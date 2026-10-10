@@ -10,9 +10,8 @@ use Ship\Docker\HostUser;
 final class HostUserTest extends TestCase
 {
     /**
-     * Environment-dependent by nature: null on native Windows (no POSIX functions) and when running
-     * as root, a real non-root uid/gid pair anywhere else. Either is correct -- what must never
-     * happen is a half-answer, or uid 0 being reported as a user to match.
+     * Environment-dependent: null on native Windows or as root, a non-root uid/gid pair
+     * elsewhere. Never uid 0.
      */
     public function test_it_reports_nothing_or_a_real_non_root_user(): void
     {

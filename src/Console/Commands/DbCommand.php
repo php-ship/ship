@@ -20,10 +20,8 @@ use Symfony\Component\Console\Output\OutputInterface;
 final class DbCommand extends Command
 {
     /**
-     * $registry, when given (Application passes its own already-populated one), is used as-is
-     * instead of this command loading every extension class all over again -- see UpCommand's
-     * matching constructor docblock for why. Left optional so constructing this directly --
-     * every existing test does -- still works unchanged.
+     * $registry is the one Application already populated. Optional so the command can be
+     * constructed directly (tests).
      */
     public function __construct(
         private readonly string $projectRoot,
@@ -94,10 +92,8 @@ final class DbCommand extends Command
         }
 
         $shell = $service->databaseShellCommand($instanceName);
-        // The generated compose file may have renamed this service (ship.json's serviceNames --
-        // see ShipConfig's own docblock); $shell['service'] is always the *original* compose name,
-        // since databaseShellCommand() computes it the same way composeFragment() did, with no way
-        // to know about a rename that only ever happens downstream, in ComposeFileBuilder.
+        // $shell['service'] is the default compose name; follow a rename in ship.json's
+        // serviceNames.
         $serviceName = $config->serviceNames[$shell['service']] ?? $shell['service'];
 
         return $this->runner->runInteractive(

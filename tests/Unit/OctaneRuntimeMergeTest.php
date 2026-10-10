@@ -26,9 +26,8 @@ final class OctaneRuntimeMergeTest extends TestCase
         $yaml = $builder->build($config, ShipEnvironment::Development);
         $parsed = Yaml::parse($yaml);
 
-        // Overridden by the service (scalar key: replaced outright). A shell wrapper in
-        // development conditionally appends --watch -- see OctaneSwooleServiceTest for dedicated
-        // coverage of that.
+        // Overridden by the service. In development a shell wrapper conditionally appends
+        // --watch (see OctaneSwooleServiceTest).
         self::assertSame(
             ['sh', '-c', 'if [ -d node_modules/chokidar ]; then php artisan octane:start --server=swoole --host=0.0.0.0 --port=8000 --watch; else php artisan octane:start --server=swoole --host=0.0.0.0 --port=8000; fi'],
             $parsed['services']['app']['command'],
@@ -56,8 +55,7 @@ final class OctaneRuntimeMergeTest extends TestCase
     }
 
     /**
-     * APP_URL is only ever injected when Dusk is selected -- Selenium is the one consumer that
-     * genuinely needs the internal Docker hostname (see ComposeFileBuilder's own comment on why).
+     * APP_URL is only injected when Dusk is selected: Selenium needs the internal hostname.
      */
     public function test_app_url_points_at_webserver_when_no_octane_runtime_is_selected(): void
     {
@@ -82,11 +80,8 @@ final class OctaneRuntimeMergeTest extends TestCase
     }
 
     /**
-     * Only injected when Dusk is actually selected -- setting it unconditionally would overwrite
-     * a project's own real, host-reachable APP_URL (environment: always wins over env_file: --
-     * see OPTIONAL_ENV_FILE's own docblock) with an internal Docker hostname no browser outside
-     * the container can resolve, breaking queued emails, signed URLs, and any artisan command
-     * that generates an absolute URL.
+     * Injected unconditionally, APP_URL would override the project's own value with a hostname
+     * no browser can resolve.
      */
     public function test_app_url_is_not_injected_when_dusk_is_not_selected(): void
     {
@@ -99,11 +94,8 @@ final class OctaneRuntimeMergeTest extends TestCase
     }
 
     /**
-     * ship.json's "testing": "dusk" selection doesn't vary by environment on its own, so this
-     * injection has to check the environment explicitly too, or it would overwrite a project's
-     * own real, host-reachable APP_URL in *production* as well -- the same overwrite the test
-     * above guards against in development. DuskService itself already contributes nothing in
-     * production (see its own composeFragment()), so this matches that and injects nothing either.
+     * The Dusk selection doesn't vary by environment, so the injection is limited to development
+     * explicitly.
      */
     public function test_app_url_is_not_injected_in_production_even_when_dusk_is_selected(): void
     {
@@ -117,12 +109,8 @@ final class OctaneRuntimeMergeTest extends TestCase
     }
 
     /**
-     * baseServices() sets "app".networks to ["ship"], and applyService() defaults every fragment
-     * missing its own networks key to ["ship"] too (see its own docblock) -- Octane's fragment for
-     * "app" doesn't set one, so mergeServiceFragment() has to recognize the two are the same
-     * network rather than concatenating them into ["ship", "ship"], which Compose's schema
-     * rejects outright. "app" is the only service two fragments both land on without either
-     * setting networks explicitly, which is why only it can show the duplicate.
+     * Both fragments landing on "app" default "networks" to ["ship"]; the merge must not produce
+     * ["ship", "ship"], which Compose rejects.
      */
     public function test_networks_is_not_duplicated_when_a_second_fragment_merges_into_app(): void
     {
@@ -148,8 +136,7 @@ final class OctaneRuntimeMergeTest extends TestCase
         // Overridden by OctaneFrankenPhpService.
         self::assertSame('ship/Dockerfile.frankenphp', $build['dockerfile']);
 
-        // Preserved from baseServices() — this is exactly what the old
-        // wholesale-replace merge would have wiped out.
+        // Preserved from baseServices() by the shallow `build` merge.
         self::assertSame('.', $build['context']);
         self::assertSame('dev', $build['target']);
         self::assertSame('8.4', $build['args']['PHP_VERSION']);

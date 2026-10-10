@@ -21,10 +21,9 @@ final class InitCommand extends Command
 {
     private const NONE = '__none__';
 
-    // Groups whose built-in ServiceDefinitions actually give each instance its own env var
-    // prefix and compose service name (see SupportsNamedInstances) -- a second runtime, testing
-    // driver, frontend tool, or broadcasting server has nothing to name, only one of any of
-    // those ever makes sense per project, so this list deliberately excludes them.
+    // Groups whose services give each instance its own env var prefix and compose service name
+    // (see SupportsNamedInstances). Only one runtime, testing driver, frontend tool or
+    // broadcasting server makes sense per project.
     private const GROUPS_SUPPORTING_ADDITIONAL_INSTANCES = ['database', 'cache', 'storage', 'search', 'mail'];
 
     public function __construct(
@@ -50,20 +49,14 @@ final class InitCommand extends Command
                 continue;
             }
 
-            // Keyed by service key (not label), so both prompt backends
-            // return the same shape and no label-matching lookup is
-            // needed afterwards.
+            // Keyed by service key, so both prompt backends return the same shape.
             $choices = [self::NONE => 'None', ...array_combine(
                 array_map(static fn ($s) => $s->key(), $options),
                 array_map(static fn ($s) => $s->label(), $options),
             )];
 
-            // Defaults to this group's existing selection (if any, and if it's still a valid
-            // choice) so re-running `ship init` on a project that already has a ship.json doesn't
-            // silently reset every group to "None" the moment the user just accepts each prompt's
-            // own default -- confirmed live: without this, a second `ship init` run dropped a
-            // project's already-selected database/cache/etc. entirely unless every prompt was
-            // re-answered by hand.
+            // Default to the existing selection, so re-running `ship init` and accepting every
+            // prompt keeps the project's services.
             $default = $existing->services[$group] ?? self::NONE;
             if (!isset($choices[$default])) {
                 $default = self::NONE;
@@ -108,22 +101,10 @@ final class InitCommand extends Command
     }
 
     /**
-     * Reads back every hand-edited field re-running `ship init` doesn't itself prompt for --
-     * extensions, serviceNames, externalNetwork, phpExtensions, publishPorts, deployCommands,
-     * processes, hostUser, name -- so the fresh ShipConfig this command builds carries them
-     * forward instead of silently dropping them. The README calls re-running "always safe" and
-     * `ship up` itself tells users to do it after a stub-version mismatch; losing `publishPorts:
-     * false` alone would silently re-expose ports a project turned off deliberately. Null (not an
-     * exception) when there's nothing to preserve yet -- a first-ever `ship init` -- or the
-     * existing file isn't even valid JSON, since a broken ship.json is exactly what re-running
-     * `ship init` might be trying to fix in the first place.
-     *
-     * Uses ShipConfig::tryFromFile(), not fromFile() -- fromFile() validates and throws on the
-     * first invalid field it finds (e.g. one bad serviceNames value), which would otherwise mean
-     * one bad field makes this method treat the whole file as "nothing to preserve," discarding
-     * every *other* hand-edited field right along with it. tryFromFile() preserves a field that's
-     * merely the wrong format as-is instead of throwing or discarding it -- see its own docblock
-     * for why that's the right tradeoff specifically here.
+     * Reads the existing ship.json so the fields `ship init` doesn't prompt for (extensions,
+     * serviceNames, externalNetwork, phpExtensions, publishPorts, deployCommands, processes,
+     * hostUser, name) carry over. Uses the lenient ShipConfig::tryFromFile(), so one invalid field
+     * doesn't discard the rest. Null when there is no file or it isn't valid JSON.
      */
     private function readExistingConfig(): ?ShipConfig
     {
@@ -131,9 +112,8 @@ final class InitCommand extends Command
     }
 
     /**
-     * ship publishes Vite's dev server port but can't safely auto-edit an existing vite.config.js for just
-     * host/hmr -- patching arbitrary JS isn't worth the fragility. Only warns when the project actually
-     * uses Vite and the config doesn't already look handled, so re-running init won't nag every time.
+     * ship publishes Vite's dev server port but doesn't edit an existing vite.config.js. Warns only
+     * when the project uses Vite and the config doesn't already look handled.
      */
     private function warnAboutViteDevServerConfigIfNeeded(SymfonyStyle $io): void
     {
@@ -166,9 +146,8 @@ final class InitCommand extends Command
     }
 
     /**
-     * The reverb service unconditionally runs `php artisan reverb:start` -- a fresh Laravel app doesn't
-     * have that command until `laravel/reverb` is actually required, so without this warning `ship up`
-     * would just crash-loop the reverb container with a confusing "no commands defined" error.
+     * The reverb service runs `php artisan reverb:start`, which doesn't exist until
+     * `laravel/reverb` is installed; without it the container crash-loops.
      *
      * @param array<string, string> $selected
      */
@@ -192,18 +171,11 @@ final class InitCommand extends Command
     }
 
     /**
-     * A project needing two genuinely different data stores at once -- a Postgres primary and a
-     * MySQL replica of a legacy system's data, a second Redis for a purpose the default one
-     * shouldn't share -- can't express that through the single-select loop above, since ship.json's
-     * `services` holds exactly one selection per group. This is the opt-in way to add more:
-     * each answer here becomes one ship.json `additionalServices` entry, distinguished by the name
-     * given (also the env var prefix and compose service suffix -- see SupportsNamedInstances).
+     * Offers extra named instances beyond the one-per-group selection above (a second database, a
+     * second Redis). Each answer becomes a ship.json `additionalServices` entry.
      *
-     * $existing (ship.json's current additionalServices, if any) is kept as-is, not re-prompted
-     * for -- re-running `ship init` has no interactive way to edit or remove one of these, so
-     * starting from an empty list every time would discard every previously-added instance the
-     * moment the project's ship.json was regenerated. Removing one is still possible by
-     * hand-editing ship.json directly, same as serviceNames/phpExtensions/etc.
+     * $existing entries are kept as-is rather than re-prompted for; remove one by editing
+     * ship.json.
      *
      * @param list<array{group: string, service: string, name: string}> $existing
      * @return list<array{group: string, service: string, name: string}>
@@ -242,11 +214,8 @@ final class InitCommand extends Command
                         . 'e.g. "analytics")',
                 ));
 
-                // Becomes both a Compose service name suffix ("pgsql-{$name}") and an environment
-                // variable prefix (strtoupper($name) . '_', see SupportsNamedInstances) -- anything
-                // outside this charset breaks one or the other. Confirmed live: a space here makes
-                // `docker compose config` reject the whole file with "services additional
-                // properties '...' not allowed", an error that never points back to this prompt.
+                // The name becomes a compose service suffix and an env var prefix (see
+                // SupportsNamedInstances); anything outside this charset breaks one or the other.
                 if ($name === '') {
                     $io->warning('A name is required.');
                 } elseif (preg_match('/^[a-z][a-z0-9_]*$/', $name) !== 1) {
@@ -301,7 +270,7 @@ final class InitCommand extends Command
     }
 
     /**
-     * A plain substring check, not a JS parse -- permissive on purpose, since a false "yes" is harmless.
+     * A plain substring check, permissive on purpose: a false "yes" is harmless.
      */
     private function viteConfigLooksAlreadyHandled(string $path): bool
     {
@@ -309,17 +278,14 @@ final class InitCommand extends Command
     }
 
     /**
-     * Uses Laravel Prompts' select() when actually usable here, falling back to plain ChoiceQuestion.
+     * Uses Laravel Prompts' select() when usable, falling back to ChoiceQuestion.
      *
-     * Not a hard Composer dependency: laravel/prompts conflicts with laravel/framework 10.17-10.24, and so
-     * requiring it here would break any project in that version window. Detecting it at runtime keeps a
-     * free ride in the common case: Laravel 11+ already requires it, falling back silently otherwise.
+     * Prompts isn't a hard dependency because it conflicts with laravel/framework 10.17-10.24;
+     * Laravel 11+ already ships it.
      *
      * @param array<string, string> $choicesByKey option key => label
-     * @param ?string $default must be an actual key in $choicesByKey, or omitted to default to the
-     *        first one -- Laravel Prompts errors on a default that isn't one of its own options,
-     *        which self::NONE never is for a choice list that has no "None" (the additional-instance
-     *        prompts below, unlike the main per-group loop, which always passes self::NONE here).
+     * @param ?string $default a key of $choicesByKey, or null for the first one (Prompts rejects a
+     *        default that isn't one of its options).
      */
     private function select(
         SymfonyStyle $io,
@@ -336,10 +302,7 @@ final class InitCommand extends Command
             return \Laravel\Prompts\select(label: $label, options: $choicesByKey, default: $default);
         }
 
-        // Numeric-indexed list, not $choicesByKey's own string keys --
-        // ChoiceQuestion renders an associative array's keys directly,
-        // so this keeps the prompt showing "[1] Postgres" instead of
-        // internal service keys like "[pgsql]" or "[__none__]".
+        // A numeric list, so the prompt shows "[1] Postgres" instead of internal service keys.
         $labels = array_values($choicesByKey);
         $keys = array_keys($choicesByKey);
         $defaultIndex = array_search($default, $keys, strict: true);
@@ -355,9 +318,8 @@ final class InitCommand extends Command
     }
 
     /**
-     * Laravel itself wires up Prompts' Windows-outside-WSL fallback, via its own provider, never runs when
-     * Prompts gets called standalone, exactly how ship calls it. Now this checks those same conditions,
-     * directly (PHP_OS_FAMILY, isInteractive()) instead of trusting Prompts' own fallback to kick in.
+     * Prompts' own fallback for Windows is wired up by Laravel's provider, which doesn't run when
+     * Prompts is called standalone, so the same conditions are checked here.
      */
     private function canUseLaravelPromptsInteractiveUi(InputInterface $input): bool
     {
@@ -367,8 +329,8 @@ final class InitCommand extends Command
     }
 
     /**
-     * Copies the Dockerfile, php.ini overlays, and (conditionally) the nginx/garage config into the actual
-     * project's ship folder; ensures .dockerignore excludes .env (see DockerignoreGuard).
+     * Copies the Dockerfile, php.ini overlays and (when needed) the nginx/garage config into the
+     * project's ship/ directory, and makes .dockerignore/.gitignore exclude secrets.
      *
      * @param array<string, string> $selected
      * @param list<array{group: string, service: string, name: string}> $additionalServices
@@ -381,12 +343,8 @@ final class InitCommand extends Command
 
         $filesystem->mirror($packageRoot . '/stubs/docker/php', $target, options: ['override' => true]);
 
-        // nginx is only needed when no Octane runtime is selected — see
-        // ComposeFileBuilder::baseServices() for the matching condition.
-        // Only default.conf now (not a whole directory mirror) -- nginx
-        // no longer has its own Dockerfile; it builds through
-        // ship/Dockerfile's dev-nginx/prod-nginx targets instead, see
-        // that file for why.
+        // nginx is only needed without an Octane runtime (see ComposeFileBuilder::baseServices()).
+        // It builds through ship/Dockerfile, so only its config is published.
         if (! isset($selected['runtime'])) {
             $filesystem->mkdir($target . '/nginx');
             $filesystem->copy(
@@ -395,22 +353,15 @@ final class InitCommand extends Command
                 overwriteNewerFiles: true,
             );
 
-            // The stub hardcodes "app:9000" -- renaming the app service via ship.json's
-            // serviceNames (e.g. to share a Docker network with another ship project) would
-            // otherwise leave nginx trying to reach a DNS name nothing in the stack answers to,
-            // 502ing every request. Only rewritten when it actually differs, so the overwhelming
-            // majority of projects that never touch serviceNames get the exact same file as
-            // before.
+            // The stub hardcodes "app:9000"; follow a renamed app service (ship.json's
+            // serviceNames) or nginx would 502 every request.
             if ($appServiceName !== 'app') {
                 $confPath = $target . '/nginx/default.conf';
                 file_put_contents($confPath, str_replace('app:9000', "{$appServiceName}:9000", (string) file_get_contents($confPath)));
             }
         }
 
-        // Checks both the default storage pick and additionalServices entries -- Garage selected
-        // *only* as a named instance (ship.json's storage group is one of
-        // GROUPS_SUPPORTING_ADDITIONAL_INSTANCES) still needs its stub files published, or that
-        // instance's own `build: {context: ./ship/garage}` has nothing to build from.
+        // Garage needs its stub files whether it's the default storage pick or a named instance.
         $garageSelected = ($selected['storage'] ?? null) === 'garage'
             || in_array('garage', array_column($additionalServices, 'service'), strict: true);
 
@@ -422,10 +373,8 @@ final class InitCommand extends Command
             );
         }
 
-        // Read back by UpCommand to warn when a project upgrades `ship` without re-running
-        // `init` -- the published stub files stay whatever version wrote them, silently, unless
-        // something compares. Omitted (not written as "unknown") when the version can't be
-        // determined at all, so that case can't ever falsely claim a mismatch later either.
+        // Read back by UpCommand to warn when `ship` was upgraded without re-running `init`.
+        // Omitted when the version can't be determined, so it can't cause a false mismatch.
         $version = ShipVersion::current();
         if ($version !== null) {
             file_put_contents($target . '/.ship-version', $version . "\n");

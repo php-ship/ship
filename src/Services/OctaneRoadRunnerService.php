@@ -25,8 +25,7 @@ final class OctaneRoadRunnerService implements ServiceDefinition
         return 'runtime';
     }
 
-    // Only one application runtime ever makes sense per project, so $instanceName -- always null
-    // here in practice, nothing ever offers a second one to select -- is unused.
+    // Only one application runtime makes sense per project, so $instanceName is unused.
 
     public function composeFragment(ShipEnvironment $environment, ?string $instanceName = null): array
     {
@@ -34,19 +33,15 @@ final class OctaneRoadRunnerService implements ServiceDefinition
             'app' => [
                 'command' => ['sh', '-c', $this->command($environment)],
                 'ports' => [DevPortBinding::bind('${APP_PORT:-8000}:8000', $environment)],
-                // Production only (dev's own entrypoint is a different, static file that never
-                // reads this): an Octane server is its own long-lived program with no
-                // master-drops-workers split the way php-fpm has, so without this it -- every
-                // request handler included -- runs as root. See EntrypointScriptBuilder.
+                // An Octane server would otherwise run as root in production. See
+                // EntrypointScriptBuilder.
                 'environment' => $environment->isDevelopment() ? [] : ['SHIP_RUN_AS' => 'www-data'],
             ],
         ];
     }
 
     /**
-     * --watch (dev only, checked at container boot, not decided once at compose-generation time)
-     * -- see OctaneSwooleService's own equivalent for the full reasoning, including the real CI
-     * failure that ruled out just always passing it.
+     * --watch in dev, decided at container boot -- see OctaneSwooleService::command().
      */
     private function command(ShipEnvironment $environment): string
     {

@@ -16,10 +16,8 @@ use Symfony\Component\Filesystem\Filesystem;
 final class UpCommandTest extends TestCase
 {
     /**
-     * `docker compose port` doesn't fail or print nothing when a container's port mapping exists
-     * but the actual host bind never succeeded -- it prints the literal "invalid IP:0". Treating
-     * any non-empty output as "bound" (as an earlier version of this check did) misses that case
-     * entirely, silently reporting `ship up` as successful when a service is actually unreachable.
+     * `docker compose port` prints the literal "invalid IP:0" when a mapping exists but the host
+     * bind failed, so non-empty output alone doesn't mean "bound".
      *
      * @return iterable<string, array{string, bool}>
      */
@@ -43,11 +41,8 @@ final class UpCommandTest extends TestCase
     }
 
     /**
-     * A flat "15 attempts x 2s = ~30s" wait is well past MySQL/Postgres/Redis's own interval x
-     * retries, but Garage/RustFS/Silo's own healthcheck (10s start_period + 5s x 10 retries = 60s)
-     * can legitimately still be "starting" well after that budget, which would produce a false
-     * "never became healthy" on a slow first boot. The wait is computed from each service's own
-     * generated healthcheck instead, so it's never shorter than Docker's own patience for it.
+     * The wait is computed from each service's own healthcheck (start_period + interval x
+     * retries, plus a buffer), since budgets range from 25s to 60s across services.
      *
      * @return iterable<string, array{array{interval?: string, retries?: int, start_period?: string}, int}>
      */
@@ -84,10 +79,8 @@ final class UpCommandTest extends TestCase
     }
 
     /**
-     * Ship itself only ever generates a plain "<N>s" duration. A hand-edited
-     * docker-compose.override.yml's own healthcheck could use Docker's fuller duration syntax
-     * ("1m30s", "1h") instead -- falls back to a conservative 30s rather than miscalculating
-     * silently or crashing on something this was never meant to fully parse.
+     * Ship generates plain "<N>s" durations; anything else (a hand-written override's "1m30s")
+     * falls back to 30s.
      */
     public function test_parse_seconds_falls_back_to_30_for_a_duration_it_does_not_recognize(): void
     {
@@ -98,9 +91,7 @@ final class UpCommandTest extends TestCase
     }
 
     /**
-     * Never re-publishes ship/ on its own (see the method's own docblock for why -- a project may
-     * have hand-edited those files), only warns -- so this checks it produces the right warning
-     * text rather than any side effect.
+     * A version mismatch only warns; ship/ is never republished automatically.
      */
     public function test_it_warns_when_the_recorded_stub_version_differs_from_whats_installed(): void
     {
@@ -152,10 +143,7 @@ final class UpCommandTest extends TestCase
     }
 
     /**
-     * FrankenPHP was excluded from hostUser once (its Debian image had no non-root setup at all),
-     * raised again once that gap was closed -- this just has to no longer be special-cased:
-     * whatever resolveHostUser decides for it has to match a plain Swoole config given the same
-     * inputs, not its own distinct ("FrankenPHP image is not supported yet") rejection reason.
+     * FrankenPHP gets the same hostUser decision as any other runtime.
      */
     public function test_frankenphp_is_no_longer_excluded_from_host_user(): void
     {

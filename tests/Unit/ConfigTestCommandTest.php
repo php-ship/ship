@@ -12,9 +12,8 @@ use Symfony\Component\Console\Tester\CommandTester;
 use Symfony\Component\Filesystem\Filesystem;
 
 /**
- * ship.json's equivalent of `nginx -t`. Covers that it actually surfaces every class of problem
- * the rest of this codebase already knows how to detect, and that it reports all of them in one
- * pass rather than failing fast on the first one.
+ * Covers that `ship config:test` surfaces each class of problem and reports all of them in one
+ * pass.
  */
 final class ConfigTestCommandTest extends TestCase
 {
@@ -51,9 +50,8 @@ final class ConfigTestCommandTest extends TestCase
     }
 
     /**
-     * Checked once, not once per environment -- registry membership doesn't depend on dev vs
-     * prod, so attempting both builds unconditionally and reporting one label per environment
-     * would double-count one real problem as two.
+     * Registry membership doesn't depend on the environment, so the problem is reported once,
+     * not once per build.
      */
     public function test_it_reports_an_unregistered_service_key_exactly_once(): void
     {
@@ -69,8 +67,7 @@ final class ConfigTestCommandTest extends TestCase
     }
 
     /**
-     * An unregistered service key in ship.json's additionalServices is exactly as fatal as one
-     * in services itself, and must be checked the same way.
+     * A key under additionalServices is checked the same way as one under services.
      */
     public function test_it_reports_an_unregistered_additional_service_key(): void
     {
@@ -87,10 +84,8 @@ final class ConfigTestCommandTest extends TestCase
     }
 
     /**
-     * ComposeFileBuilder::build() throws on the *first* problem it hits, so checking service keys
-     * and process names independently (not solely via a single build() attempt) matters: an
-     * unregistered service key would otherwise hide a bad `processes` name behind it, directly
-     * contradicting this command's own "reports everything in one pass" promise.
+     * ComposeFileBuilder::build() throws on the first problem, so the two checks run
+     * independently and neither hides the other.
      */
     public function test_it_reports_a_bad_service_key_and_a_bad_process_name_together(): void
     {
@@ -120,10 +115,7 @@ final class ConfigTestCommandTest extends TestCase
     }
 
     /**
-     * MySqlService's DB_PASSWORD is required (not just overridable) in production -- see
-     * RequiredEnv's own docblock. ship build has no upfront check for this at all, and ship
-     * release only checks that .env.production *exists*, not that every variable it actually
-     * requires is set in it.
+     * MySqlService's DB_PASSWORD is required in production (see RequiredEnv).
      */
     public function test_it_reports_a_required_production_variable_missing_from_env_production(): void
     {
@@ -165,8 +157,7 @@ final class ConfigTestCommandTest extends TestCase
     }
 
     /**
-     * A warning (NginxUpstreamMismatch), not a failure -- same as `ship up`/`ship build`/`ship
-     * release` themselves.
+     * A stale nginx upstream is a warning, not a failure.
      */
     public function test_a_stale_nginx_upstream_warns_but_does_not_fail_the_command(): void
     {
@@ -185,8 +176,7 @@ final class ConfigTestCommandTest extends TestCase
     }
 
     /**
-     * Every problem is reported in one pass, not just the first -- the whole point of this
-     * command, the same way `nginx -t` reports every config problem it finds at once.
+     * Every problem is reported, not just the first.
      */
     public function test_it_reports_multiple_unrelated_problems_in_one_pass(): void
     {

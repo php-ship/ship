@@ -33,10 +33,8 @@ final class ProductionImagePlanTest extends TestCase
     }
 
     /**
-     * ComposeFileBuilder::addProcessServices() literally copies "app"'s own build: array for every
-     * ship.json `processes` entry -- building, tagging and exporting each one separately would
-     * triple a release's size for content that's byte-for-byte identical. Services whose `build:`
-     * matches share exactly one tag and one group instead.
+     * Every `processes` entry copies "app"'s build config, so they share one tag and one group
+     * instead of being built and exported separately.
      */
     public function test_services_with_an_identical_build_share_one_tag_and_group(): void
     {
@@ -57,8 +55,7 @@ final class ProductionImagePlanTest extends TestCase
     }
 
     /**
-     * "app" is the name a reader of the release would expect a shared image to be named after --
-     * picked over any other member, regardless of which order the services happen to appear in.
+     * "app" names a shared image whenever it's a member, regardless of service order.
      */
     public function test_app_is_preferred_as_the_groups_canonical_name_when_present(): void
     {
@@ -72,9 +69,7 @@ final class ProductionImagePlanTest extends TestCase
     }
 
     /**
-     * A genuinely different build (FrankenPHP's own Dockerfile, say) must never collapse into the
-     * same group as "app" just because they share no members in common -- only an identical
-     * `build:` array ever merges two services.
+     * Only an identical `build:` merges two services; FrankenPHP's own Dockerfile stays separate.
      */
     public function test_different_builds_stay_in_separate_groups(): void
     {

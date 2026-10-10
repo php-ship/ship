@@ -8,17 +8,15 @@ use Symfony\Component\Process\Exception\ProcessTimedOutException;
 use Symfony\Component\Process\Process;
 
 /**
- * Every command routes through here -- the trick that removes the WSL requirement, outright: Symfony's
- * Process spawns fine on Windows, macOS, and Linux -- no shell-specific code, unlike a bash script.
+ * Every external command runs through here. Symfony's Process spawns on Windows, macOS and Linux
+ * alike, which is what lets `ship` work without a shell script or WSL.
  */
 final class ProcessRunner
 {
     /**
-     * Runs a command with stdio attached to ours, streaming output live; used for anything interactive.
+     * Runs a command with stdio attached to ours, streaming output live.
      *
-     * $env, when given, is merged over the inherited environment (Symfony's own Process behavior) --
-     * used by ProductionBuildRunner to make `.env.production` available to `docker compose build`'s
-     * own `${VAR}` substitution, without changing anything for every other caller that omits it.
+     * $env is merged over the inherited environment.
      *
      * @param list<string> $command
      * @param ?array<string, string> $env
@@ -29,10 +27,8 @@ final class ProcessRunner
         $tty = Process::isTtySupported();
         $process->setTty($tty);
 
-        // TTY mode attaches the child straight to the real terminal device, stdin included. Without it
-        // (Windows has no Symfony TTY support), Process otherwise leaves the child's stdin disconnected,
-        // so anything reading from it -- a mysql/psql/bash prompt, `artisan tinker` -- hits EOF at once
-        // instead of receiving what the user types.
+        // Without TTY mode (unsupported on Windows) the child's stdin would be disconnected, and
+        // an interactive prompt (mysql, psql, `artisan tinker`) would hit EOF at once.
         if (!$tty) {
             $process->setInput(STDIN);
         }
@@ -43,18 +39,8 @@ final class ProcessRunner
     }
 
     /**
-     * Runs a command and captures its output instead of streaming it, e.g. `docker compose version`.
-     *
-     * $timeoutSeconds is overridable (default 30) for a caller expecting a genuinely slower
-     * command -- `mutagen sync create` scanning a large project tree before it even returns, say
-     * -- without raising the budget for every other caller too.
-     *
-     * A command that actually hits the timeout degrades to the same empty-string result as any
-     * other failure, rather than letting ProcessTimedOutException escape uncaught and crash the
-     * whole `ship` process with a raw stack trace. Every existing caller already treats an empty
-     * result as "the thing isn't there"/"that didn't work" (see MutagenSync's own docblock), so a
-     * timeout is just that exact same signal, not a new failure mode none of them were ever
-     * written to expect.
+     * Runs a command and returns its captured output, or an empty string on any failure,
+     * including a timeout. Callers treat an empty result as "not there" or "didn't work".
      *
      * @param list<string> $command
      */
@@ -72,12 +58,8 @@ final class ProcessRunner
     }
 
     /**
-     * Like runQuiet(), but for a caller that actually needs to tell "succeeded with no output"
-     * apart from "failed", or show *why* a failure happened -- runQuiet()'s own "empty string"
-     * convention can't distinguish either, which is exactly right for every caller that only ever
-     * treats "the thing isn't there" and "that didn't work" as the same signal, but wrong for one
-     * (MutagenSync's own `mutagen sync create`) that needs to fail fast on a real error instead of
-     * silently falling through to a timeout loop that was never going to succeed.
+     * Like runQuiet(), for a caller that needs the exit code and stderr to tell "no output" from
+     * "failed" and to report why.
      *
      * @param list<string> $command
      * @return array{exitCode: int, output: string, errorOutput: string}

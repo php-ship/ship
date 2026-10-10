@@ -18,10 +18,8 @@ use Ship\Services\ServiceRegistry;
 use Symfony\Component\Yaml\Yaml;
 
 /**
- * Covers ShipConfig::$serviceNames/$externalNetwork -- letting several ship-managed projects share
- * one external Docker network (each project's own database/cache/etc. already running there)
- * without colliding on the identical compose-service-name-derived network alias every project
- * gets by default. See ShipConfig's own docblock.
+ * Covers ShipConfig::$serviceNames/$externalNetwork, which let several ship-managed projects
+ * share one Docker network without colliding on default service aliases.
  */
 final class ComposeFileBuilderServiceNamingTest extends TestCase
 {
@@ -52,9 +50,8 @@ final class ComposeFileBuilderServiceNamingTest extends TestCase
     public function test_a_custom_app_name_renames_the_service_and_every_reference_to_it(): void
     {
         $builder = new ComposeFileBuilder($this->registry());
-        // 'testing' => 'dusk': APP_URL is only ever injected when Dusk is selected (see
-        // ComposeFileBuilder's own comment) -- needed here purely to exercise that APP_URL follows
-        // the rename, not to test Dusk itself.
+        // Dusk is selected only because APP_URL is injected with it; this checks that APP_URL
+        // follows the rename.
         $config = new ShipConfig(
             phpVersion: '8.4',
             services: ['database' => 'pgsql', 'testing' => 'dusk'],
@@ -87,9 +84,8 @@ final class ComposeFileBuilderServiceNamingTest extends TestCase
     }
 
     /**
-     * No "webserver" exists at all once an Octane runtime is selected (see OctaneSwooleService's
-     * own removes()) -- renaming a service that was never created must not resurrect it, and
-     * APP_URL must still fall back to the (possibly also renamed) app service.
+     * With an Octane runtime there is no "webserver": renaming it must not create one, and
+     * APP_URL falls back to the app service.
      */
     public function test_webserver_name_is_ignored_when_no_webserver_exists(): void
     {
@@ -108,10 +104,7 @@ final class ComposeFileBuilderServiceNamingTest extends TestCase
     }
 
     /**
-     * The exact scenario this feature exists for beyond app/webserver: a project's own database
-     * renamed away from the bare engine name ("mysql") so it can't collide with an unrelated
-     * container already using that same alias on a shared external network -- DB_HOST has to
-     * follow the rename, or the app itself can no longer reach its own database.
+     * DB_HOST has to follow a renamed database service, or the app can't reach it.
      */
     public function test_a_custom_database_name_renames_the_service_and_its_own_hostname_env_var(): void
     {
@@ -127,16 +120,12 @@ final class ComposeFileBuilderServiceNamingTest extends TestCase
         self::assertArrayNotHasKey('mysql', $parsed['services']);
         self::assertArrayHasKey('client-db', $parsed['services']);
         self::assertSame('client-db', $parsed['services']['app']['environment']['DB_HOST']);
-        // DB_CONNECTION is a Laravel driver identifier ("mysql"), not a hostname -- it happens to
-        // be spelled exactly like the *old* compose name, and must stay that way after the rename.
+        // DB_CONNECTION is a driver identifier that happens to equal the old compose name.
         self::assertSame('mysql', $parsed['services']['app']['environment']['DB_CONNECTION']);
     }
 
     /**
-     * Some services embed their hostname inside a URL (MeilisearchService's MEILISEARCH_HOST =>
-     * "http://meilisearch:7700", same shape SeaweedFS/Garage use for AWS_ENDPOINT) rather than as
-     * a bare value like DB_HOST -- the rename has to reach inside that string too, not just values
-     * that happen to equal the old name exactly.
+     * A hostname embedded in a URL (MEILISEARCH_HOST, AWS_ENDPOINT) is renamed too.
      */
     public function test_a_renamed_services_hostname_is_fixed_up_even_when_embedded_in_a_url(): void
     {
@@ -155,9 +144,8 @@ final class ComposeFileBuilderServiceNamingTest extends TestCase
     }
 
     /**
-     * An unrelated env var that merely mentions a renamed service's old name as a *substring* of
-     * something else entirely must not get mangled -- only the exact "://name:" shape a hostname
-     * actually appears in is ever touched (see ComposeFileBuilder::renameHostnameReferences()).
+     * A value that merely contains the old name as a substring is left alone (see
+     * ComposeFileBuilder::renameHostnameReferences()).
      */
     public function test_renaming_a_service_does_not_touch_unrelated_env_values_containing_its_old_name(): void
     {

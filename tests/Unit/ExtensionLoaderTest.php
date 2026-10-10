@@ -97,10 +97,7 @@ final class ExtensionLoaderTest extends TestCase
     }
 
     /**
-     * A single load() call returns both the registry and any FrameworkAdapters in one pass --
-     * not a separate method that re-instantiates every class a second time just to find the
-     * FrameworkAdapter ones, which would construct each extension class twice per run for any
-     * caller needing both.
+     * One load() call returns both the registered services and the FrameworkAdapters.
      */
     public function test_it_resolves_a_framework_adapter_class_in_the_same_pass(): void
     {

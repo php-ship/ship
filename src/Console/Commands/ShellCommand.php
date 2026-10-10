@@ -25,10 +25,8 @@ final class ShellCommand extends Command
 
     protected function configure(): void
     {
-        // No literal 'app' default -- a project can rename its own app service (ship.json's
-        // serviceNames['app'], see ShipConfig), so a hardcoded fallback here would target a
-        // service that doesn't exist there. Null means "not given", resolved against ship.json
-        // in buildCommand() instead, once an actual project root is available.
+        // No literal 'app' default: the app service can be renamed (ship.json's serviceNames),
+        // so an omitted argument is resolved in buildCommand().
         $this->addArgument('service', InputArgument::OPTIONAL, 'Compose service name');
     }
 
@@ -46,16 +44,12 @@ final class ShellCommand extends Command
         $service = $input->getArgument('service');
         $service ??= $this->defaultAppServiceName();
 
-        // Alpine-based images (everything in this stack) ship `sh`, not
-        // `bash`, unless something explicitly installs it — `sh` works
-        // everywhere and avoids a "bash: not found" surprise on first run.
+        // `sh`, not `bash`: the Alpine-based images don't ship bash.
         return [...ComposeCommand::execPrefix($this->projectRoot, $service), $service, 'sh'];
     }
 
     /**
-     * Falls back to the literal "app" whenever ship.json can't answer -- no project yet (`ship
-     * shell` before `ship init`, or in a test with no fixture at all), or one that's malformed --
-     * same graceful degrade Application::readConfigIfPresent() already uses for the same reason.
+     * Falls back to "app" when ship.json is missing or malformed.
      */
     private function defaultAppServiceName(): string
     {

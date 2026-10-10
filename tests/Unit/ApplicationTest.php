@@ -15,9 +15,8 @@ use Symfony\Component\Filesystem\Filesystem;
 final class ApplicationTest extends TestCase
 {
     /**
-     * `ship --version` must reflect whatever's actually installed, not a hardcoded literal --
-     * ShipVersion::current() reads real Composer metadata (returns "dev-main", not null, in this
-     * checkout), so this fails if a hardcoded "0.1.0-dev" ever creeps back in.
+     * `ship --version` reflects the installed version (ShipVersion::current() returns "dev-main"
+     * in this checkout), not a hardcoded literal.
      */
     public function test_the_cli_version_comes_from_shipversion_not_a_hardcoded_literal(): void
     {
@@ -41,8 +40,7 @@ final class ApplicationTest extends TestCase
     }
 
     /**
-     * ship.json won't exist yet on a first-ever `ship init` run -- the whole CLI, not just that
-     * one command, has to still boot and register every command normally.
+     * ship.json doesn't exist before the first `ship init`; the CLI must still boot.
      */
     public function test_every_base_command_is_registered_even_without_a_ship_json(): void
     {
@@ -76,10 +74,7 @@ final class ApplicationTest extends TestCase
     }
 
     /**
-     * A ServiceDefinition-implementing extension registers into the *same* registry InitCommand
-     * itself uses -- this is the one thing that would silently break if Application ever
-     * constructed InitCommand with a fresh, un-extended ServiceRegistry instead of the one
-     * ExtensionLoader::load() actually populated.
+     * An extension must register into the same registry InitCommand uses.
      */
     public function test_a_valid_service_definition_extension_is_registered_into_init_commands_registry(): void
     {
@@ -99,11 +94,8 @@ final class ApplicationTest extends TestCase
     }
 
     /**
-     * UpCommand/BuildCommand/ReleaseCommand/DbCommand each receive Application's own
-     * already-populated registry, exactly as InitCommand does (see Application's own fwrite()
-     * docblock) -- not an equivalent copy each builds and populates independently, which would
-     * instantiate every extension class a second time on every real `ship` invocation. Asserted
-     * as the same object, which is what proves no second instantiation pass happened.
+     * Every command receives Application's own registry (asserted as the same object), so
+     * extension classes aren't instantiated a second time.
      */
     public function test_up_build_release_and_db_commands_share_applications_own_registry(): void
     {
@@ -122,11 +114,8 @@ final class ApplicationTest extends TestCase
     }
 
     /**
-     * `ship composer`/`ship npm` (and any framework-adapter proxy, e.g. `artisan`) must target
-     * ship.json's configured app service name, not a literal "app" -- a project that renamed its
-     * own app service (see ShipConfig::$serviceNames's own docblock) would otherwise have every
-     * one of these shortcuts fail with "service \"app\" is not defined" even though `ship up`
-     * itself works fine.
+     * `ship composer`/`ship npm` and framework proxies must target the app service's configured
+     * name (ShipConfig::$serviceNames), not a literal "app".
      */
     public function test_proxy_commands_target_ship_jsons_configured_app_name(): void
     {

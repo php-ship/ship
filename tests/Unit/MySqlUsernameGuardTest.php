@@ -11,10 +11,8 @@ use Ship\Docker\MySqlUsernameGuard;
 final class MySqlUsernameGuardTest extends TestCase
 {
     /**
-     * The official mysql image's own entrypoint refuses to start at all when MYSQL_USER=root,
-     * crashing the whole container -- and DB_USERNAME=root is a real value to find in a
-     * project's own .env, Laravel's own stock default for years before the framework's
-     * sqlite-first skeleton.
+     * The official mysql image refuses to start with MYSQL_USER=root, and DB_USERNAME=root is a
+     * common value in a Laravel .env.
      */
     public function test_it_flags_db_username_root_for_the_default_mysql_instance(): void
     {

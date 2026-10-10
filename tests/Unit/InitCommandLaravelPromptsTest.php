@@ -12,21 +12,12 @@ use Symfony\Component\Console\Tester\CommandTester;
 use Symfony\Component\Filesystem\Filesystem;
 
 /**
- * Exercises InitCommand::select()'s Laravel Prompts branch directly. Every other InitCommand
- * test runs without laravel/prompts installed at all, so canUseLaravelPromptsInteractiveUi()'s
- * function_exists() check is always false there and only the ChoiceQuestion fallback ever runs
- * -- that's deliberate (see that method's own docblock), so this test can't just require the real
- * package as a dev dependency: laravel/prompts autoloads its helper functions globally for the
- * whole PHP process via Composer's "files" autoloading, which would make
- * function_exists('Laravel\Prompts\select') true for every other InitCommand test too, once they
- * share a process -- breaking every one of them. #[RunInSeparateProcess] plus a hand-rolled fake
- * (tests/Fixtures/fake-laravel-prompts.php, required only here) keeps the fake fully contained to
- * this one isolated process instead.
+ * Exercises InitCommand::select()'s Laravel Prompts branch against a hand-rolled fake
+ * (tests/Fixtures/fake-laravel-prompts.php) in a separate process. The real package can't be a
+ * dev dependency: it autoloads its functions globally, which would switch every other InitCommand
+ * test onto this branch.
  *
- * Skipped on Windows: canUseLaravelPromptsInteractiveUi() hard-gates on
- * PHP_OS_FAMILY !== 'Windows' in production for the same reason Laravel's own Prompts fallback
- * wiring does, and there's no way to fake the OS itself the way the required file fakes the
- * function -- CI's ubuntu-latest/macos-latest matrix legs are what actually cover this branch.
+ * Skipped on Windows, where canUseLaravelPromptsInteractiveUi() is always false.
  */
 final class InitCommandLaravelPromptsTest extends TestCase
 {

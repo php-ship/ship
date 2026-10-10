@@ -17,9 +17,7 @@ use Symfony\Component\Console\Input\InputOption;
 final class ProxyCommandTest extends TestCase
 {
     /**
-     * Reads raw argv (see rawArgumentsAfterCommandName()'s docblock) precisely so a flag meant
-     * for the proxied binary, like "-m" here, reaches it intact instead of Console's own option
-     * parser rejecting it as unknown on `ship` itself.
+     * A flag meant for the proxied binary, like "-m", must reach it intact.
      */
     public function test_it_forwards_flags_meant_for_the_proxied_binary_untouched(): void
     {
@@ -31,9 +29,7 @@ final class ProxyCommandTest extends TestCase
     }
 
     /**
-     * Mirrors ExecCommandTest's equivalent case: a global option ahead of the command name in
-     * argv, taking a value unrelated to anything forwarded, resolved automatically via
-     * ArgvInput::getRawTokens() without ProxyCommand needing to know that option exists.
+     * A global option ahead of the command name is skipped (see ExecCommandTest).
      */
     public function test_it_resolves_the_command_correctly_past_an_earlier_global_option(): void
     {
@@ -53,10 +49,8 @@ final class ProxyCommandTest extends TestCase
     }
 
     /**
-     * CommandTester's ArrayInput can't represent "unparsed" arguments at all -- ProxyCommand
-     * falls back to a plain $_SERVER['argv'] search in that case (see
-     * rawArgumentsAfterCommandName()'s docblock), which only a test drives directly, never a real
-     * `ship artisan ...` invocation.
+     * Without a real ArgvInput (CommandTester's ArrayInput), ProxyCommand falls back to
+     * $_SERVER['argv'].
      */
     public function test_it_falls_back_to_raw_argv_without_a_real_argv_input(): void
     {

@@ -13,10 +13,8 @@ use Symfony\Component\Console\Tester\CommandTester;
 use Symfony\Component\Filesystem\Filesystem;
 
 /**
- * Covers what InitCommandViteReminderTest and InitCommandReverbWarningTest exercise but never
- * assert on: that the picker's typed answers actually land in ship.json under the right group
- * keys, and that publishStubs() copies (or omits) the right files for a given selection --
- * nginx only when no runtime is selected, Garage's config stub only when Garage is selected.
+ * Covers that the picker's answers land in ship.json under the right group keys, and that
+ * publishStubs() copies the right files for a given selection.
  */
 final class InitCommandServiceSelectionTest extends TestCase
 {
@@ -74,8 +72,7 @@ final class InitCommandServiceSelectionTest extends TestCase
     }
 
     /**
-     * Only the exact front controller is ever passed to PHP-FPM -- not `location ~ \.php$`,
-     * which would pass *any* request path ending in .php to PHP-FPM, existing file or not.
+     * Only the exact front controller is passed to PHP-FPM, not any path ending in .php.
      */
     public function test_nginx_restricts_php_execution_to_the_front_controller(): void
     {
@@ -87,12 +84,7 @@ final class InitCommandServiceSelectionTest extends TestCase
     }
 
     /**
-     * Restricting execution to the exact front controller alone would leave every *other* .php
-     * file under public/ falling through to "location /"'s try_files, which serves it statically
-     * as raw PHP source instead of running it -- a source-disclosure problem in place of
-     * arbitrary execution. This rule 404s a stray second.php instead of returning its source,
-     * while /index.php itself still reaches the exact-match fastcgi_pass block untouched (nginx's
-     * exact match always wins over this regex for /index.php itself).
+     * Any other .php file under public/ returns 404 instead of being served as raw source.
      */
     public function test_nginx_denies_every_other_php_file_instead_of_serving_it_as_source(): void
     {
@@ -104,8 +96,7 @@ final class InitCommandServiceSelectionTest extends TestCase
     }
 
     /**
-     * server_tokens off -- nginx's own default (on) advertises the exact nginx version in every
-     * response's Server: header, a smaller, specific CVE search target than "nginx" alone.
+     * server_tokens off keeps the nginx version out of the Server header.
      */
     public function test_nginx_does_not_advertise_its_own_version(): void
     {
@@ -117,9 +108,7 @@ final class InitCommandServiceSelectionTest extends TestCase
     }
 
     /**
-     * The stub's own "app:9000" upstream has to follow a renamed app service, not stay
-     * hardcoded -- renaming it via ship.json's serviceNames would otherwise leave nginx trying
-     * to reach a DNS name nothing in the stack answers to, 502ing every request.
+     * The stub's "app:9000" upstream follows a renamed app service.
      */
     public function test_nginx_upstream_follows_a_renamed_app_service(): void
     {
@@ -138,9 +127,8 @@ final class InitCommandServiceSelectionTest extends TestCase
 
     public function test_nginx_is_omitted_when_an_octane_runtime_is_selected(): void
     {
-        // "Octane (RoadRunner)", not the default Swoole option -- its label is plain ASCII,
-        // sidestepping a Windows console-codepage quirk CommandTester's simulated input stream
-        // hits with the Swoole option's em dash. Exercises the identical code path either way.
+        // RoadRunner rather than Swoole: its label is plain ASCII, avoiding a Windows
+        // console-codepage problem with the em dash in Swoole's label.
         $this->runInit([
             'None', 'None', 'Octane (RoadRunner)', 'None', 'None',
             'None', 'None', 'None', 'None',
@@ -170,9 +158,7 @@ final class InitCommandServiceSelectionTest extends TestCase
     }
 
     /**
-     * This check has to cover Garage selected *only* as a named additionalServices instance too,
-     * not just the default storage pick -- otherwise that instance's own `build:` would have
-     * nothing to build from, since its stub files were never published at all.
+     * Garage selected only as a named instance still needs its stub files to build from.
      */
     public function test_garages_config_stub_is_published_when_selected_only_as_an_additional_instance(): void
     {
@@ -196,7 +182,7 @@ final class InitCommandServiceSelectionTest extends TestCase
     }
 
     /**
-     * Read back by UpCommand's version-mismatch warning -- see UpCommandTest for that side.
+     * Read back by UpCommand's version-mismatch warning (see UpCommandTest).
      */
     public function test_the_installed_ship_version_is_recorded_for_later_mismatch_detection(): void
     {
@@ -248,11 +234,8 @@ final class InitCommandServiceSelectionTest extends TestCase
     }
 
     /**
-     * An instance name becomes both a Compose service name suffix and an environment variable
-     * prefix (see SupportsNamedInstances) -- confirmed live that a space in it makes `docker
-     * compose config` reject the whole generated file outright, with an error that never points
-     * back to this prompt. A hyphen is accepted by Compose but not by a `.env` file's KEY=VALUE
-     * syntax, so it's rejected here too, not just whitespace.
+     * An instance name becomes a compose service suffix and an env var prefix (see
+     * SupportsNamedInstances), so whitespace and hyphens are rejected.
      *
      * @return iterable<string, array{string}>
      */
@@ -285,11 +268,8 @@ final class InitCommandServiceSelectionTest extends TestCase
     }
 
     /**
-     * Every group prompt must default to ship.json's existing selection, not always "None" --
-     * re-running `ship init` on a project that already has one (exactly what `ship up` itself
-     * tells users to do after a stub-version mismatch) would otherwise drop the database/cache/
-     * etc. selection the moment the user just accepts each prompt's own default instead of
-     * retyping every choice by hand.
+     * Each group prompt defaults to the existing selection, so accepting every default keeps the
+     * project's services.
      */
     public function test_re_running_init_defaults_each_group_to_its_existing_selection(): void
     {
@@ -304,9 +284,7 @@ final class InitCommandServiceSelectionTest extends TestCase
     }
 
     /**
-     * A group's existing selection is only offered as a default when it's still a real choice --
-     * e.g. an extension that provided it was removed from ship.json since -- rather than handed
-     * to select() as a default it doesn't recognize.
+     * An existing selection that is no longer a valid choice falls back to "None".
      */
     public function test_a_stale_existing_selection_no_longer_offered_falls_back_to_none(): void
     {
@@ -321,10 +299,8 @@ final class InitCommandServiceSelectionTest extends TestCase
     }
 
     /**
-     * Regression coverage for the same audit: additionalServices has no interactive way to edit
-     * or remove an existing entry, so re-running `ship init` rebuilt the list from scratch every
-     * time -- confirmed live that declining to add anything new ("no" to the first prompt) still
-     * silently discarded every instance a previous `ship init` run had already added.
+     * Existing additional instances are kept without re-prompting, even when nothing new is
+     * added.
      */
     public function test_re_running_init_keeps_existing_additional_instances_without_re_prompting(): void
     {

@@ -27,9 +27,7 @@ final class ReleaseManifestTest extends TestCase
     }
 
     /**
-     * A release has to succeed whether or not the project is even a git repository -- this is
-     * metadata, not a requirement, so a directory that isn't a repo at all (a plain temp dir, not
-     * just an uncommitted one) must get null, not a command failure bubbling up.
+     * The git commit is optional metadata: outside a repository it is null, not an error.
      */
     public function test_git_commit_is_null_outside_a_git_repository(): void
     {

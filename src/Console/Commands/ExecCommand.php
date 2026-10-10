@@ -29,10 +29,9 @@ final class ExecCommand extends Command
 
     protected function configure(): void
     {
-        // Declared for --help output only. Actual values are read from raw argv (see execute()),
-        // the same way ProxyCommand does, so a flag meant for the executed command (e.g. the
-        // "--force" in `ship exec app php artisan migrate --force`) isn't swallowed by Console's
-        // own option parser -- it would otherwise be interpreted as an option on `ship` itself.
+        // Declared for --help only. Values are read from raw argv (see execute()), so a flag
+        // meant for the executed command (`--force` in `ship exec app php artisan migrate
+        // --force`) isn't parsed as an option on `ship`.
         $this->addArgument('service', InputArgument::OPTIONAL, 'Compose service name, e.g. app');
         $this->addArgument('args', InputArgument::IS_ARRAY, 'Command to run');
     }
@@ -54,20 +53,11 @@ final class ExecCommand extends Command
     }
 
     /**
-     * Everything typed after `ship exec`, exactly as typed -- the first token is the service,
-     * everything after that is the command to run, with no option/flag interpretation applied.
+     * Everything typed after `ship exec`, as typed: the first token is the service, the rest is
+     * the command.
      *
-     * A real `ship exec ...` always hands execute() a genuine ArgvInput, already bound (in
-     * Command::run(), before execute() ever runs) to the full Application+Command definition --
-     * so ArgvInput::getRawTokens(strip: true), which resolves the split point via
-     * getFirstArgument(), correctly skips any global option and its value ahead of "exec" in
-     * argv, unlike array_search($this->getName(), $argv), which took the first literal match
-     * anywhere, global option value or not. Doesn't (can't, short of reimplementing
-     * getFirstArgument()'s own scan by hand) tell apart a value some earlier option took from an
-     * *identical-looking* "exec" -- getRawTokens() re-finds its split point by string equality,
-     * not the position getFirstArgument() actually resolved -- but `ship` defines no such global
-     * option today (see docs/roadmap.md). Only reached without a real ArgvInput -- CommandTester's
-     * ArrayInput in tests, most notably, which can't represent "unparsed" arguments at all.
+     * ArgvInput::getRawTokens(strip: true) skips any global option and its value ahead of "exec".
+     * The $_SERVER['argv'] fallback is only reached without a real ArgvInput (CommandTester).
      *
      * @return array{0: ?string, 1: list<string>}
      */

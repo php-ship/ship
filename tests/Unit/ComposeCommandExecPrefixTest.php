@@ -43,8 +43,7 @@ final class ComposeCommandExecPrefixTest extends TestCase
     }
 
     /**
-     * A database container has no such user, and mysql/psql don't need one -- only the app is
-     * the thing writing host-owned files.
+     * Only the app writes host-owned files; a database container has no such user.
      */
     public function test_exec_into_any_other_service_is_left_alone(): void
     {
@@ -56,8 +55,7 @@ final class ComposeCommandExecPrefixTest extends TestCase
     }
 
     /**
-     * Read from the generated file, not ship.json: a production file, or one regenerated after the
-     * option was turned off, has no marker and so never gets a --user.
+     * Read from the generated file, not ship.json: a file without the marker never gets --user.
      */
     public function test_a_file_without_the_marker_never_adds_a_user(): void
     {
@@ -69,10 +67,7 @@ final class ComposeCommandExecPrefixTest extends TestCase
     }
 
     /**
-     * A hand-edit, an interrupted write, or a stale file from a different ship version can all
-     * leave this genuinely malformed -- execPrefix() falls back to no --user prefix instead of
-     * letting a ParseException crash `ship exec`/`shell`/`composer`/`npm` outright over a prefix
-     * that's a convenience, not something any of them actually need to run at all.
+     * A malformed generated file falls back to no --user prefix instead of a ParseException.
      */
     public function test_malformed_yaml_falls_back_to_no_user_instead_of_throwing(): void
     {

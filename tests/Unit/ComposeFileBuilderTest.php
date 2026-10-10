@@ -27,10 +27,8 @@ final class ComposeFileBuilderTest extends TestCase
     }
 
     /**
-     * Without a top-level name:, Compose derives the project name from --project-directory's own
-     * basename instead -- every named volume and the default network alias are keyed off it, so
-     * two differently-pathed checkouts sharing a basename (or the same project checked out under
-     * two different `ship release` tag directories) would otherwise share both.
+     * Named volumes and network aliases are keyed off the top-level `name:`; without it Compose
+     * uses the project directory's basename.
      */
     public function test_a_given_project_name_becomes_the_top_level_name(): void
     {
@@ -82,11 +80,8 @@ final class ComposeFileBuilderTest extends TestCase
     }
 
     /**
-     * MailpitService itself has to check the environment -- without it, production would get a
-     * Mailpit container too, and its MAIL_HOST would unconditionally override whatever real mail
-     * config .env.production sets (environment: always wins over env_file:, see
-     * OPTIONAL_ENV_FILE's own docblock), silently capturing real mail -- password reset links
-     * included -- into an unauthenticated web UI instead of ever sending it.
+     * In production Mailpit's MAIL_HOST would override the real mail config (`environment:` beats
+     * `env_file:`), so it contributes nothing there.
      */
     public function test_dev_only_tooling_like_mailpit_is_entirely_absent_in_production(): void
     {
@@ -101,9 +96,7 @@ final class ComposeFileBuilderTest extends TestCase
     }
 
     /**
-     * A database losing every row on the next `docker compose restart`/redeploy would be a real
-     * data-loss bug, not a dev/prod distinction worth making -- unlike "app"'s own bind mount
-     * (dev only; see baseServices()), which this is not testing.
+     * A production database must keep its data across a restart or redeploy.
      */
     public function test_a_stateful_services_data_volume_persists_in_production_too(): void
     {
@@ -161,10 +154,7 @@ final class ComposeFileBuilderTest extends TestCase
     }
 
     /**
-     * Requested from real use: Xdebug (installed unconditionally in dev, see
-     * stubs/docker/php/Dockerfile) needs a route back to the IDE listening on the host, and
-     * "host.docker.internal" isn't a real DNS name Docker resolves without this. Dev only --
-     * Xdebug isn't installed in production, so nothing there needs it.
+     * Xdebug (dev image only) needs a route back to the IDE on the host.
      */
     public function test_app_gets_a_host_docker_internal_route_only_in_development(): void
     {
@@ -179,11 +169,8 @@ final class ComposeFileBuilderTest extends TestCase
     }
 
     /**
-     * The container side has to follow the same $VITE_PORT the host side does, not a fixed
-     * "5173" -- otherwise a project whose own vite.config.js listens on a different port (its own
-     * VITE_PORT) never gets it published, and HMR silently never connects. Asserted as an exact
-     * string, not just "the two halves match," since the halves themselves both contain a ":" as
-     * part of `${VAR:-default}` syntax, which would make a naive split on ":" pick the wrong one.
+     * Both sides follow VITE_PORT, so a vite.config.js listening on a non-default port still gets
+     * it published. Asserted as an exact string, since `${VAR:-default}` itself contains a ":".
      */
     public function test_the_vite_dev_server_ports_container_side_follows_the_same_variable_as_the_host_side(): void
     {
@@ -196,10 +183,8 @@ final class ComposeFileBuilderTest extends TestCase
     }
 
     /**
-     * Requested from real use: a deployment with a reverse proxy (Caddy, Traefik, ...) reaching the
-     * containers over a shared network doesn't want anything published to the host at all -- a
-     * Docker-published port bypasses host firewalls like ufw, exposing the app directly on the
-     * server's public IP and skipping the proxy's TLS and headers entirely.
+     * Behind a reverse proxy nothing should be published to the host: a Docker-published port
+     * bypasses host firewalls.
      */
     public function test_publish_ports_false_strips_every_published_port_in_production(): void
     {
@@ -255,11 +240,8 @@ final class ComposeFileBuilderTest extends TestCase
     }
 
     /**
-     * A bare `HOST:CONTAINER` mapping binds every interface (0.0.0.0), reachable from anything
-     * else on the same network -- or the open internet, on a cloud dev box with no firewall --
-     * for a port that only ever needs to reach the developer's own machine, so development binds
-     * 127.0.0.1 explicitly instead. Production is untouched: a published production port often
-     * does need to be reachable from outside.
+     * A bare `HOST:CONTAINER` mapping binds every interface, so development binds 127.0.0.1.
+     * Production mappings are left alone.
      */
     public function test_the_webserver_port_binds_loopback_only_in_development(): void
     {
@@ -272,10 +254,7 @@ final class ComposeFileBuilderTest extends TestCase
     }
 
     /**
-     * Requested from real use: a project runs Horizon and the scheduler alongside the app. Separate
-     * services from the same build config (not a second process supervised inside the app
-     * container): independently restartable, visible in `docker compose ps`, and stopped by their own
-     * SIGTERM. They need the app's environment and networks to reach the same database.
+     * Each process is a separate service with the app's build config, environment and networks.
      */
     public function test_a_process_becomes_a_service_built_like_the_app_with_its_environment_and_networks(): void
     {
@@ -300,10 +279,8 @@ final class ComposeFileBuilderTest extends TestCase
     }
 
     /**
-     * Compose interpolates a bare $VAR in a command string itself (against the host's own
-     * environment, not the container's), so a process command referencing a real shell variable
-     * needs it escaped through as a literal $$, or Compose would silently blank it out before the
-     * container's shell ever runs it.
+     * Compose interpolates a bare $VAR itself, so "$" is escaped to "$$" to reach the container's
+     * shell.
      */
     public function test_a_dollar_sign_in_a_process_command_survives_composes_own_interpolation(): void
     {
@@ -366,10 +343,8 @@ final class ComposeFileBuilderTest extends TestCase
     }
 
     /**
-     * Requested from real use on WSL2: everything the dev container writes (vendor/, public/build,
-     * storage/) ends up root-owned on the host. hostUser builds the dev image with the host's own
-     * UID/GID instead -- the entrypoint reads SHIP_HOST_USER, and the `ship exec`-family commands
-     * read the x-ship marker to add --user, so both halves have to come out of the same generation.
+     * hostUser produces the build args, the SHIP_HOST_USER env var the entrypoint reads, and the
+     * x-ship marker the exec commands read, all from one generation.
      */
     public function test_a_host_user_becomes_build_args_an_env_var_and_a_marker(): void
     {
@@ -397,12 +372,8 @@ final class ComposeFileBuilderTest extends TestCase
     }
 
     /**
-     * SHIP_HOST_USER has to reach Reverb too, not just "app" -- ReverbService's own
-     * composeFragment() has no access to $hostUser on its own, so ComposeFileBuilder backfills
-     * it. The dev entrypoint drops anything that's "its own long-lived program" (an Octane
-     * server, or Reverb, the same category) to that user before exec'ing it, *if*
-     * SHIP_HOST_USER is set; without it Reverb would keep running as root in dev even with
-     * hostUser enabled, the exact problem hostUser exists to avoid.
+     * ReverbService can't see $hostUser, so ComposeFileBuilder gives Reverb SHIP_HOST_USER too;
+     * without it Reverb would run as root in dev.
      */
     public function test_reverb_gets_ship_host_user_too_when_a_host_user_is_set(): void
     {
@@ -416,12 +387,8 @@ final class ComposeFileBuilderTest extends TestCase
     }
 
     /**
-     * Reverb and "app" share the exact same dev entrypoint and project tree, so both
-     * independently satisfying that entrypoint's own "composer.json present, vendor/autoload.php
-     * missing" condition would run `composer install` twice, concurrently, into the same vendor/.
-     * SHIP_DEV_SKIP_INSTALL tells the entrypoint to wait for "app"'s result instead -- dev only,
-     * since production bakes vendor/ into the image at build time and never runs this entrypoint
-     * logic at all.
+     * Reverb shares "app"'s tree and entrypoint, so it is told to wait for "app"'s composer
+     * install rather than run a second one. Dev only.
      */
     public function test_reverb_is_told_to_skip_its_own_composer_install_in_dev(): void
     {
@@ -437,14 +404,8 @@ final class ComposeFileBuilderTest extends TestCase
     }
 
     /**
-     * With an Octane runtime selected, "app" itself is not php-fpm, so its own entrypoint would
-     * otherwise race `ship up`'s own MutagenSync::installComposerDependencies() to run `composer
-     * install` the moment composer.json merely appears -- often before composer.lock has finished
-     * syncing too, writing a fresh composer.lock into the synced tree instead of honoring the
-     * project's pinned versions. "app" gets the same SHIP_DEV_SKIP_INSTALL signal Reverb does,
-     * but only when Mutagen is actually active -- a plain bind mount never starts out empty the
-     * way Mutagen's named volume does, so "app" still has to install for itself there (a project
-     * cloned with no local vendor/ at all).
+     * Under Mutagen `ship up` installs dependencies once the sync has finished, so "app" must not
+     * race it. With a plain bind mount "app" still installs for itself.
      */
     public function test_app_is_told_to_skip_its_own_composer_install_only_when_mutagen_is_active(): void
     {
@@ -469,19 +430,15 @@ final class ComposeFileBuilderTest extends TestCase
         $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Development));
 
         self::assertArrayHasKey('reverb', $parsed['services']);
-        // "app" already sets this explicitly in baseServices() -- what
-        // matters here is that "reverb" (which never does) picks up the
-        // same PHP version rather than the Dockerfile's own ARG default.
+        // "reverb" never sets this itself; it must get the configured version, not the
+        // Dockerfile's ARG default.
         self::assertSame('8.3', $parsed['services']['reverb']['build']['args']['PHP_VERSION']);
         self::assertSame('8.3', $parsed['services']['app']['build']['args']['PHP_VERSION']);
     }
 
     /**
-     * Reverb has to receive "app"'s own injected environment (DB_*, REDIS_*, ...), or anything it
-     * touches that needs the database -- a private-channel auth callback, say -- fails to
-     * connect; SHIP_RUN_AS, or it runs as root in production; and matching build args
-     * (OCTANE_RUNTIME included), or selecting Octane/Swoole alongside Reverb forces a second,
-     * wasteful image build for content that should be identical to "app"'s.
+     * Reverb needs "app"'s injected environment to reach the same services, SHIP_RUN_AS so it
+     * doesn't run as root in production, and matching build args so both share one image.
      */
     public function test_reverb_gets_apps_env_vars_ship_run_as_and_matching_build_args(): void
     {
@@ -503,11 +460,7 @@ final class ComposeFileBuilderTest extends TestCase
     }
 
     /**
-     * Reverb's dev volume has to follow $mutagenSync too, not stay the raw bind mount --
-     * ReverbService's own composeFragment() has no access to it on its own, so
-     * ComposeFileBuilder backfills it, matching "app"/"webserver" switching to the synced named
-     * volume when SHIP_MUTAGEN is active. Without this Reverb would read the unsynced host tree
-     * directly.
+     * Reverb must use the synced named volume under Mutagen, not the unsynced bind mount.
      */
     public function test_reverb_uses_the_synced_named_volume_when_mutagen_is_active(): void
     {
@@ -607,12 +560,8 @@ final class ComposeFileBuilderTest extends TestCase
     }
 
     /**
-     * Regression test for a bug only a real `docker compose config` catches, not
-     * `Yaml::parse()`: an empty PHP array dumps as YAML `{}` by default, since PHP
-     * has no way to distinguish an empty list from an empty map -- but Compose's
-     * schema requires `ports` to be a sequence, so `{}` fails validation outright.
-     * Asserting on the raw string (not the parsed-back array, which can't tell
-     * `{}` and `[]` apart either) is the only way this test can actually fail.
+     * An empty PHP array dumps as YAML `{}` by default, which Compose's schema rejects for
+     * `ports`. Asserted on the raw string, since the parsed array can't tell `{}` from `[]`.
      */
     public function test_empty_ports_dump_as_a_yaml_sequence_not_a_mapping(): void
     {
@@ -651,11 +600,7 @@ final class ComposeFileBuilderTest extends TestCase
     }
 
     /**
-     * "webserver" (nginx) serves a byte-for-byte static config -- no envsubst, no runtime
-     * variable of its own -- so it must not get the same env_file: as "app" does: every app
-     * secret in .env/.env.production (DB credentials, API keys, ...) would be readable inside the
-     * nginx container too, for no actual use. A reverse proxy serving static files and forwarding
-     * to php-fpm has no legitimate need for any of them.
+     * nginx's config is static, so "webserver" has no use for the app's secrets.
      */
     public function test_webserver_does_not_load_the_apps_env_file(): void
     {
@@ -679,13 +624,12 @@ final class ComposeFileBuilderTest extends TestCase
 
         $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Development));
 
-        // Default instance untouched: same compose service name and env var names as always,
-        // not overwritten by the additional instance sharing the same "DB_" variable family.
+        // The default instance keeps its compose service name and unprefixed env vars.
         self::assertArrayHasKey('pgsql', $parsed['services']);
         self::assertSame('pgsql', $parsed['services']['app']['environment']['DB_HOST']);
         self::assertSame('pgsql', $parsed['services']['app']['environment']['DB_CONNECTION']);
 
-        // Additional instance: its own compose service, its own prefixed env vars.
+        // The additional instance gets its own compose service and prefixed env vars.
         self::assertArrayHasKey('mysql-analytics', $parsed['services']);
         self::assertSame('mysql-analytics', $parsed['services']['app']['environment']['ANALYTICS_DB_HOST']);
         self::assertSame('mysql', $parsed['services']['app']['environment']['ANALYTICS_DB_CONNECTION']);
@@ -708,8 +652,7 @@ final class ComposeFileBuilderTest extends TestCase
         self::assertArrayHasKey('ship-redis-data', $parsed['volumes']);
         self::assertArrayHasKey('ship-redis-queue-data', $parsed['volumes']);
 
-        // Only the default instance sets the app-wide default store -- a named instance adds a
-        // second reachable Redis, it doesn't change what the app uses by default.
+        // Only the default instance sets the app-wide default store.
         self::assertSame('redis', $parsed['services']['app']['environment']['CACHE_STORE']);
         self::assertArrayNotHasKey('QUEUE_CACHE_STORE', $parsed['services']['app']['environment']);
         self::assertSame('redis-queue', $parsed['services']['app']['environment']['QUEUE_REDIS_HOST']);

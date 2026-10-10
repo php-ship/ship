@@ -25,8 +25,7 @@ final class DuskServiceTest extends TestCase
     }
 
     /**
-     * Pinned to a specific version, not the floating "4" major tag -- an unpinned build input
-     * could silently change between two `ship up` runs with no corresponding change here.
+     * Pinned to an exact version, not the floating "4" tag.
      */
     public function test_the_selenium_image_is_pinned_to_a_specific_version(): void
     {
@@ -39,10 +38,7 @@ final class DuskServiceTest extends TestCase
     }
 
     /**
-     * Dev/test tooling, not infrastructure -- production has no business building and starting a
-     * Selenium container for a browser test suite that never runs there. An empty fragment is
-     * this class's own signal to ComposeFileBuilder that it contributes nothing in production --
-     * no container, no env vars injected into "app" either.
+     * Dev/test tooling: an empty fragment in production means no container and no env vars.
      */
     public function test_it_contributes_nothing_in_production(): void
     {

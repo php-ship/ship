@@ -20,8 +20,7 @@ final class MeilisearchServiceTest extends TestCase
     }
 
     /**
-     * A named instance adds a second reachable Meilisearch -- it doesn't change which one Scout
-     * uses by default, so only the default instance may set this.
+     * A named instance doesn't change which Meilisearch Scout uses by default.
      */
     public function test_only_the_default_instance_sets_scout_driver(): void
     {
@@ -40,9 +39,7 @@ final class MeilisearchServiceTest extends TestCase
     }
 
     /**
-     * Production must require a real value instead of falling back to the same
-     * `${MEILISEARCH_KEY:-shipsearchkey}` expression development uses -- `docker compose` itself
-     * refuses to run at all when none was set in .env.production.
+     * Production requires a real master key instead of the development default.
      */
     public function test_the_master_key_is_required_in_production_not_just_overridable(): void
     {

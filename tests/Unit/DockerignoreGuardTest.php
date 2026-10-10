@@ -24,10 +24,8 @@ final class DockerignoreGuardTest extends TestCase
     }
 
     /**
-     * `**`-prefixed patterns are needed to match `.env`/`.env.*` at any depth, not just the build
-     * context *root* -- a bare pattern would miss `dist/ship/<tag>/.env` (ship release's own copy
-     * of .env.production), leaving it readable inside the very next image built in that project.
-     * `/dist/ship` excludes ship release's own generated output outright.
+     * `**`-prefixed patterns match at any depth; a bare `.env` would miss
+     * `dist/ship/<tag>/.env`.
      */
     public function test_it_writes_recursive_env_patterns_and_excludes_dist_ship(): void
     {
@@ -42,9 +40,7 @@ final class DockerignoreGuardTest extends TestCase
     }
 
     /**
-     * auth.json (Composer's own credentials file, a private Packagist Pro/repo token most
-     * commonly) and .npmrc (npm's equivalent) are real secret-bearing files `COPY . .` would bake
-     * in exactly like .env, so both need excluding too.
+     * auth.json and .npmrc carry Composer/npm credentials.
      */
     public function test_it_excludes_composer_and_npm_credential_files(): void
     {
@@ -57,11 +53,8 @@ final class DockerignoreGuardTest extends TestCase
     }
 
     /**
-     * A bare `/dist` would exclude a project's *entire* dist/ directory from the build context,
-     * not just ship release's own dist/ship/ -- a project that keeps real build inputs under its
-     * own dist/ (a separate build tool's output the image legitimately needs to COPY in, say)
-     * would have them silently dropped from every image built, with no error. Narrowed to the
-     * exact namespace ship release actually writes to.
+     * Only `ship release`'s own output is excluded; a project's other files under dist/ may be
+     * build inputs.
      */
     public function test_it_excludes_only_dist_ship_not_the_whole_dist_directory(): void
     {
@@ -87,11 +80,7 @@ final class DockerignoreGuardTest extends TestCase
     }
 
     /**
-     * This has to be safe to call every time `ship build`/`ship release` run, not just at `ship
-     * init` time -- a project whose .dockerignore was hand-edited, reverted, or never existed
-     * because `ship init` ran before this guard did still needs protection at the actual moment
-     * `COPY . .` runs. Covered directly here since it's plain, Docker-independent file I/O;
-     * ProductionBuildRunner's own call site is a single unconditional line at the top of build().
+     * `ship build`/`ship release` call this on every run, so it must be idempotent.
      */
     public function test_it_is_safe_to_call_repeatedly_on_the_same_project(): void
     {

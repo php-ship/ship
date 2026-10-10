@@ -78,9 +78,7 @@ final class ServiceRegistryTest extends TestCase
     }
 
     /**
-     * Guards against the one way this class could silently regress: a new ServiceDefinition gets
-     * written and registered nowhere, or defaults() stops matching what's actually shipped --
-     * either way, `ship init` would just never offer it, with nothing else here to notice.
+     * Guards against a ServiceDefinition being written but never registered in defaults().
      *
      * @return iterable<string, array{class-string}>
      */
@@ -116,9 +114,8 @@ final class ServiceRegistryTest extends TestCase
 
     public function test_defaults_registers_exactly_the_expected_number_of_services(): void
     {
-        // A deliberately redundant count alongside the per-class check above: that one only ever
-        // proves nothing was *removed*, not that this list matches the intended set exactly --
-        // catches an extra/duplicate registration the same way.
+        // The per-class check proves nothing is missing; the count also catches an extra or
+        // duplicate registration.
         self::assertCount(15, ServiceRegistry::defaults());
     }
 }

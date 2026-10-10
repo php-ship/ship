@@ -13,9 +13,8 @@ use Symfony\Component\Yaml\Yaml;
 final class ComposeFileBuilder
 {
     /**
-     * Compose loads .env at container start if present -- required: false means projects without one still
-     * work fine, and secrets never get baked into the image itself. Explicit environment: values below,
-     * still wins on conflicts, since Compose applies env_file first and environment: second, forever.
+     * Compose loads .env at container start if present; `required: false` keeps projects without one
+     * working. Explicit `environment:` values still win, since Compose applies env_file first.
      */
     private const OPTIONAL_ENV_FILE = [['path' => '.env', 'required' => false]];
 
@@ -25,21 +24,13 @@ final class ComposeFileBuilder
     }
 
     /**
-     * $mutagenSync only ever changes anything in Development -- Production bakes the source into
-     * the image at build time (see "builder"/"prod" stages), so there's no bind mount, and nothing
-     * to sync, either way.
+     * $mutagenSync only applies in development; production has no bind mount to replace.
      *
-     * $hostUser (see ShipConfig::$hostUser) is only ever passed for development, already filtered by
-     * the caller for everything that makes it inapplicable -- this just applies it.
+     * $hostUser (see ShipConfig::$hostUser) is development-only and already filtered by the caller.
      *
-     * $projectName becomes the file's top-level `name:` -- without it, Compose derives the
-     * project name from --project-directory's own basename instead, which every named volume
-     * and the default network alias are keyed off. Two differently-pathed checkouts that happen
-     * to share a basename then share both; the same project checked out under two different tag
-     * directories (dist/ship/1.2.0, dist/ship/1.3.0 -- exactly what `ship release` produces) gets
-     * a *different* synthesized name each time instead of one that follows the project itself.
-     * Optional (not required) so a caller that genuinely has no project name available yet --
-     * every direct unit test construction of this class -- still gets today's behavior.
+     * $projectName becomes the file's top-level `name:`, which named volumes and network aliases are
+     * keyed off. Without it Compose falls back to the project directory's basename, which differs
+     * per release directory (dist/ship/<tag>).
      *
      * @param array{uid: int, gid: int}|null $hostUser
      */
@@ -98,18 +89,11 @@ final class ComposeFileBuilder
         );
         $compose['services'] = $this->backfillRestartPolicy($compose['services']);
 
-        // Every service fragment's own compose key was already renamed as it was built (see
-        // applyService()/renameFragmentKeys()) -- the only thing left is a *reference* to an old
-        // name from a fragment that isn't itself the one being renamed, e.g. "webserver"'s own
-        // depends_on: ["app"]. Written generically against the whole $serviceNames map (not
-        // special-cased to app/webserver) so a future fragment adding its own depends_on doesn't
-        // silently break the moment a project renames whatever it's depending on.
+        // Fragment keys are already renamed (see applyService()); this fixes references to a
+        // renamed service from another fragment, e.g. "webserver"'s depends_on: ["app"].
         $compose['services'] = $this->renameDependsOnReferences($compose['services'], $serviceNames);
 
-        // Stripped from every service, not just "app"/"webserver" -- everything production
-        // publishes (the app itself, an Octane runtime's own port, Reverb, ...) is HTTP-facing, and
-        // the whole point is a reverse proxy being the only thing reachable from outside. See
-        // ShipConfig::$publishPorts for why a published port is worse than it looks here.
+        // Production publishes nothing unless publishPorts is set -- see ShipConfig::$publishPorts.
         if (!$config->publishPorts && !$environment->isDevelopment()) {
             foreach ($compose['services'] as $name => $service) {
                 $compose['services'][$name]['ports'] = [];
@@ -122,37 +106,16 @@ final class ComposeFileBuilder
         $compose['services'][$appServiceName]['environment'] = [
             ...$compose['services'][$appServiceName]['environment'] ?? [],
             ...$appEnv,
-            // Read by the dev entrypoint (stubs/docker/php/dev/entrypoint.sh): what to run
-            // composer install and any non-php-fpm command as. Numeric, so it doesn't depend on
-            // whatever name the image gave the user.
+            // Read by the dev entrypoint: the user to run composer install and any non-php-fpm
+            // command as. Numeric, so it doesn't depend on the image's user name.
             ...($hostUser !== null ? ['SHIP_HOST_USER' => "{$hostUser['uid']}:{$hostUser['gid']}"] : []),
-            // With an Octane runtime selected, "app" itself is not php-fpm, so its own entrypoint
-            // would otherwise race `ship up`'s own MutagenSync::installComposerDependencies() to
-            // run `composer install` the moment composer.json merely *appeared* -- often before
-            // composer.lock had finished syncing too, running a fresh install (no lock) that
-            // silently writes a new composer.lock into the synced tree instead of honoring the
-            // project's pinned versions. Telling the entrypoint to wait for *app's* own install
-            // instead (the one that only ever runs once Mutagen's sync is fully "Watching",
-            // guaranteeing composer.lock has actually arrived) removes the premature one
-            // entirely. A no-op for plain php-fpm, which the entrypoint's own `$1 != "php-fpm"`
-            // check already exempts from this regardless of this variable -- see that file's own
-            // docblock.
+            // Under Mutagen, `ship up` runs composer install itself once the sync has finished
+            // (see MutagenSync). The entrypoint must not race it: an early install can run before
+            // composer.lock has synced and write a new lock file into the project.
             ...($mutagenSync && $environment->isDevelopment() ? ['SHIP_DEV_SKIP_INSTALL' => '1'] : []),
-            // Only set at all when Dusk is selected *and* this is Development -- Selenium (a
-            // separate container, itself dev-only, see DuskService::composeFragment()) reaches
-            // the app over the "ship" network, not via whatever host-reachable URL a real browser
-            // or artisan command would use, and DuskService itself has no visibility into which
-            // service ("app" or "webserver") is the real HTTP entrypoint (depends on whether an
-            // Octane runtime was *also* selected -- the same check every Octane*Service::removes()
-            // already makes). Applying this unconditionally would otherwise overwrite whatever
-            // real, host-reachable APP_URL the project's own .env already set (environment: always
-            // wins over env_file:, see OPTIONAL_ENV_FILE's own docblock) -- a project with a
-            // genuine APP_URL (a custom port, a real domain, ...) would have every user-facing
-            // link (queued emails, signed URLs, artisan output) silently rewritten to an internal
-            // Docker hostname no browser outside the container can resolve. Restricted to
-            // Development specifically, not just "testing": "dusk" alone, since ship.json's
-            // selection doesn't vary by environment on its own -- the same unwanted overwrite
-            // would otherwise also fire in production for any project with Dusk selected.
+            // Dev + Dusk only: Selenium reaches the app over the "ship" network, so it needs the
+            // internal hostname. Set anywhere else, this would override the project's own APP_URL
+            // (`environment:` beats `env_file:`) with a hostname no browser can resolve.
             ...($environment->isDevelopment() && ($config->services['testing'] ?? null) === 'dusk' ? [
                 'APP_URL' => sprintf(
                     'http://%s',
@@ -161,10 +124,8 @@ final class ComposeFileBuilder
             ] : []),
         ];
 
-        // Lets the app reach infrastructure ship itself never provisioned (a shared MySQL/Redis/...
-        // some other compose project already runs) -- see ShipConfig::$externalNetwork's own
-        // docblock. Additive, not a replacement for "ship": the app still needs that one for
-        // "webserver" (or Reverb, ...) to reach it.
+        // Attaches the app to a pre-existing network (see ShipConfig::$externalNetwork), in
+        // addition to "ship", which "webserver" and Reverb still reach it over.
         if ($config->externalNetwork !== null) {
             $compose['networks']['external'] = ['name' => $config->externalNetwork, 'external' => true];
             $compose['services'][$appServiceName]['networks'][] = 'external';
@@ -185,9 +146,8 @@ final class ComposeFileBuilder
             $hostUser,
         );
 
-        // Lets the commands that shell out to `docker compose exec` (see ComposeCommand::execPrefix())
-        // learn what was actually generated -- mode-aware by construction, unlike re-reading
-        // ship.json, which says nothing about whether this file is a dev or a production one.
+        // Tells the `docker compose exec` commands (see ComposeCommand::execPrefix()) what this
+        // file was generated with, which ship.json alone can't say.
         if ($hostUser !== null) {
             $compose['x-ship'] = ['hostUser' => "{$hostUser['uid']}:{$hostUser['gid']}", 'appService' => $appServiceName];
         }
@@ -197,23 +157,14 @@ final class ComposeFileBuilder
             $compose['volumes'] = array_fill_keys($namedVolumes, null);
         }
 
-        // Without this flag, an empty PHP array (e.g. "app"'s ports in
-        // production -- see baseServices()) dumps as YAML `{}`, since PHP
-        // can't distinguish an empty list from an empty map. Compose's
-        // schema requires ports/volumes/depends_on to be sequences, so
-        // `{}` fails `docker compose config` validation outright -- caught
-        // by an actual `ship build` smoke test, not by any unit test,
-        // since ComposeFileBuilderTest only ever parses the YAML back into
-        // PHP, which can't tell `{}` and `[]` apart either.
+        // Without this flag an empty PHP array dumps as `{}`, which Compose's schema rejects for
+        // ports/volumes/depends_on.
         return Yaml::dump($compose, inline: 6, indent: 2, flags: Yaml::DUMP_EMPTY_ARRAY_AS_SEQUENCE);
     }
 
     /**
-     * One selected service -- either the default instance from ship.json's `services` ($instanceName
-     * null) or a named one from `additionalServices` -- merged into the compose services being built
-     * so far. Threads $compose/$appEnv/$removed through as a tuple rather than mutating them in place,
-     * since build() calls this once per default selection and once per additional one, in a plain
-     * foreach either way.
+     * Merges one selected service into the compose file being built: the default instance from
+     * ship.json's `services` ($instanceName null) or a named one from `additionalServices`.
      *
      * @param array<string, mixed> $compose
      * @param array<string, string> $appEnv
@@ -233,24 +184,16 @@ final class ComposeFileBuilder
         $service = $this->registry->get($key);
         $fragment = $service->composeFragment($environment, $instanceName);
 
-        // An empty fragment is a service's own signal that it contributes nothing at all in this
-        // environment -- e.g. MailpitService/DuskService in production, dev/test-only tooling with
-        // no business in a production release, not just a container ship happens not to start.
-        // Treated uniformly as "this service is absent here": no compose service, no env vars
-        // injected into "app" either -- otherwise Mailpit's own MAIL_HOST would unconditionally
-        // override a real .env.production's own mail config, and Dusk's Selenium container, with
-        // no environment check of its own, would be built and started in every production release.
+        // An empty fragment means the service is absent in this environment (Mailpit and Dusk in
+        // production): no compose service and no env vars injected into "app".
         if ($fragment === []) {
             return [$compose, $appEnv, $removed];
         }
 
         $env = $service->environmentVariables($instanceName);
 
-        // Renamed together, not separately -- environmentVariables() bakes this same service's own
-        // *unrenamed* compose name into a handful of its values (DB_HOST => "mysql", or embedded in
-        // a URL, e.g. MEILISEARCH_HOST => "http://meilisearch:7700"), computed independently of
-        // composeFragment() with no shared state tying the two together, so nothing else already
-        // knows to keep them in sync once a name changes.
+        // environmentVariables() embeds the service's unrenamed compose name in some values
+        // (DB_HOST, MEILISEARCH_HOST), so those are renamed along with the fragment key.
         foreach ($fragment as $name => $serviceFragment) {
             $newName = $serviceNames[$name] ?? $name;
 
@@ -264,9 +207,7 @@ final class ComposeFileBuilder
                 : $serviceFragment;
         }
 
-        // A later, same-name env var wins -- lets additionalServices override a key the default
-        // instance already set, the same "last one wins" rule PHP's own array union would give if
-        // this were still a single flat loop instead of two.
+        // A later same-name env var wins, so additionalServices can override the default instance.
         $appEnv = [...$appEnv, ...$env];
         $removed = [...$removed, ...$service->removes()];
 
@@ -274,19 +215,10 @@ final class ComposeFileBuilder
     }
 
     /**
-     * Only ever touches a key that actually carries a hostname by its own naming convention --
-     * ends in "_HOST" (DB_HOST, REDIS_HOST, MAIL_HOST, MEILISEARCH_HOST, ANALYTICS_DB_HOST, ...) or
-     * "_ENDPOINT" (AWS_ENDPOINT) -- deliberately not every env value a service happens to produce.
-     * Found for real, not hypothesized: MySqlService's own DB_CONNECTION and RedisService's own
-     * CACHE_STORE/SESSION_DRIVER are Laravel driver identifiers that happen to be spelled exactly
-     * like the *compose service's own name* ("mysql", "redis") purely by coincidence -- a value-only
-     * check with no key filter renamed them right along with the real hostname, which would have
-     * quietly changed the app's own cache driver to a name that means nothing to Laravel the moment
-     * anyone renamed their "redis" service. Within a matching key, only two value shapes are ever
-     * touched -- the bare compose name itself, or that same name embedded in a URL immediately
-     * between "://" and the next ":" (MEILISEARCH_HOST, AWS_ENDPOINT) -- rather than a blind
-     * str_replace() across the whole value, which would risk mangling something that merely
-     * contains the old name as an unrelated substring.
+     * Renames a service's hostname inside its own env vars. Only keys ending in "_HOST" or
+     * "_ENDPOINT" are touched: driver identifiers such as DB_CONNECTION=mysql or CACHE_STORE=redis
+     * merely share the compose name and must not change. Within a matching key, only the bare name
+     * or the name between "://" and ":" in a URL is replaced.
      *
      * @param array<string, string> $env
      * @return array<string, string>
@@ -312,9 +244,9 @@ final class ComposeFileBuilder
     }
 
     /**
-     * Merges a fragment into an already-defined service. Its Environment/volumes/ports/networks/depends_on
-     * accumulate, rather than erasing, what is already set. `build` is shallow-merged one level, so now
-     * overriding the dockerfile doesn't erase context/target/args; everything overrides outright too.
+     * Merges a fragment into an already-defined service. environment/env_file/volumes/ports/
+     * networks/depends_on accumulate, `build` is shallow-merged one level, everything else is
+     * overridden.
      *
      * @param array<string, mixed> $base
      * @param array<string, mixed> $fragment
@@ -322,13 +254,9 @@ final class ComposeFileBuilder
      */
     private function mergeServiceFragment(array $base, array $fragment): array
     {
-        // Plain lists of scalars -- concatenating two fragments' copies of the same value (most
-        // commonly "networks": applyService() defaults every fragment missing one to ['ship'], so
-        // two fragments both landing on "app" -- baseServices() and an Octane runtime's own, say --
-        // both default it, then concatenate into ['ship', 'ship'], which Compose's schema rejects)
-        // needs deduping after the fact. Not "environment" (associative, a later same-key value
-        // already correctly wins on spread, no duplicate-value case exists) or "env_file" (a list of
-        // arrays, not scalars -- array_unique() would misbehave, stringifying each element first).
+        // Scalar lists are deduped after concatenation: two fragments that both default
+        // "networks" to ['ship'] would otherwise produce a duplicate Compose rejects. env_file is a
+        // list of arrays, so array_unique() doesn't apply to it.
         $accumulatingLists = ['volumes', 'ports', 'networks', 'depends_on'];
         $accumulatingAsIs = ['environment', 'env_file'];
 
@@ -348,10 +276,7 @@ final class ComposeFileBuilder
     }
 
     /**
-     * Renames whichever of a fragment's own keys ship.json's serviceNames map mentions -- a no-op
-     * for any key the map doesn't touch. Used both for baseServices()'s "app"/"webserver" fragment
-     * and (via applyService()) every other selected service's own fragment, so there's exactly one
-     * place that decides what a compose key becomes.
+     * Renames the fragment keys that ship.json's serviceNames map mentions.
      *
      * @param array<string, array<string, mixed>> $fragment
      * @param array<string, string> $serviceNames
@@ -369,14 +294,8 @@ final class ComposeFileBuilder
     }
 
     /**
-     * "app", "webserver", and every selected service's own default compose key (the same string
-     * as $services's own value -- see ShipConfig::$services's docblock: always the default
-     * instance, which SupportsNamedInstances resolves to key() unchanged) all have to end up with
-     * distinct final names once serviceNames is applied, or renameFragmentKeys()/applyService()
-     * silently keep only one of two same-named fragments. Checked as one pass over every
-     * candidate's resolved name rather than per-field, since a collision can involve any two of
-     * them (two serviceNames entries renamed to the same target, or one renamed onto a name
-     * another selected service already has by default).
+     * "app", "webserver" and every selected service must end up with distinct names once
+     * serviceNames is applied, or one fragment silently replaces another.
      *
      * @param array<string, string> $services
      * @param array<string, string> $serviceNames
@@ -401,10 +320,8 @@ final class ComposeFileBuilder
     }
 
     /**
-     * Each additionalServices entry's own "name" becomes both its compose service suffix and its
-     * env var prefix (see SupportsNamedInstances) -- two entries sharing one silently let the
-     * second's compose fragment and env vars overwrite the first's rather than coexisting as two
-     * actually-distinct instances.
+     * An additionalServices "name" is both a compose service suffix and an env var prefix, so two
+     * entries sharing one would overwrite each other.
      *
      * @param list<array{group: string, service: string, name: string}> $additionalServices
      */
@@ -427,13 +344,9 @@ final class ComposeFileBuilder
     }
 
     /**
-     * Only a service using the SupportsNamedInstances trait actually varies its compose fragment
-     * and env vars by $instanceName -- one that doesn't (e.g. ReverbService: only one broadcasting
-     * server ever makes sense per project) silently reuses its own default compose key and env var
-     * names regardless of the "name" given here, colliding with that service's own default
-     * instance instead of becoming a genuinely second one. Checked via class_uses() rather than an
-     * interface method: ServiceDefinition is implemented by third-party extensions too (see
-     * docs/adding-a-service.md), so adding a required method there would break every one of them.
+     * Only a service using SupportsNamedInstances varies its fragment and env vars by instance
+     * name; any other would collide with its own default instance. Checked via class_uses()
+     * rather than a new interface method, which would break third-party ServiceDefinitions.
      *
      * @param list<array{group: string, service: string, name: string}> $additionalServices
      */
@@ -452,10 +365,7 @@ final class ComposeFileBuilder
     }
 
     /**
-     * Rewrites a depends_on entry pointing at a name ship.json's serviceNames map renamed --
-     * currently only "webserver"'s own depends_on: ["app"], but written generically against the
-     * whole map rather than special-cased to that one spot, so a future fragment adding its own
-     * depends_on doesn't silently break the moment a project renames whatever it names there.
+     * Rewrites depends_on entries that point at a service renamed through serviceNames.
      *
      * @param array<string, array<string, mixed>> $services
      * @param array<string, string> $serviceNames
@@ -484,14 +394,10 @@ final class ComposeFileBuilder
     }
 
     /**
-     * ship.json's processes (see ShipConfig::$processes): each becomes a service built from the
-     * app's own build config -- same Dockerfile, target and args, so the same image content (Docker's
-     * build cache makes the second and third identical builds near-instant, and `docker save` shares
-     * the layers) -- with the app's environment and networks, so it reaches the same database and
-     * the external network. No ports: nothing reaches these from outside. SHIP_RUN_AS so the
-     * entrypoint drops each to www-data even when the app itself is php-fpm and has to start as
-     * root. stop_grace_period because Compose's default 10s SIGKILLs Horizon or a queue worker
-     * mid-job; a long grace period costs nothing when the process exits promptly.
+     * ship.json's processes (see ShipConfig::$processes): each becomes a service with the app's
+     * build config, environment and networks, and no ports. SHIP_RUN_AS makes the entrypoint drop
+     * to www-data even when the app is php-fpm and starts as root. The longer stop_grace_period
+     * lets Horizon or a queue worker finish its job instead of being SIGKILLed after 10s.
      *
      * @param array<string, array<string, mixed>> $services
      * @param array<string, string> $processes
@@ -518,13 +424,8 @@ final class ComposeFileBuilder
 
             $services[$name] = [
                 'build' => $app['build'],
-                // $$, not $ -- Compose interpolates a bare $VAR in a command string itself
-                // (against the host's own environment, not the container's), so a project's own
-                // command referencing a real shell variable (e.g. "php artisan horizon
-                // --queue=$QUEUE") would otherwise have it blanked out before the container's
-                // shell ever ran it. A project writing this expects a shell command, not a
-                // Compose-interpolated string, so every literal "$" is escaped here rather than
-                // asking every processes entry to know Compose's own syntax.
+                // Compose interpolates a bare $VAR itself, against the host's environment, so
+                // every "$" is escaped to "$$" to reach the container's shell intact.
                 'command' => ['sh', '-c', str_replace('$', '$$', $command)],
                 'env_file' => $app['env_file'],
                 'environment' => [...($app['environment'] ?? []), 'SHIP_RUN_AS' => 'www-data'],
@@ -538,46 +439,17 @@ final class ComposeFileBuilder
     }
 
     /**
-     * Reverb is a genuinely separate compose service (see ReverbService's own docblock), but it
-     * runs the exact same Laravel app "app" does. ReverbService's own composeFragment() has no
-     * access to $appEnv, $config, $hostUser, or $mutagenSync, so it can never align itself with
-     * "app" on its own -- this method does it instead, covering six things:
+     * Reverb is a separate compose service running the same Laravel app, and ReverbService can't
+     * see $appEnv, $hostUser or $mutagenSync, so this aligns it with "app":
      *
-     * 1. "app"'s own injected environment (DB_*, REDIS_*, ...), without which anything Reverb
-     *    touches that needs the database -- a private-channel auth callback checking the current
-     *    user, say -- fails to connect.
-     * 2. SHIP_RUN_AS, in production, matching every other service that sets it (every Octane
-     *    runtime, every `processes` entry) -- without it, Reverb would run as root.
-     * 3. Reverb's own build args (OCTANE_RUNTIME/HOST_UID/HOST_GID), so they stay in sync with
-     *    "app"'s own ARG defaults (Swoole selected as the runtime, say, or hostUser in dev) --
-     *    without this, a divergence there forces a second, wasteful image build and export for
-     *    content that should be identical.
-     * 4. The dev volume -- "app"/"webserver" switch to the synced named volume when SHIP_MUTAGEN
-     *    is active (see baseServices()'s own $devVolume), and Reverb has to switch with them, or
-     *    it keeps bind-mounting the *unsynced* host tree, reading stale code "app" itself no
-     *    longer sees once Mutagen's sync catches up.
-     * 5. SHIP_HOST_USER (ship.json's hostUser, see ShipConfig) -- stubs/docker/php/dev/
-     *    entrypoint.sh drops anything that's "its own long-lived program" (its own comment's
-     *    words, written with an Octane server in mind, but Reverb is exactly the same category)
-     *    to that user before exec'ing it, *if* SHIP_HOST_USER is set; without it, that branch
-     *    never fires and Reverb keeps running as root in dev even with hostUser enabled, writing
-     *    anything it touches in the bind-mounted tree back as root-owned -- the exact problem
-     *    hostUser exists to avoid.
-     * 6. SHIP_DEV_SKIP_INSTALL -- Reverb and "app" share the exact same dev entrypoint script and
-     *    (in SHIP_MUTAGEN mode especially, but a bind mount has the same window too) the exact
-     *    same project tree, so both independently satisfying that entrypoint's own "composer.json
-     *    present, vendor/autoload.php missing" condition would run `composer install` *twice*,
-     *    concurrently, into the same vendor/. This tells the entrypoint Reverb isn't the real
-     *    installer here -- see its own docblock -- and should just wait for "app"'s result
-     *    instead of racing to produce it a second time.
-     *
-     * Only the build *args* are copied, not the whole build block -- ReverbService's own
-     * dockerfile/context/target are left alone deliberately: FrankenPHP overrides "app"'s own
-     * dockerfile, but Reverb never needs Caddy/FrankenPHP's image just to run a plain `php artisan
-     * reverb:start`, and copying "app"'s build wholesale would drag that override onto it too.
-     *
-     * Items 1 and 4 apply in both environments; SHIP_RUN_AS (2) only in production, matching
-     * every other service that sets it.
+     * - "app"'s injected environment (DB_*, REDIS_*, ...), so Reverb can reach the same services.
+     * - "app"'s build args, so both build identical image content. Only the args are copied:
+     *   FrankenPHP overrides "app"'s dockerfile, which Reverb doesn't need.
+     * - SHIP_RUN_AS in production, so Reverb doesn't run as root.
+     * - SHIP_HOST_USER in development when hostUser is set, for the same reason.
+     * - SHIP_DEV_SKIP_INSTALL in development, so Reverb waits for "app"'s composer install
+     *   instead of running a second one into the same vendor/.
+     * - The synced named volume under Mutagen, instead of the unsynced bind mount.
      *
      * @param array<string, array<string, mixed>> $services
      * @param array<string, string> $appEnv
@@ -614,15 +486,11 @@ final class ComposeFileBuilder
     }
 
     /**
-     * Scans every merged service's volumes: entries for ones referencing a named volume (e.g. "pgs:/data")
-     * rather than a bind mount (e.g. ".:/var/www/html"). Needs one matching entry under this file's own
-     * top-level, volumes: key -- omitting one is a validation error, any unused entry is dead config.
+     * Collects the named volumes (e.g. "ship-pgsql-data:/data", as opposed to a bind mount) that
+     * need a matching entry under the top-level `volumes:` key.
      *
-     * A renamed service's own volume name (e.g. MySqlService's "ship-mysql-data") still reflects
-     * its *original* key(), not whatever serviceNames renamed the service itself to -- baked into
-     * the mount string at composeFragment() build time, before any rename happens, and Compose
-     * doesn't require the two to match. Cosmetic only: the data persists under that name across
-     * `ship up`/`ship down` regardless of what the service is currently called.
+     * A renamed service keeps its original volume name; the mount string is built before any
+     * rename happens, and Compose doesn't require the two to match.
      *
      * @param array<string, array<string, mixed>> $services
      * @return list<string>
@@ -648,12 +516,9 @@ final class ComposeFileBuilder
     }
 
     /**
-     * "app" sets build.args.PHP_VERSION/NODE_VERSION/PHP_EXTENSIONS explicitly, but any other
-     * service building a ship/Dockerfile's PHP stage (reverb so far) needs the same, not the
-     * Dockerfile's ARG defaults -- Reverb runs the exact same Laravel app, so a Composer package's
-     * platform requirement (see ShipConfig::$phpExtensions) applies to it too, not just "app".
-     * Applies solely to dev/prod targets; dev-nginx/prod-nginx don't consume any of these. `??=`
-     * lets one already set win.
+     * Gives every service building a ship/Dockerfile PHP stage ("app", Reverb) the same
+     * PHP_VERSION/NODE_VERSION/PHP_EXTENSIONS build args. dev-nginx/prod-nginx don't consume
+     * them. `??=` lets a value that's already set win.
      *
      * @param array<string, array<string, mixed>> $services
      * @return array<string, array<string, mixed>>
@@ -677,9 +542,8 @@ final class ComposeFileBuilder
     }
 
     /**
-     * Every generated service is a long-running daemon, never a one-shot command, so `unless-stopped`
-     * applies uniformly -- without it, a container that crashes (or a host that reboots) just stays down
-     * until someone notices and runs `ship up` again. `??=` lets a fragment set its own value instead.
+     * Every generated service is a long-running daemon, so a crash or host reboot should bring it
+     * back. `??=` lets a fragment set its own policy.
      *
      * @param array<string, array<string, mixed>> $services
      * @return array<string, array<string, mixed>>
@@ -706,13 +570,8 @@ final class ComposeFileBuilder
         $target = $environment->isDevelopment() ? 'dev' : 'prod';
         $runtime = $config->services['runtime'] ?? null;
 
-        // Mutagen (opt-in via SHIP_MUTAGEN, see Ship\Sync\MutagenSync) syncs into a container's
-        // own filesystem directly rather than through a live bind mount, so the two can't share
-        // "/var/www/html" -- a bind mount there would fight the sync over the same path. Swapped
-        // for a named volume instead of dropping the mount entirely so "webserver" (nginx, needs
-        // the same tree for its own static-file serving) can share the identical, already-synced
-        // content with zero extra sync overhead, just by mounting the same named volume -- rather
-        // than syncing into each container separately.
+        // Mutagen syncs into the container's filesystem, so a bind mount on the same path would
+        // fight it. A named volume lets "webserver" share the synced tree.
         $devVolume = $mutagenSync ? ['ship-app-sync:/var/www/html'] : ['.:/var/www/html'];
 
         $services = [
@@ -730,57 +589,28 @@ final class ComposeFileBuilder
                     ],
                 ],
                 'volumes' => $environment->isDevelopment() ? $devVolume : [],
-                // Vite's dev server (`ship npm run dev`) needs its own
-                // published port -- it's a separate HTTP+WebSocket server
-                // from the app itself, not something nginx/php-fpm proxy.
-                // Unconditional in dev for the same reason Node itself is
-                // unconditional in the base image (see NodeService's
-                // docblock): there's no meaningful "dev environment with
-                // no frontend tooling" mode to opt out into, and an
-                // unused published port costs nothing. Not published in
-                // prod at all -- there is no Vite dev server in
-                // production, see the "assets" build stage instead.
-                //
-                // Both sides use the same $VITE_PORT, not just the host side -- a project whose
-                // own vite.config.js listens on a non-default port (its own VITE_PORT, read from
-                // this exact same .env via env_file: below) would otherwise have its container
-                // side permanently fixed at 5173 regardless, so HMR never connects. Since "app"'s
-                // env_file: already loads the same .env this interpolates from, one VITE_PORT value
-                // drives both the compose port mapping and whatever port a vite.config.js reading
-                // process.env.VITE_PORT actually binds to -- see README's Vite HMR section.
+                // Vite's dev server is a separate HTTP+WebSocket server, so it needs its own
+                // published port in dev. Both sides follow VITE_PORT, which "app" also loads
+                // from .env, so a vite.config.js reading it binds the published port.
                 'ports' => $environment->isDevelopment()
                     ? [DevPortBinding::bind('${VITE_PORT:-5173}:${VITE_PORT:-5173}', $environment)]
                     : [],
                 'networks' => ['ship'],
                 'env_file' => self::OPTIONAL_ENV_FILE,
-                // Xdebug (installed unconditionally in "dev", see stubs/docker/php/Dockerfile)
-                // needs a route back to whatever's listening on the host for its own debug
-                // connection (the IDE) -- "host.docker.internal" isn't a real DNS name Docker
-                // resolves on its own; "host-gateway" is the special value Docker itself resolves
-                // to the actual host gateway IP, on Docker Desktop (Mac/Windows) and native Linux
-                // alike (Engine 20.10+, added specifically for this). Not set in production --
-                // Xdebug isn't installed there, so nothing needs it.
+                // Lets Xdebug (dev image only) reach the IDE on the host; "host-gateway" resolves
+                // to the host on Docker Desktop and native Linux alike.
                 'extra_hosts' => $environment->isDevelopment() ? ['host.docker.internal:host-gateway'] : [],
             ],
         ];
 
-        // A plain php-fpm app has no built-in HTTP server, so it needs nginx
-        // in front of it. Every Octane runtime serves HTTP itself, so when
-        // one is selected this is simply not added — see each
-        // Octane*Service::removes(), which is a defensive backstop for the
-        // (currently theoretical) case where something else adds a
-        // "webserver" service after this point.
+        // php-fpm needs nginx in front of it; an Octane runtime serves HTTP itself.
         if ($runtime === null) {
             $services['webserver'] = [
                 'build' => [
                     'context' => '.',
                     'dockerfile' => 'ship/Dockerfile',
-                    // Same Dockerfile as "app", different target -- see
-                    // that file's dev-nginx/prod-nginx stages for why:
-                    // prod-nginx needs COPY --from=assets for built
-                    // public/ assets, which only same-Dockerfile
-                    // multi-stage COPY --from can do without relying on
-                    // cross-service build ordering.
+                    // Same Dockerfile as "app": prod-nginx copies the built public/ assets
+                    // from the "assets" stage.
                     'target' => $environment->isDevelopment() ? 'dev-nginx' : 'prod-nginx',
                 ],
                 'volumes' => $environment->isDevelopment() ? $devVolume : [],

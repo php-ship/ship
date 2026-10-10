@@ -39,35 +39,20 @@ final class MySqlService implements ServiceDefinition, ProvidesDatabaseShell
                 'environment' => [
                     'MYSQL_DATABASE' => "\${{$prefix}DB_DATABASE:-app}",
                     'MYSQL_USER' => "\${{$prefix}DB_USERNAME:-app}",
-                    // A friendly default in dev, but required (docker compose itself refuses to
-                    // run at all otherwise) in production -- otherwise every project that never
-                    // set a real DB_PASSWORD in .env.production would silently share the exact
-                    // same publicly-known default, with no error or warning. See RequiredEnv's
-                    // own docblock.
+                    // A default in dev, required in production (see RequiredEnv), so a project
+                    // never ships with a publicly known password.
                     'MYSQL_PASSWORD' => RequiredEnv::expr("{$prefix}DB_PASSWORD", 'secret', $environment),
-                    // A separate secret from the app user's own DB_PASSWORD, not the same value
-                    // doubling as both -- "app" only ever authenticates as MYSQL_USER, never as
-                    // root, so the app container has no legitimate reason to even know the root
-                    // password (it's never in environmentVariables() below). Reusing DB_PASSWORD
-                    // for both meant a leaked app credential (a debug page, a logged query, a
-                    // compromised app container) handed over full MySQL admin access too, not
-                    // just the app's own scoped schema.
+                    // A separate secret from the app user's DB_PASSWORD: "app" never authenticates
+                    // as root, so a leaked app credential doesn't grant MySQL admin access.
                     'MYSQL_ROOT_PASSWORD' => RequiredEnv::expr("{$prefix}DB_ROOT_PASSWORD", 'rootsecret', $environment),
                 ],
-                // Persisted in both environments -- a production database losing every row on
-                // the next `docker compose restart`/redeploy is a real data-loss bug, not a
-                // dev/prod distinction worth making. See docs/roadmap.md for the fix across
-                // every stateful service.
+                // Persisted in both environments; a production database must survive a restart
+                // or redeploy.
                 'volumes' => ["ship-{$name}-data:/var/lib/mysql"],
                 'healthcheck' => [
-                    // 127.0.0.1, not "localhost" -- "localhost" makes mysqladmin use the unix
-                    // socket, and on a fresh volume the image first starts a *temporary* server
-                    // that listens on that socket only (port 0, no TCP), then stops it and starts
-                    // the real one. The socket ping succeeds from ~9s to ~13s while TCP is still
-                    // refusing connections, so a check against "localhost" would report "healthy"
-                    // a few seconds before anything can actually connect to it -- and whatever
-                    // runs right after (`ship up`'s own wait, a deploy command's migration) would
-                    // hit "connection refused". A TCP ping only succeeds once the real server is up.
+                    // 127.0.0.1, not "localhost", which makes mysqladmin use the unix socket. On
+                    // a fresh volume the image first runs a temporary socket-only server, so a
+                    // socket ping reports healthy before TCP connections are accepted.
                     'test' => ['CMD', 'mysqladmin', 'ping', '-h', '127.0.0.1'],
                     'interval' => '5s',
                     'timeout' => '5s',
@@ -86,8 +71,7 @@ final class MySqlService implements ServiceDefinition, ProvidesDatabaseShell
             "{$prefix}DB_CONNECTION" => 'mysql',
             "{$prefix}DB_HOST" => $name,
             "{$prefix}DB_PORT" => '3306',
-            // Same expressions as composeFragment()'s own service, so both sides
-            // always resolve from the same source at the same time.
+            // The same expressions composeFragment() provisions MySQL with.
             "{$prefix}DB_DATABASE" => "\${{$prefix}DB_DATABASE:-app}",
             "{$prefix}DB_USERNAME" => "\${{$prefix}DB_USERNAME:-app}",
             "{$prefix}DB_PASSWORD" => "\${{$prefix}DB_PASSWORD:-secret}",

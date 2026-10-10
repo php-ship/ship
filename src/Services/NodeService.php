@@ -8,10 +8,9 @@ use Ship\Contracts\ServiceDefinition;
 use Ship\Contracts\ShipEnvironment;
 
 /**
- * Deliberately shallow -- `ship npm` works regardless of a selection, as Node installs unconditionally
- * in the base image; most PHP projects need it anyway. This group exists so `ship init` prompts for
- * it, but the Node version itself is a top-level ShipConfig field (like phpVersion), not something
- * this class carries -- ComposeFileBuilder backfills NODE_VERSION the same way it does PHP_VERSION.
+ * Deliberately shallow: Node is installed in the base image regardless, so `ship npm` always
+ * works. This group exists so `ship init` prompts for it. The Node version is a top-level
+ * ShipConfig field, backfilled as a build arg by ComposeFileBuilder.
  */
 final class NodeService implements ServiceDefinition
 {

@@ -10,8 +10,8 @@ namespace Ship\Docker;
 final class HostUser
 {
     /**
-     * Null wherever there's nothing meaningful to match: no POSIX functions (native Windows PHP),
-     * or already root -- a root host user is exactly what dev already runs as.
+     * Null when there's nothing to match: no POSIX functions (native Windows PHP), or already
+     * root.
      *
      * @return array{uid: int, gid: int}|null
      */

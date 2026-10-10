@@ -5,17 +5,14 @@ declare(strict_types=1);
 namespace Ship\Services;
 
 /**
- * Shared by every ServiceDefinition that supports being selected more than once under a different
- * name (ship.json's `additionalServices`) -- kept as one trait, not duplicated per class, since
- * `ComposeFileBuilder` and `DbCommand` both need to independently arrive at the exact same compose
- * service name a class computes for itself; any drift between two copies of this logic would break
- * that.
+ * For a ServiceDefinition that can be selected more than once under different names (ship.json's
+ * `additionalServices`). One trait, so the service, `ComposeFileBuilder` and `DbCommand` all
+ * arrive at the same compose service name.
  */
 trait SupportsNamedInstances
 {
     /**
-     * The compose service name for a given instance -- key() itself for the default (null) instance,
-     * so an existing single-instance project's generated compose file is byte-for-byte unchanged.
+     * key() for the default (null) instance, "{key()}-{instanceName}" for a named one.
      */
     private function composeServiceName(?string $instanceName): string
     {
@@ -23,9 +20,8 @@ trait SupportsNamedInstances
     }
 
     /**
-     * Prefix for a named instance's app-facing environment variables, e.g. "ANALYTICS_" so
-     * DB_HOST becomes ANALYTICS_DB_HOST -- empty for the default (null) instance, so its
-     * variable names stay exactly what they've always been.
+     * Env var prefix for a named instance, e.g. "ANALYTICS_" (DB_HOST becomes ANALYTICS_DB_HOST).
+     * Empty for the default instance.
      */
     private function envPrefix(?string $instanceName): string
     {

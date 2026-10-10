@@ -10,28 +10,21 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Output\OutputInterface;
 
 /**
- * Mutagen (https://mutagen.io/) syncs the project root into the "app" container's own filesystem
- * in the background instead of `ship up`'s default bind mount -- opt-in via the SHIP_MUTAGEN
- * environment variable (a personal, per-machine choice, not a project-wide ship.json setting: it
- * only ever helps on Windows/macOS, where Docker Desktop's bind-mount translation layer makes
- * filesystem-heavy work slow, and is pure overhead on Linux, where bind mounts already talk to
- * the native filesystem directly -- see docs/roadmap.md). Development only: production bakes the
- * source into the image at build time (see "builder"/"prod" stages), so there's no bind mount --
- * or anything to sync -- to begin with.
+ * Mutagen (https://mutagen.io/) syncs the project root into the "app" container instead of using
+ * `ship up`'s bind mount. Opt-in through the SHIP_MUTAGEN environment variable rather than
+ * ship.json, since it only helps on Windows/macOS, where Docker Desktop's bind mounts are slow.
+ * Development only.
  *
- * Orchestrated directly by ship itself (`mutagen sync create`/`terminate`), not the separate
- * mutagen-compose plugin some tutorials assume: that's a second binary beyond core Mutagen, and
- * ship already has everywhere it needs to hook in (UpCommand/DownCommand) without it.
+ * Driven directly with `mutagen sync create`/`terminate`, without the separate mutagen-compose
+ * plugin.
  */
 final class MutagenSync
 {
     private const APP_SYNC_PATH = '/var/www/html';
     private const SYNC_TIMEOUT_SECONDS = 120;
     private const POLL_INTERVAL_SECONDS = 1;
-    // Session *creation* only has to scan the local tree and register the session -- the actual
-    // sync-to-"Watching" wait is the separate, longer SYNC_TIMEOUT_SECONDS poll loop below -- but a
-    // very large project tree (even with vendor/node_modules excluded, the scan still walks
-    // everything to apply those ignore rules) can still outrun runQuiet()'s own 30s default.
+    // Creating a session scans the whole local tree, which can outrun runQuiet()'s 30s default
+    // on a large project. Waiting for the sync to finish is the separate SYNC_TIMEOUT_SECONDS.
     private const CREATE_TIMEOUT_SECONDS = 60;
 
     public function __construct(
@@ -49,11 +42,7 @@ final class MutagenSync
     }
 
     /**
-     * `mutagen version` rather than a version check on some file -- the simplest, most direct way
-     * to answer "is the binary on PATH and actually runnable," matching how the rest of this
-     * codebase already treats an empty runQuiet() result as "the thing isn't there" (see
-     * UpCommand::runningServices()) rather than inspecting a process exit code ProcessRunner
-     * doesn't expose.
+     * An empty `mutagen version` result means the binary isn't on PATH or isn't runnable.
      */
     public function isBinaryAvailable(): bool
     {
@@ -61,13 +50,9 @@ final class MutagenSync
     }
 
     /**
-     * Creates the sync session if one for this project isn't already running, then blocks until
-     * it actually reaches a steady "Watching" state on both sides -- not just until the create
-     * command returns. Mutagen's Docker endpoint syncs directly into the container's own
-     * filesystem via an agent it injects at session-creation time, so the container's
-     * self::APP_SYNC_PATH starts out empty (see ComposeFileBuilder's Mutagen-mode volume swap) and
-     * stays that way until this initial sync finishes -- returning early would let `ship up`
-     * report success while the app is still serving out of an empty directory.
+     * Creates the sync session if this project doesn't have one, then blocks until it reaches
+     * "Watching" on both sides. The container's APP_SYNC_PATH is empty until the first sync
+     * finishes, so returning earlier would report success for an app serving an empty directory.
      */
     public function start(OutputInterface $output): int
     {
@@ -82,11 +67,8 @@ final class MutagenSync
         }
 
         if ($this->isWatching()) {
-            // Re-checked even when the sync already existed from a previous `ship up` -- cheap
-            // (a no-op the instant vendor/autoload.php exists, see installComposerDependencies()'s
-            // own docblock) and covers a first attempt that created the session successfully but
-            // was interrupted before installing, leaving a project stuck re-running `ship up` with
-            // no other way to retry just this part.
+            // Re-checked when the session already existed: a previous `ship up` may have been
+            // interrupted before installing. A no-op once vendor/autoload.php exists.
             if ($this->installComposerDependencies() !== Command::SUCCESS) {
                 $output->writeln('<error>ship: composer install failed inside the "app" container -- see the output above.</error>');
 
@@ -112,14 +94,9 @@ final class MutagenSync
 
         $output->writeln('<comment>ship: starting Mutagen file sync...</comment>');
 
-        // vendor/ and node_modules/ are excluded, not just for the sheer file count -- both can
-        // contain platform-specific compiled binaries (a handful of Composer packages, and any
-        // npm package with a native postinstall step: esbuild, sharp, sass, swc-based tooling).
-        // Syncing a Windows/macOS-installed copy into the Linux container would hand it binaries
-        // built for the wrong platform. The container bootstraps its own vendor/ already (the dev
-        // entrypoint's existing composer-install-if-missing fallback); node_modules/ needs the
-        // same `ship npm install` a fresh bind-mount project would too -- no regression either way,
-        // since bind-mount mode never auto-installs it now either.
+        // vendor/ and node_modules/ are excluded: both can contain platform-specific binaries
+        // that would be wrong inside the Linux container. vendor/ is installed in the container
+        // (see installComposerDependencies()); node_modules/ needs a `ship npm install`.
         $create = $this->runner->runQuietWithResult([
             'mutagen', 'sync', 'create',
             '--name', $this->sessionName(),
@@ -132,11 +109,8 @@ final class MutagenSync
             "docker://{$containerName}" . self::APP_SYNC_PATH,
         ], timeoutSeconds: self::CREATE_TIMEOUT_SECONDS);
 
-        // Checked here, not left to fall through to the polling loop below -- a real error (the
-        // Mutagen daemon not running, a stale session from a killed `ship up` holding the name, a
-        // bad Docker endpoint) means that loop was never going to see "Watching" no matter how
-        // long it waited, so it previously burned the full SYNC_TIMEOUT_SECONDS before reporting a
-        // generic timeout that said nothing about the real, already-known cause.
+        // Fail now with Mutagen's own error (daemon not running, stale session, bad endpoint)
+        // rather than poll for a sync that will never start.
         if ($create['exitCode'] !== 0) {
             $output->writeln(sprintf(
                 '<error>ship: `mutagen sync create` failed: %s</error>',
@@ -173,15 +147,9 @@ final class MutagenSync
     }
 
     /**
-     * vendor/ is deliberately excluded from the sync itself (see start()'s own docblock on why),
-     * which means nothing else ever populates it in this mode -- the dev entrypoint's own
-     * composer-install-if-missing fallback runs at container *boot*, before this sync session even
-     * exists yet, so composer.json isn't there for it to find either; it always skips. Found for
-     * real, not hypothesized: a live CI run's `artisan migrate` right after a successful `ship up`
-     * failed outright on a missing vendor/autoload.php. Same guard as that entrypoint fallback
-     * (composer.json present, vendor/autoload.php missing) so a second `ship up` -- vendor/ already
-     * there, persisted in the named volume same as everything else written inside the container --
-     * costs nothing beyond one quick `docker compose exec`.
+     * vendor/ is excluded from the sync, and the dev entrypoint's install-if-missing step runs at
+     * boot, before composer.json has synced. So the install runs here, once the sync has
+     * finished, with the same guard (composer.json present, vendor/autoload.php missing).
      */
     private function installComposerDependencies(): int
     {
@@ -193,11 +161,8 @@ final class MutagenSync
     }
 
     /**
-     * Safe to call unconditionally, whether or not a session for this project actually exists --
-     * matching mutagen sync terminate's own behavior of exiting 0 on an empty label-selector match
-     * rather than erroring, verified directly rather than assumed. Skips the terminate call
-     * entirely when the binary isn't available at all: nothing this ship instance itself could
-     * have started needs tearing down in that case.
+     * Safe to call whether or not a session exists: `mutagen sync terminate` exits 0 on an empty
+     * label-selector match. Skipped when the binary isn't available.
      */
     public function stop(): void
     {
@@ -209,12 +174,8 @@ final class MutagenSync
     }
 
     /**
-     * True only once the session is fully synced and idle -- "Watching" (Mutagen's own steady
-     * state, distinct from "Scanning"/"Staging"/"Reconciling" mid-sync) with both endpoints
-     * actually connected. --label-selector, not --name: a name is just a display label here (two
-     * sessions can share one, verified directly -- `mutagen sync create` doesn't reject a
-     * duplicate), where a label is the only thing this checks by that's actually guaranteed
-     * unique per project (see labelSelector()'s own docblock).
+     * True once the session is fully synced and idle: "Watching" with both endpoints connected.
+     * Looked up by label, since a session name isn't unique (see label()).
      *
      * @phpstan-impure genuinely non-deterministic across calls with the same arguments (there are
      *                 none): it shells out to `mutagen sync list`, whose result depends on the
@@ -244,11 +205,9 @@ final class MutagenSync
     }
 
     /**
-     * A short, stable hash of the project's real path -- not the path itself, which Mutagen's
-     * label values (verified directly, not documented in --help) don't accept the characters of
-     * ("/", ":", spaces on Windows). Stable across `ship up` runs for the *same* project, distinct
-     * across different ones on the same machine, which --label-selector-based lookups and
-     * teardown both depend on to never touch another project's sessions.
+     * A short, stable hash of the project's real path, since Mutagen label values don't accept
+     * path characters. Unique per project, so lookups and teardown never touch another project's
+     * sessions.
      */
     private function label(): string
     {

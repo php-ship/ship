@@ -25,21 +25,15 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Yaml\Yaml;
 
 /**
- * Development only -- see `ship build`/`ship release --tag` for production, a separate workflow
- * entirely (ProductionBuildRunner), not a mode of this command. Keeping the two apart means this
- * command never again grows a production-only branch (deploy commands, image export, ...) the way
- * it briefly did before `ship build`/`ship release` existed.
+ * Development only. Production is a separate workflow: `ship build`/`ship release --tag`
+ * (ProductionBuildRunner).
  */
 #[AsCommand(name: 'up', description: 'Build and start the development environment')]
 final class UpCommand extends Command
 {
     /**
-     * $registry, when given (Application passes its own already-populated one), is used as-is
-     * instead of this command loading every extension class all over again -- building and
-     * populating a fresh registry independently on every real `ship up` would reload the exact
-     * same extension classes, not just print the duplicate warning Application's own constructor
-     * already avoids. Left optional (not required) so constructing this directly -- every
-     * existing test does -- still works unchanged, building its own registry exactly as before.
+     * $registry is the one Application already populated with extensions. Optional so the command
+     * can be constructed directly (tests), in which case it builds its own.
      */
     public function __construct(
         private readonly string $projectRoot,
@@ -108,16 +102,8 @@ final class UpCommand extends Command
             return $result;
         }
 
-        // Before ensureEveryServiceStarted(), not after -- Reverb (and any Octane runtime) mounts
-        // the exact same synced named volume "app"/"webserver" do in this mode (see
-        // ComposeFileBuilder::alignReverbWithApp()), which is empty until this sync's own first
-        // pass finishes. Checking "is everything running" before that pass had a chance to run
-        // would see Reverb crash-looping against an empty /var/www/html (no artisan, no vendor/)
-        // and fail `ship up` outright, with Mutagen's own sync -- the one thing that would fix it
-        // -- never even starting. Resolving "app"'s own container only needs it to *exist* (just
-        // created/started by `up --build -d` above), not already be steady-state running, so this
-        // doesn't trade one ordering problem for another -- see MutagenSync::start()'s own
-        // containerName resolution.
+        // Before the ensure*() checks: Reverb and Octane runtimes mount the synced volume, which
+        // is empty until the first sync pass finishes, so they can't be running before it does.
         if ($mutagenSync) {
             $result = (new MutagenSync($this->runner, $this->projectRoot, $config->serviceNames['app'] ?? 'app'))->start($output);
 
@@ -142,9 +128,8 @@ final class UpCommand extends Command
     }
 
     /**
-     * ship.json's hostUser (see ShipConfig::$hostUser), or null -- and when the user asked for it but
-     * it can't apply, says why instead of quietly doing nothing, since the visible result of that
-     * (a root-owned vendor/ they turned the option on to avoid) would otherwise be a mystery.
+     * ship.json's hostUser (see ShipConfig::$hostUser), or null. When it was asked for but can't
+     * apply, says why instead of quietly running as root.
      *
      * @return array{uid: int, gid: int}|null
      */
@@ -170,11 +155,9 @@ final class UpCommand extends Command
     }
 
     /**
-     * `docker compose up --build -d` exiting 0 doesn't guarantee every service actually started -- under
-     * several simultaneous image builds, Compose can leave a service sitting at "Created" without ever
-     * starting it (observed with webserver/reverb; not something the generated compose file causes, see
-     * docs/roadmap.md). One retry self-heals that. A service still not running after the retry is a real
-     * failure the caller needs to see, not something to paper over.
+     * `docker compose up --build -d` exiting 0 doesn't guarantee every service started: under
+     * several simultaneous image builds, Compose can leave one at "Created". One retry fixes that;
+     * a service still not running afterwards is reported as a failure.
      */
     private function ensureEveryServiceStarted(string $composeYaml, OutputInterface $output): int
     {
@@ -214,14 +197,9 @@ final class UpCommand extends Command
     }
 
     /**
-     * `ship up` doesn't republish stub files itself -- only `ship init` does (see its own
-     * publishStubs()) -- so a project that upgrades the `php-ship/ship` package and runs `ship up`
-     * directly just keeps whatever `ship/Dockerfile` etc. the *previous* version wrote, silently.
-     * This only warns, never re-publishes on its own: a project may have
-     * hand-edited those files (see README's "Customizing the stack"), and silently overwriting
-     * that would be worse than an outdated stub. Stays quiet for a project whose `ship init` never
-     * recorded a version (older `ship`, or the version genuinely couldn't be determined) -- no
-     * baseline to compare against means no mismatch to report.
+     * `ship up` never republishes stub files (only `ship init` does), so after upgrading the
+     * package a project keeps the previous version's ship/Dockerfile etc. Only warns: the files
+     * may be hand-edited. Silent when no version was recorded.
      */
     private function warnAboutStubVersionMismatch(OutputInterface $output): void
     {
@@ -261,15 +239,9 @@ final class UpCommand extends Command
     }
 
     /**
-     * A service reporting "running" doesn't mean whatever's inside it is actually ready --
-     * MySQL/Postgres/Redis's own images take a few seconds beyond process start before they'll
-     * accept real connections (longest on a fresh volume's first boot), which is exactly why their
-     * ServiceDefinitions declare a `healthcheck` in the first place. Nothing before this ever
-     * consulted it, so `ship up` immediately followed by `ship exec app php artisan migrate` --
-     * a completely normal thing to do -- could race ahead of the database and fail with
-     * "connection refused" even though `ship up` itself had already reported success. Only
-     * services that declare a healthcheck are waited on; anything without one has no health
-     * status to check and stays covered by ensureEveryServiceStarted() alone.
+     * Waits for every service that declares a healthcheck to report healthy. "Running" isn't
+     * "ready": a database takes a few seconds before it accepts connections, and a migration run
+     * straight after `ship up` would otherwise race it.
      */
     private function ensureHealthchecksPass(string $composeYaml, OutputInterface $output): int
     {
@@ -298,15 +270,9 @@ final class UpCommand extends Command
     }
 
     /**
-     * Polls until the service's *own* healthcheck would have given up -- not a fixed count. A
-     * flat budget sized for MySQL/Postgres/Redis's own interval x retries (5s x 5 = 25s) would be
-     * too short for Garage/RustFS/Silo's own healthcheck (10s start_period + 5s x 10 retries =
-     * 60s) or SeaweedFS's (10s x 5 = 50s), both of which can legitimately still be "starting"
-     * well past that -- reporting a false "never became healthy" for what's really just a slow
-     * first boot (a fresh volume's own initialization). Computed from the service's own generated
-     * `healthcheck:` block instead, so it's never shorter than Docker's own patience for it, with
-     * a small buffer on top rather than trusting a single reading right at the edge, since a
-     * container can sit at "starting" for several polls before Docker marks it "healthy".
+     * Polls for as long as the service's own healthcheck would take to give up (see
+     * healthcheckBudgetSeconds()) rather than a fixed count, since budgets differ widely between
+     * services.
      *
      * @param array{interval?: string, retries?: int, start_period?: string} $healthcheck
      */
@@ -343,9 +309,8 @@ final class UpCommand extends Command
     }
 
     /**
-     * Docker's own worst-case time before it gives up and marks a container "unhealthy":
-     * start_period, then interval x retries. A 5s buffer on top for this process's own polling
-     * overhead -- never meant to be exact, just never shorter than Docker's own patience.
+     * Docker's worst-case time before marking a container "unhealthy" (start_period, then
+     * interval x retries), plus a 5s buffer for polling overhead.
      *
      * @param array{interval?: string, retries?: int, start_period?: string} $healthcheck
      */
@@ -359,10 +324,8 @@ final class UpCommand extends Command
     }
 
     /**
-     * Every healthcheck ship itself generates uses a plain "<N>s" duration -- not Docker's full
-     * duration syntax (which also allows "1m30s", "1h", ...) -- so this only ever needs to parse
-     * that one shape. Falls back to a conservative 30s for anything else (a hand-edited
-     * docker-compose.override.yml's own healthcheck, say) rather than failing outright.
+     * Parses the plain "<N>s" durations ship generates. Anything else (a hand-written override's
+     * "1m30s") falls back to 30s.
      */
     private function parseSeconds(string $duration): int
     {
@@ -370,25 +333,11 @@ final class UpCommand extends Command
     }
 
     /**
-     * A container reporting "running" doesn't mean its published ports actually bound -- Docker
-     * can silently drop one if another process already owns that host port (observed with
-     * Reverb's default 8080 colliding with an unrelated container), leaving the service reachable
-     * over the internal Docker network but not from the host. Nothing to retry here, unlike
-     * ensureEveryServiceStarted() -- another process squatting on the port won't free it up on its
-     * own, so this only needs to turn an otherwise-silent failure into a visible one. Checked right
-     * after `up` returns, Docker's own async network setup can still be mid-flight either way --
-     * `docker compose port` observed reporting a port as bound moments before the bind actually
-     * failed, not just the reverse (slow-but-fine). portIsBound() waits out that settling window
-     * instead of trusting whatever the first read says.
+     * A running container doesn't mean its published ports bound: Docker can silently drop one
+     * when another process owns the host port. Nothing to retry, so this only reports it.
      *
-     * Reads `docker compose config` (Compose's own fully-resolved view), not the raw generated
-     * YAML the other ensure*() methods parse -- Vite's own port mapping (see ComposeFileBuilder)
-     * has "${VITE_PORT:-5173}" on *both* sides, not just the host side every other mapping here
-     * has, so the container side isn't always a bare literal a simple string split could pull
-     * out safely. `docker compose config` already resolves every
-     * "${VAR:-default}" the same way `docker compose up` itself would (env var, then .env, then
-     * the inline default), handing back a real "target" port number directly instead of text this
-     * class would otherwise have to re-parse.
+     * Reads `docker compose config` rather than the generated YAML, since it resolves every
+     * "${VAR:-default}" the way `docker compose up` does and returns a numeric "target" port.
      */
     private function ensurePublishedPortsAreBound(OutputInterface $output): int
     {
@@ -426,10 +375,8 @@ final class UpCommand extends Command
     }
 
     /**
-     * The *last* of 3 readings, 1 second apart, is the answer -- not the first. See
-     * ensurePublishedPortsAreBound()'s docblock: an early reading can go either way while Docker's
-     * async network setup is still mid-flight, so only a reading taken after that settles is
-     * trustworthy.
+     * The last of 3 readings, 1 second apart, is the answer: an early reading can go either way
+     * while Docker's network setup is still settling.
      */
     private function portIsBound(string $service, string $containerPort): bool
     {
@@ -451,10 +398,8 @@ final class UpCommand extends Command
     }
 
     /**
-     * Empty output isn't the only failure shape -- `docker compose port` prints the literal
-     * "invalid IP:0", not an error and not empty, when a service's port mapping exists in its
-     * metadata but the actual host bind never succeeded. Only a real "host:port" with a non-zero
-     * numeric port counts as genuinely bound.
+     * `docker compose port` prints the literal "invalid IP:0" when a mapping exists but the host
+     * bind failed, so only a "host:port" with a non-zero numeric port counts as bound.
      */
     private function looksActuallyBound(string $output): bool
     {

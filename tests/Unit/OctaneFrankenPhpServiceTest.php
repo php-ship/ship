@@ -9,10 +9,8 @@ use Ship\Contracts\ShipEnvironment;
 use Ship\Services\OctaneFrankenPhpService;
 
 /**
- * OctaneRuntimeMergeTest already covers the dockerfile-override-without-erasing-build-context
- * behavior this service exists to exercise -- this file covers what that one doesn't: FrankenPHP
- * specifically publishing both an HTTP and HTTPS port (built-in TLS is one of its distinguishing
- * features from Swoole/RoadRunner) and its own OCTANE_SERVER value.
+ * OctaneRuntimeMergeTest covers the dockerfile override. This covers FrankenPHP's HTTP and HTTPS
+ * ports, its OCTANE_SERVER value, --watch and SHIP_RUN_AS.
  */
 final class OctaneFrankenPhpServiceTest extends TestCase
 {
@@ -27,9 +25,8 @@ final class OctaneFrankenPhpServiceTest extends TestCase
     }
 
     /**
-     * A bare `HOST:CONTAINER` mapping binds every interface, not just loopback -- development
-     * binds these to 127.0.0.1 instead (see DevPortBinding), but production is left unbound: a
-     * published production port often does need to be reachable from outside.
+     * Development binds ports to 127.0.0.1 (see DevPortBinding); production mappings are left
+     * alone.
      */
     public function test_ports_are_not_loopback_bound_in_production(): void
     {
@@ -49,9 +46,7 @@ final class OctaneFrankenPhpServiceTest extends TestCase
     }
 
     /**
-     * Unlike Swoole/RoadRunner, --watch has no chokidar/Node dependency here at all -- Octane
-     * injects a native watch directive into FrankenPHP's own Caddyfile instead -- so it's
-     * unconditional in dev, with no shell-level presence check needed.
+     * --watch has no chokidar dependency on FrankenPHP, so it's unconditional in dev.
      */
     public function test_watch_is_added_in_development_only(): void
     {
@@ -73,9 +68,7 @@ final class OctaneFrankenPhpServiceTest extends TestCase
     }
 
     /**
-     * Production only, same as Swoole/RoadRunner (see OctaneSwooleServiceTest's own equivalent):
-     * Octane has no master-drops-workers split, so without this it runs as root. Dev never reads
-     * SHIP_RUN_AS (its own entrypoint is a different, static file).
+     * An Octane server would otherwise run as root in production. Dev doesn't read SHIP_RUN_AS.
      */
     public function test_it_asks_the_entrypoint_to_drop_to_www_data_in_production_only(): void
     {

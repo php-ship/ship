@@ -33,11 +33,8 @@ final class Application extends SymfonyApplication
 
     public function __construct(private readonly string $projectRoot)
     {
-        // ShipVersion::current() (Composer's own InstalledVersions) is the real installed
-        // version, so `ship --version` reflects whatever's actually installed. Still falls back
-        // to the literal "0.1.0-dev" when InstalledVersions can't answer at all (running straight
-        // from a git checkout with no Composer metadata, same case ShipVersion::current()'s own
-        // callers already degrade gracefully for).
+        // Falls back to "0.1.0-dev" when Composer's InstalledVersions can't answer (a plain git
+        // checkout).
         parent::__construct('ship', ShipVersion::current() ?? '0.1.0-dev');
 
         $runner = new ProcessRunner();
@@ -52,11 +49,7 @@ final class Application extends SymfonyApplication
         $warnings = $loaded['warnings'];
         $this->extensionFrameworkAdapters = $loaded['frameworkAdapters'];
 
-        // $registry/$this->extensionFrameworkAdapters are passed into every command below instead
-        // of letting each one build and populate its own fresh registry independently -- that
-        // would reload the exact same extension classes all over again on every real `ship`
-        // invocation, not just print the duplicate *warning* the fwrite() below already avoids.
-        // See UpCommand's own constructor docblock.
+        // One registry, shared by every command, so extension classes are only loaded once.
         $this->registerCommand(new InitCommand($this->projectRoot, $registry));
         $this->registerCommand(new UpCommand($this->projectRoot, $runner, $registry));
         $this->registerCommand(new BuildCommand($this->projectRoot, $runner, $registry, $this->extensionFrameworkAdapters));
@@ -68,11 +61,8 @@ final class Application extends SymfonyApplication
         $this->registerCommand(new DbCommand($this->projectRoot, $runner, $registry));
         $this->registerCommand(new ConfigTestCommand($this->projectRoot, $registry));
 
-        // Package-manager commands are framework-agnostic, so they're
-        // always available regardless of what FrameworkAdapter matches.
-        // Node is installed unconditionally in the base image (see
-        // NodeService's docblock), so `ship npm` always targets the app
-        // service too — there's no separate node container to route to.
+        // Package-manager commands are always available. Node is installed in the app image, so
+        // `ship npm` targets the app service too.
         $this->registerCommand(new ProxyCommand('composer', $appServiceName, 'composer', $this->projectRoot, $runner));
         $this->registerCommand(new ProxyCommand('npm', $appServiceName, 'npm', $this->projectRoot, $runner));
 
@@ -82,17 +72,15 @@ final class Application extends SymfonyApplication
             }
         }
 
-        // Surfaced on the next command run rather than thrown from the
-        // constructor — a broken extension shouldn't prevent `ship` from
-        // running at all, just warn every time until it's fixed.
+        // A broken extension only warns; it shouldn't stop `ship` from running.
         foreach ($warnings as $warning) {
             fwrite(STDERR, "ship: warning: {$warning}\n");
         }
     }
 
     /**
-     * `Application::add()` was removed in symfony/console 8.0 in favor of `addCommand()` (added in 7.4) --
-     * exactly why composer.json requires `symfony/console: ^7.4 || ^8.0` specifically here, not `^7.0`.
+     * `add()` was removed in symfony/console 8.0 in favor of `addCommand()` (added in 7.4), hence
+     * the `^7.4 || ^8.0` constraint in composer.json.
      */
     private function registerCommand(Command $command): void
     {
@@ -104,9 +92,7 @@ final class Application extends SymfonyApplication
      */
     private function detectFrameworkAdapters(): array
     {
-        // Registering more than one adapter class here is fine — detect()
-        // is what decides whether it actually contributes commands for
-        // this project, so an unmatched adapter is simply a no-op.
+        // detect() decides whether an adapter contributes commands for this project.
         $candidates = [
             new LaravelAdapter(),
             new SymfonyAdapter(),
@@ -130,9 +116,8 @@ final class Application extends SymfonyApplication
         try {
             return ShipConfig::fromFile($path);
         } catch (\Throwable) {
-            // A malformed ship.json shouldn't block `ship init` from being
-            // able to fix it — commands that actually need the config
-            // (UpCommand etc.) will surface the real parse error themselves.
+            // A malformed ship.json mustn't block `ship init`; commands that need the config
+            // report the parse error themselves.
             return null;
         }
     }

@@ -49,13 +49,9 @@ final class EntrypointScriptBuilderTest extends TestCase
     }
 
     /**
-     * Regression test: plain php-fpm's request-handling workers run as www-data, but everything
-     * before this line (the image build, artisan optimize's view cache) runs as root -- without
-     * this chown, anything a worker needs to write at request time hits a permission error against
-     * root-owned files. Ordering matters: has to run after release commands (which create the
-     * root-owned files in the first place) and before exec (the real process needs it already done).
-     * Scoped to specific directories, not the whole tree -- a recursive chown over vendor/ too once
-     * took tens of seconds and blocked php-fpm from ever starting on a real Laravel app.
+     * php-fpm's workers run as www-data but release commands run as root, so the writable
+     * directories are chowned after the release commands and before exec. Only those
+     * directories: a recursive chown over vendor/ is slow.
      */
     public function test_it_chowns_only_the_writable_directories_after_release_commands_and_before_exec(): void
     {
@@ -75,9 +71,8 @@ final class EntrypointScriptBuilderTest extends TestCase
     }
 
     /**
-     * Decided per container at runtime (SHIP_RUN_AS), not baked in: the same image and this one
-     * script back containers that need opposite things -- php-fpm's master has to start as root to
-     * drop its own workers, while an Octane server or a Horizon process must not run as root at all.
+     * The drop is decided at runtime through SHIP_RUN_AS, since one image backs both php-fpm
+     * (which must start as root) and processes that must not run as root.
      */
     public function test_it_drops_to_the_user_named_by_ship_run_as_when_it_is_set(): void
     {
@@ -88,9 +83,8 @@ final class EntrypointScriptBuilderTest extends TestCase
     }
 
     /**
-     * Debian (FrankenPHP) has no su-exec but already ships setpriv, which exec()s its target
-     * directly, same as su-exec, not fork-and-wait. SHIP_RUN_AS is always a bare name
-     * ("www-data") here, never "uid:gid", so the same value works as both --reuid and --regid.
+     * FrankenPHP's Debian image has setpriv instead of su-exec. SHIP_RUN_AS is a bare user name,
+     * so the same value serves as --reuid and --regid.
      */
     public function test_it_falls_back_to_setpriv_when_su_exec_is_not_available(): void
     {
@@ -104,9 +98,8 @@ final class EntrypointScriptBuilderTest extends TestCase
     }
 
     /**
-     * With SHIP_RUN_AS unset (php-fpm) the plain exec has to still be there and come last -- and
-     * after the chown, so the dropped-to user can write what was just handed to it. exec, not a
-     * fork, either way: otherwise `docker stop`'s SIGTERM hits a wrapper instead of the server.
+     * With SHIP_RUN_AS unset the plain exec remains, last and after the chown. exec keeps the
+     * server as PID 1 so SIGTERM reaches it.
      */
     public function test_the_drop_comes_after_the_chown_and_a_plain_exec_remains_as_the_fallback(): void
     {

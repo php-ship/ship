@@ -10,8 +10,8 @@ use Ship\Docker\DeployPlan;
 final class DeployPlanTest extends TestCase
 {
     /**
-     * Image-pulled services are infrastructure -- everything built from ship/Dockerfile (the
-     * app, its nginx, Reverb) is exactly what must not start until the deploy commands succeed.
+     * Image-pulled services are infrastructure; services built from ship/Dockerfile must not
+     * start until the deploy commands succeed.
      */
     public function test_services_without_a_build_are_infrastructure(): void
     {
@@ -38,10 +38,8 @@ final class DeployPlanTest extends TestCase
     }
 
     /**
-     * A plain "has a build: at all" check is not a reliable proxy for "is this the app's own
-     * code" -- it would also catch Garage, a project-owned service with its own small packaging
-     * Dockerfile for unrelated reasons, leaving a "create the bucket" deploy command to run
-     * against a Garage that was never started.
+     * Garage has its own packaging Dockerfile but is still infrastructure, so "has a build:" isn't
+     * the test.
      */
     public function test_a_service_building_from_its_own_dockerfile_is_infrastructure_too(): void
     {
@@ -66,8 +64,8 @@ final class DeployPlanTest extends TestCase
     }
 
     /**
-     * -T (no terminal: this can run in CI), --no-deps (never start anything as a side effect), and
-     * sh -c (a command can be any shell line, not just one executable) are each load-bearing.
+     * -T (no terminal in CI), --no-deps (start nothing as a side effect) and sh -c (any shell
+     * line) are each required.
      */
     public function test_a_command_runs_as_a_one_off_shell_line_in_the_app_service(): void
     {

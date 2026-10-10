@@ -5,11 +5,8 @@ declare(strict_types=1);
 namespace Ship\Docker;
 
 /**
- * A plain KEY=VALUE reader for `.env.production` -- not a full dotenv implementation (no variable
- * interpolation, no multiline support), since the only consumer (ProductionBuildRunner) just
- * needs values available to the `docker compose build` child process for Compose's own `${VAR}`
- * substitution in a hand-edited ship/Dockerfile's build args, the same way a project's own
- * framework already reads its runtime `.env`.
+ * A plain KEY=VALUE reader for `.env`/`.env.production`. Not a full dotenv implementation: no
+ * variable interpolation and no multiline values.
  */
 final class EnvFile
 {
@@ -27,11 +24,7 @@ final class EnvFile
         $lines = file($path, FILE_IGNORE_NEW_LINES);
 
         foreach ($lines === false ? [] : $lines as $index => $line) {
-            // A UTF-8 BOM (several Windows editors, and PowerShell's own Out-File/Set-Content,
-            // write one by default) only ever lands on the very first line -- left in place, it
-            // silently prepends itself to that line's own key, so the first variable in the file
-            // is never found by any exact lookup even though it reads as correct in an editor
-            // that hides the BOM on display (most of them do).
+            // Strip a UTF-8 BOM, which would otherwise become part of the first key.
             if ($index === 0) {
                 $line = preg_replace('/^\xEF\xBB\xBF/', '', $line) ?? $line;
             }
@@ -43,34 +36,15 @@ final class EnvFile
             }
 
             [$key, $value] = explode('=', $line, 2);
-            // A line written as `export KEY=value` -- valid shell syntax Laravel/Compose both
-            // already accept, and a real pattern for a .env.production meant to also be
-            // `source`-able directly -- would otherwise keep "export KEY" as the variable name
-            // verbatim, so every lookup against the real "KEY" would silently see it as never set
-            // at all (ship config:test reporting it missing, a real production build passing the
-            // wrong name to Compose) instead of either reading it correctly or at least failing
-            // loudly.
+            // Accept `export KEY=value`.
             $key = (string) preg_replace('/^export\s+/', '', trim($key));
             $value = trim($value);
 
-            // A trailing ` # comment` is stripped, not kept as part of the value -- the "comment"
-            // isn't a comment to anything reading this value afterward, so leaving it in place
-            // would corrupt the value outright. Only for an *unquoted* value -- a quoted one may
-            // legitimately contain a literal "#", and the closing quote itself is the actual end
-            // of the value, not wherever "#" happens to appear. A *quoted* value followed by a
-            // comment -- `KEY="three" # note` -- needs its closing quote found explicitly (not
-            // just the end of the string), since the comment makes the closing quote fall short
-            // of the value's very last character; only then is everything after it stripped.
+            // A trailing ` # comment` is stripped from an unquoted value. For a quoted value,
+            // the closing quote ends the value and anything after it is dropped.
             if ($value !== '' && $value[0] === '"') {
-                // An *escaped* quote inside a double-quoted value -- `E="a\"b"` -- needs scanning
-                // character by character, treating a backslash as consuming whatever follows it
-                // (an escaped quote, an escaped backslash, ...) rather than a value boundary --
-                // the same thing a shell or a real dotenv parser already does with double-quoted
-                // values. A plain strpos() for the closing quote has no concept of escaping at
-                // all, and would cut the value short at the escaped quote instead of the real
-                // closing one. Single-quoted ones are deliberately left on the simpler strpos()
-                // path below: they have no escape mechanism at all in shell/dotenv convention, so
-                // the first matching quote is always the real one.
+                // Scan for the closing quote, skipping backslash-escaped characters.
+                // Single-quoted values have no escapes and use the plain strpos() below.
                 $closing = null;
                 $length = strlen($value);
 
@@ -86,8 +60,7 @@ final class EnvFile
                     }
                 }
 
-                // An unterminated quote has nothing real to close on -- left as the raw,
-                // already-trimmed value, the same lenient fallback this always had.
+                // An unterminated quote leaves the raw value as it is.
                 if ($closing !== null) {
                     $value = (string) preg_replace('/\\\\(["\\\\])/', '$1', substr($value, 1, $closing - 1));
                 }

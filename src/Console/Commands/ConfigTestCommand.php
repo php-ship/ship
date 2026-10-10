@@ -20,13 +20,9 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
 /**
- * `ship.json`'s equivalent of `nginx -t`: checks everything that's actually checkable
- * statically -- no Docker, no containers, nothing started, stopped, or built -- and reports
- * every problem it finds in one pass, not just the first. `ship up`/`ship build`/`ship release`
- * each already run a subset of these same checks themselves, but fail fast on the first one and
- * only once something is actually being started or built; this exists so a project can ask "is
- * my config sound" at any time and see everything that's wrong at once, the same way `nginx -t`
- * does before ever touching the real server.
+ * `ship.json`'s equivalent of `nginx -t`: runs every check that needs no Docker and reports all
+ * the problems it finds in one pass. `ship up`/`build`/`release` run subsets of the same checks
+ * but stop at the first failure.
  */
 #[AsCommand(name: 'config:test', description: 'Validate ship.json and the generated compose files without starting anything')]
 final class ConfigTestCommand extends Command
@@ -34,9 +30,8 @@ final class ConfigTestCommand extends Command
     private int $problems = 0;
 
     /**
-     * $registry, when given (Application passes its own already-populated one), is used as-is --
-     * see UpCommand's matching constructor docblock for why. Left optional so constructing this
-     * directly -- every test does -- still works unchanged.
+     * $registry is the one Application already populated. Optional so the command can be
+     * constructed directly (tests).
      */
     public function __construct(
         private readonly string $projectRoot,
@@ -52,8 +47,7 @@ final class ConfigTestCommand extends Command
         try {
             $config = ShipConfig::fromFile($this->projectRoot . '/ship.json');
         } catch (\Throwable $e) {
-            // Nothing else here is checkable without a valid config to check -- unlike every
-            // other problem below, this one alone is worth failing fast on.
+            // Nothing else can be checked without a valid config.
             $output->writeln("<error>ship.json: {$e->getMessage()}</error>");
 
             return Command::FAILURE;
@@ -66,23 +60,15 @@ final class ConfigTestCommand extends Command
             (new ExtensionLoader())->load($config->extensions, $registry);
         }
 
-        // Checked independently, up front, rather than solely by attempting the real build()
-        // below -- ComposeFileBuilder::build() throws on the *first* problem it hits, so an
-        // unregistered service key would otherwise hide a bad `processes` name behind it (or vice
-        // versa), contradicting this command's own "reports everything in one pass" promise. Both
-        // checks are environment-independent (a key is either registered or not; a name is either
-        // shaped right or not, regardless of dev/prod), so one pass here covers both builds below
-        // at once.
+        // ComposeFileBuilder::build() throws on the first problem it hits, so its two known
+        // failure causes are checked here first to report all of them. Both are
+        // environment-independent, so one pass covers the dev and production builds.
         $problemsBeforeBuild = $this->problems;
         $this->checkServiceKeysAreRegistered($registry, $config, $output);
         $this->checkProcessNames($config, $output);
 
-        // Skipped, not attempted anyway, once the checks above already found something -- both
-        // builds would only re-throw on the exact same already-reported problem (ComposeFileBuilder
-        // has no other failure mode -- confirmed by reading its own source), double-reporting one
-        // real issue as two. The one thing this trades away is checkRequiredProductionEnv() below,
-        // which needs the actual generated compose string -- a secondary check, reasonably skipped
-        // until the structural problem above is fixed first.
+        // Skipped when the checks above found something: both builds would only re-report it.
+        // That also skips checkRequiredProductionEnv(), which needs the generated compose file.
         $prodCompose = null;
         if ($this->problems === $problemsBeforeBuild) {
             $this->buildCompose($registry, $config, ShipEnvironment::Development, 'development', $output);
@@ -93,8 +79,7 @@ final class ConfigTestCommand extends Command
             $this->checkRequiredProductionEnv($prodCompose, $output);
         }
 
-        // A warning, not a problem -- same as `ship up`/`ship build`/`ship release` themselves
-        // (see NginxUpstreamMismatch's own docblock for why this never fails anything outright).
+        // A warning, not a problem, as in `ship up`/`build`/`release`.
         $nginxWarning = NginxUpstreamMismatch::warning($this->projectRoot, $config);
         if ($nginxWarning !== null) {
             $output->writeln($nginxWarning);
@@ -119,12 +104,9 @@ final class ConfigTestCommand extends Command
     }
 
     /**
-     * Every value under ship.json's "services" and every "additionalServices" entry's "service"
-     * -- whichever group it's under, built-in or from an extension -- has to resolve to something
-     * $registry actually has, or ComposeFileBuilder::applyService() throws a raw
-     * OutOfBoundsException the moment it's reached. Checked directly against $registry (not by
-     * attempting a build) so every bad key is reported, not just the first one build() happens
-     * to reach first.
+     * Every service key under "services" and "additionalServices" must be registered, or
+     * ComposeFileBuilder throws a raw OutOfBoundsException. Checked against the registry directly
+     * so every bad key is reported.
      */
     private function checkServiceKeysAreRegistered(ServiceRegistry $registry, ShipConfig $config, OutputInterface $output): void
     {
@@ -148,12 +130,9 @@ final class ConfigTestCommand extends Command
     }
 
     /**
-     * Same regex ComposeFileBuilder::addProcessServices() itself enforces (a `processes` name
-     * becomes a compose service name, production only) -- checked here directly so every bad
-     * name is reported, not just the first one that method happens to reach first. Its own
-     * second check (a name colliding with a service ship already generates) is left to the real
-     * build below: which names collide depends on what else ship.json selects, not just the name
-     * itself, so it isn't something this can check in isolation the same way.
+     * The same name rule ComposeFileBuilder::addProcessServices() enforces, checked here so every
+     * bad name is reported. A collision with a generated service depends on the rest of ship.json
+     * and is left to the real build.
      */
     private function checkProcessNames(ShipConfig $config, OutputInterface $output): void
     {
@@ -171,11 +150,8 @@ final class ConfigTestCommand extends Command
     }
 
     /**
-     * Pure PHP, no Docker involved -- the exact same build this environment's real `ship up`/
-     * `ship build`/`ship release` would run. By this point, the only known failure modes
-     * (checkServiceKeysAreRegistered()/checkProcessNames() above) have already been ruled out, so
-     * this is a safety net for anything else ComposeFileBuilder (or a service's own
-     * composeFragment()) might still throw, not the primary way either of those two is detected.
+     * The same build `ship up`/`build`/`release` run. A safety net for anything
+     * ComposeFileBuilder or a service's composeFragment() might still throw.
      */
     private function buildCompose(
         ServiceRegistry $registry,
@@ -199,12 +175,8 @@ final class ConfigTestCommand extends Command
     }
 
     /**
-     * ComposeFileBuilder only ever emits the `${VAR:?message}` *expression*, never the actual
-     * resolved value, which only exists once a real .env.production is read (see RequiredEnv's
-     * own docblock) -- so a missing credential is still valid YAML and never surfaces on its own.
-     * This simulates what `docker compose` itself would refuse to do at that point, without
-     * needing Docker to find out -- `ship build`/`ship release` run the same check (see
-     * RequiredEnv::missingFrom()) before ever invoking Docker too, not just this command.
+     * A missing `${VAR:?message}` value is still valid YAML, so this checks .env.production for
+     * every required variable the way `docker compose` would (see RequiredEnv::missingFrom()).
      */
     private function checkRequiredProductionEnv(string $compose, OutputInterface $output): void
     {

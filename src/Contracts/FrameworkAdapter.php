@@ -5,9 +5,8 @@ declare(strict_types=1);
 namespace Ship\Contracts;
 
 /**
- * Keeps framework-specific assumptions -- an artisan file, Symfony's bin/console, etc. -- fully out of
- * the core package. `ship` itself only ever knows about this one interface; a Laravel-specific glue
- * adapter is what actually implements `ship artisan`, and could move into its own package simply.
+ * Keeps framework-specific assumptions (an artisan file, Symfony's bin/console) out of the core
+ * package.
  */
 interface FrameworkAdapter
 {
@@ -24,9 +23,8 @@ interface FrameworkAdapter
     public function consoleCommands(): array;
 
     /**
-     * The framework's own optimize/cache-warming command(s), run once at production container boot, not
-     * build time, so real env vars are already set (e.g. Laravel's `artisan optimize`). Empty when the
-     * framework has nothing equivalent; an unmatched project execs straight into the real process.
+     * Optimize/cache-warming commands run at every production container boot rather than at build
+     * time, so real env vars are set (e.g. Laravel's `artisan optimize`). May be empty.
      *
      * @return list<string>
      */

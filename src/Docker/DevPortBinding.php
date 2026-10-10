@@ -7,13 +7,9 @@ namespace Ship\Docker;
 use Ship\Contracts\ShipEnvironment;
 
 /**
- * A bare `HOST:CONTAINER` port mapping binds every interface (0.0.0.0), not just loopback -- the
- * host is reachable from anything else on the same network, or the open internet on a cloud dev
- * box with no firewall, for a port (Vite, Mailpit's web UI, the app itself, Reverb, Silo's
- * console) that only ever needs to reach the developer's own machine. Development only: a
- * production port often does need to be reachable from outside -- directly when
- * ShipConfig::$publishPorts allows it, or through a reverse proxy sharing the host's own
- * interfaces -- a concern development never had.
+ * A bare `HOST:CONTAINER` mapping binds every interface, exposing a dev port to the local
+ * network. Development ports are bound to 127.0.0.1 instead; production mappings are left as
+ * they are, since a published production port may need to be reachable from outside.
  */
 final class DevPortBinding
 {

@@ -51,10 +51,7 @@ final class ComposeCommandTest extends TestCase
     }
 
     /**
-     * The override file is a dev convenience -- ProductionBuildRunner's own production build must
-     * not pick it up the way every other caller does, or a project's dev-only `build:`
-     * customization would leak into the production image, leaving the release's exported
-     * docker-compose.yml not matching what was actually built.
+     * The override file is a dev convenience and must not reach a production build.
      */
     public function test_include_override_false_omits_it_even_when_the_file_exists(): void
     {
@@ -69,12 +66,8 @@ final class ComposeCommandTest extends TestCase
     }
 
     /**
-     * ship build/ship release must not write to the same docker-compose.generated.yml dev file
-     * uses -- running either one after `ship up` would otherwise leave the dev compose file
-     * overwritten with a production one until the next `ship up` regenerated it, during which
-     * ship exec/shell/composer/npm would all read the wrong target. ProductionBuildRunner passes
-     * composeFile: ComposeCommand::PRODUCTION_COMPOSE_FILE explicitly instead of sharing the dev
-     * default.
+     * `ship build`/`ship release` use their own compose file (see
+     * ComposeCommand::PRODUCTION_COMPOSE_FILE) instead of overwriting the dev one.
      */
     public function test_a_custom_compose_file_overrides_the_dev_default(): void
     {

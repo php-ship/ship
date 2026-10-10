@@ -24,9 +24,7 @@ final class ReleaseCommandTest extends TestCase
     }
 
     /**
-     * CI reliability is the whole point of requiring --tag there (see the instruction this command
-     * was built from): a prompt that never gets an answer in a non-interactive pipeline would hang
-     * it instead of failing it loudly, so this must fail immediately rather than attempt to ask.
+     * A prompt would hang a non-interactive pipeline, so a missing --tag fails immediately.
      */
     public function test_a_missing_tag_fails_immediately_in_a_non_interactive_session_instead_of_prompting(): void
     {
@@ -58,16 +56,8 @@ final class ReleaseCommandTest extends TestCase
     }
 
     /**
-     * exportImages() has to check `docker save`'s own exit code -- a release would otherwise
-     * report success with a missing or truncated tar. A nonexistent image tag makes `docker save`
-     * itself fail predictably, without needing a real image to actually exist.
-     *
-     * Skipped, not silently "passed", when Docker itself isn't installed: `docker save` against
-     * a nonexistent tag and `docker` not existing on PATH at all both make `runInteractive()`
-     * return a non-zero exit code, so the assertion would hold either way, but only the former
-     * actually exercises exportImages()'s own handling of a *genuine* `docker save` failure --
-     * without Docker, the test would pass for the unrelated reason that the `docker` command
-     * couldn't even start, which proves nothing about the code under test.
+     * exportImages() must fail when `docker save` does; a nonexistent tag makes it fail
+     * predictably. Skipped without Docker, where the assertion would hold for the wrong reason.
      */
     public function test_export_images_fails_when_docker_save_fails(): void
     {
@@ -91,9 +81,8 @@ final class ReleaseCommandTest extends TestCase
     }
 
     /**
-     * chmod() is a silent no-op on Windows (NTFS has no Unix executable bit for it to set), so
-     * deploy-commands.sh written on a Windows dev machine isn't actually executable once copied
-     * to the server -- this warning is the only thing telling the operator that.
+     * chmod() is a no-op on Windows, so deploy-commands.sh built there isn't executable on the
+     * server; the warning says so.
      */
     public function test_windows_executable_bit_warning_fires_only_on_windows_with_deploy_commands(): void
     {
@@ -132,12 +121,8 @@ final class ReleaseCommandTest extends TestCase
     }
 
     /**
-     * `ship release` checks that every variable Compose will actually require is set in
-     * .env.production, not just that the file *exists* (the same check ConfigTestCommand's own
-     * dry run makes) -- otherwise a missing DB_PASSWORD surfaces as a raw `docker compose build`
-     * interpolation error instead, assuming Docker is even installed to produce one. No Docker
-     * involved in this test: failing this check happens before ProductionBuildRunner -- and
-     * therefore Docker -- is ever reached.
+     * A required production variable missing from .env.production fails before
+     * ProductionBuildRunner, and so Docker, is reached.
      */
     public function test_release_fails_fast_on_a_missing_required_production_variable(): void
     {

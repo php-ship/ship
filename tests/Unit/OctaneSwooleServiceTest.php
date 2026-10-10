@@ -22,16 +22,9 @@ final class OctaneSwooleServiceTest extends TestCase
     }
 
     /**
-     * Requested from real use: without --watch, Octane keeps serving the worker process's
-     * already-booted code, so a PHP change needs a manual `php artisan octane:reload` before it's
-     * picked up -- the same behavior Laravel Sail's own Octane setup avoids by passing --watch.
-     * Dev only -- production never wants to restart workers on a file change it should never see
-     * to begin with (the source is baked into the image, not live-mounted).
-     *
-     * Gated on node_modules/chokidar actually existing, checked at container *boot* -- not always
-     * on -- unconditionally passing --watch crash-loops Octane's own watcher subprocess ("Cannot
-     * find module 'chokidar'") on any project that doesn't have it, which is most fresh Laravel
-     * installs, not a rare case.
+     * --watch reloads workers on a PHP change, in dev only. It's gated at container boot on
+     * node_modules/chokidar existing, since passing it without chokidar crash-loops Octane's
+     * watcher.
      */
     public function test_watch_is_conditional_on_chokidar_and_only_checked_in_development(): void
     {
@@ -52,9 +45,7 @@ final class OctaneSwooleServiceTest extends TestCase
     }
 
     /**
-     * Every Octane runtime serves HTTP itself, so nginx ("webserver") is never needed alongside
-     * one -- see ComposeFileBuilder::baseServices()'s own docblock for the primary check this
-     * backstops.
+     * Every Octane runtime serves HTTP itself, so nginx ("webserver") isn't needed.
      */
     public function test_it_removes_the_webserver_service(): void
     {
@@ -62,10 +53,8 @@ final class OctaneSwooleServiceTest extends TestCase
     }
 
     /**
-     * An Octane server has no master-drops-workers split the way php-fpm does, so in production the
-     * generated entrypoint has to be told to drop it to www-data (see EntrypointScriptBuilder) --
-     * otherwise every request handler runs as root. Dev never reads it (its own entrypoint is a
-     * different, static file), so it isn't set there.
+     * An Octane server would otherwise run as root in production (see EntrypointScriptBuilder).
+     * Dev doesn't read SHIP_RUN_AS.
      */
     public function test_it_asks_the_entrypoint_to_drop_to_www_data_in_production_only(): void
     {

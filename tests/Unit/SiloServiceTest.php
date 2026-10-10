@@ -31,10 +31,7 @@ final class SiloServiceTest extends TestCase
     }
 
     /**
-     * "ship"/"shipsecret" must only ever be the *default* a project's own .env/.env.production
-     * can override. This matters more here than for Garage/RustFS: Silo's console is published
-     * to the host by default, so a hardcoded literal would mean every default `ship release`
-     * deploy exposes a login page with a publicly-known credential on the open internet.
+     * "ship"/"shipsecret" are overridable defaults, not literals.
      */
     public function test_credentials_are_overridable_defaults_not_hardcoded_literals(): void
     {
@@ -45,10 +42,8 @@ final class SiloServiceTest extends TestCase
     }
 
     /**
-     * Production requires a real value instead of falling back to the same friendly default
-     * development uses -- worse here than for Garage/RustFS if it didn't, since Silo's console is
-     * published to the host when `publishPorts` is enabled. `docker compose` itself refuses to run
-     * when no real value is set in .env.production.
+     * Production requires a real password, which matters here because the console can be
+     * published to the host.
      */
     public function test_the_password_is_required_in_production_not_just_overridable(): void
     {
@@ -69,9 +64,7 @@ final class SiloServiceTest extends TestCase
     }
 
     /**
-     * The console is the one thing RustFS/Silo offer that SeaweedFS/Garage don't -- host-published
-     * so it's actually reachable from a browser, unlike the S3 API port, which only ever needs to
-     * be reachable from "app" over the internal network.
+     * Only the console is host-published; "app" reaches the S3 API over the internal network.
      */
     public function test_the_console_port_is_published_but_the_s3_api_port_is_not(): void
     {
@@ -81,9 +74,8 @@ final class SiloServiceTest extends TestCase
     }
 
     /**
-     * A bare `HOST:CONTAINER` mapping binds every interface, not just loopback -- development
-     * binds this to 127.0.0.1 instead (see DevPortBinding), for a management console that only
-     * ever needs to reach the developer's own machine. Production is left unbound.
+     * Development binds the console to 127.0.0.1 (see DevPortBinding); production mappings are
+     * left alone.
      */
     public function test_the_console_port_is_not_loopback_bound_in_production(): void
     {
@@ -93,9 +85,8 @@ final class SiloServiceTest extends TestCase
     }
 
     /**
-     * A second named instance (storage supports additionalServices) must not collide with the
-     * default one on the same host port -- the env var itself, not just the port default, has to
-     * be instance-scoped.
+     * The console port's env var is instance-scoped, so a named instance can't collide with the
+     * default one.
      */
     public function test_a_named_instances_console_port_env_var_is_instance_scoped(): void
     {
@@ -105,9 +96,7 @@ final class SiloServiceTest extends TestCase
     }
 
     /**
-     * --console-address is what actually turns the console on at all (upstream MinIO's own
-     * behavior, inherited unmodified) -- silently losing this flag would still start the server,
-     * making the missing console a lot less obvious than an outright startup failure.
+     * --console-address is what turns the console on; without it the server still starts.
      */
     public function test_the_console_is_explicitly_enabled_on_its_own_address(): void
     {

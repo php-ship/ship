@@ -5,16 +5,12 @@ db_engine = "sqlite"
 replication_factor = 1
 
 rpc_bind_addr = "[::]:3901"
-# Substituted by the Dockerfile's own "config" stage at build time, from the GARAGE_RPC_PUBLIC_ADDR
-# build arg GarageService::composeFragment() sets to this exact instance's own compose service
-# name -- "garage:3901" for the default instance, "garage-<name>:3901" for a named additional one
-# (ship.json's additionalServices), never the literal string "garage:3901" always, which would be
-# wrong for any named instance since its real compose service name is never just "garage".
+# Substituted at build time by the Dockerfile's "config" stage, from the GARAGE_RPC_PUBLIC_ADDR
+# build arg GarageService sets to this instance's compose service name ("garage:3901", or
+# "garage-<name>:3901" for a named instance).
 rpc_public_addr = "__GARAGE_RPC_PUBLIC_ADDR__"
-# No rpc_secret here -- GarageService's own GARAGE_RPC_SECRET env var supplies it instead (Garage's
-# own --rpc-secret/GARAGE_RPC_SECRET explicitly overrides this file's value when set, confirmed via
-# `garage --help`), so a real per-project secret is possible without baking one into this stub,
-# which every project that ever selects Garage shares unmodified.
+# No rpc_secret here: GarageService supplies it through GARAGE_RPC_SECRET, which overrides this
+# file, so each project has its own secret.
 
 [s3_api]
 s3_region = "garage"

@@ -30,21 +30,17 @@ use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\Yaml\Yaml;
 
 /**
- * Produces the portable release artifact under `dist/ship/<tag>/`: a production-ready compose file
- * that references finished images (no `build:`, no source, no project Dockerfiles), those images
- * as `docker save` tars, `.env.production` copied to `.env`, release.json metadata, and -- when
- * ship.json's deployCommands is set -- a deploy-commands.sh the operator runs once on the server.
- * The exact same artifact works for a DevOps handoff, a developer's own manual deploy, or CI/CD --
- * there's deliberately no separate format for any of the three.
+ * Produces the portable release artifact under `dist/ship/<tag>/`: a compose file that references
+ * finished images (no `build:`), those images as `docker save` tars, `.env.production` copied to
+ * `.env`, release.json, and -- when ship.json's deployCommands is set -- a deploy-commands.sh the
+ * operator runs once on the server.
  */
 #[AsCommand(name: 'release', description: 'Build the portable production release artifact')]
 final class ReleaseCommand extends Command
 {
     /**
-     * $registry/$frameworkAdapters, when given (Application passes its own already-populated
-     * ones), are used as-is instead of this command loading every extension class all over
-     * again -- see UpCommand's matching constructor docblock for why. Left optional so
-     * constructing this directly -- every existing test does -- still works unchanged.
+     * $registry/$frameworkAdapters are the ones Application already populated. Optional so the
+     * command can be constructed directly (tests), in which case it loads its own.
      *
      * @param list<FrameworkAdapter>|null $frameworkAdapters
      */
@@ -81,8 +77,7 @@ final class ReleaseCommand extends Command
 
         $config = ShipConfig::fromFile($this->projectRoot . '/ship.json');
 
-        // The prod-nginx image builds from this exact same published file -- a stale upstream
-        // breaks it here too, not just in dev (see NginxUpstreamMismatch's own docblock).
+        // The prod-nginx image builds from this published file, so a stale upstream breaks it.
         $nginxWarning = NginxUpstreamMismatch::warning($this->projectRoot, $config);
         if ($nginxWarning !== null) {
             $output->writeln($nginxWarning);
@@ -105,18 +100,15 @@ final class ReleaseCommand extends Command
             $frameworkAdapters = $this->frameworkAdapters;
         } else {
             $registry = new ServiceRegistry(ServiceRegistry::defaults());
-            // Not printing these warnings here — Application's own constructor
-            // already surfaced them once; see UpCommand's own docblock for why.
+            // Loading warnings aren't printed here; Application already did.
             $loaded = (new ExtensionLoader())->load($config->extensions, $registry);
             $frameworkAdapters = $loaded['frameworkAdapters'];
         }
 
         $projectName = ProjectName::resolve($config, $this->projectRoot);
 
-        // Found here, before Docker is ever invoked, not left to surface as a raw `docker compose
-        // build` interpolation error once ProductionBuildRunner actually runs -- same check
-        // ConfigTestCommand's own dry run already makes (see RequiredEnv::missingFrom()), just not
-        // run at all here before this, the exact gap that method's own docblock used to describe.
+        // Fail on a missing required credential before Docker is invoked (see
+        // RequiredEnv::missingFrom()).
         $prodCompose = (new ComposeFileBuilder($registry))->build($config, ShipEnvironment::Production, projectName: $projectName);
         $missingEnv = RequiredEnv::missingFrom($prodCompose, EnvFile::parse($envProductionPath));
         if ($missingEnv !== []) {
@@ -177,9 +169,8 @@ final class ReleaseCommand extends Command
     }
 
     /**
-     * Interactive: prompts when `--tag` wasn't given. Non-interactive (CI): fails immediately
-     * instead -- a prompt that never gets an answer would otherwise hang the pipeline, not fail it
-     * loudly. Either way, the tag has to be a valid Docker tag component, since it becomes one.
+     * Prompts for a tag when `--tag` wasn't given and the run is interactive; fails otherwise, so
+     * a CI pipeline doesn't hang on a prompt. The tag must be a valid Docker tag component.
      */
     private function resolveTag(InputInterface $input, OutputInterface $output): ?string
     {
@@ -211,14 +202,9 @@ final class ReleaseCommand extends Command
     }
 
     /**
-     * `$input->isInteractive()` alone isn't enough -- Symfony only ever sets it false when
-     * `--no-interaction`/`-n` is explicitly passed, never from detecting a non-tty stdin on its
-     * own. A GitHub Actions `run:` step (or any other CI shell) has no tty and also passes no `-n`,
-     * so trusting `isInteractive()` alone would try to `$io->ask()` against a stream nothing will
-     * ever answer, hanging the pipeline instead of failing it: piping from `/dev/null` with no
-     * `-n` prints "Release tag:" and blocks forever without this check. `stream_isatty()`
-     * (unlike `posix_isatty`, missing on Windows) works everywhere this package already claims
-     * to run.
+     * `$input->isInteractive()` is only false when `-n` is passed, not when stdin isn't a tty (a
+     * plain CI step), so stdin is checked too. `stream_isatty()` works on Windows, unlike
+     * `posix_isatty()`.
      */
     private function isReallyInteractive(InputInterface $input): bool
     {
@@ -226,11 +212,8 @@ final class ReleaseCommand extends Command
     }
 
     /**
-     * The release's own docker-compose.yml, unlike ComposeCommand::PRODUCTION_COMPOSE_FILE (which
-     * ProductionBuildRunner just wrote and still needs `build:` to actually build the images):
-     * every project-owned service already has its final `image:` tag, so `build:` -- and the
-     * source/Dockerfile/build-context it points at -- is dropped entirely. This is the one file
-     * the spec is explicit about: a runnable artifact, not a build workspace.
+     * Writes the release's docker-compose.yml from ComposeCommand::PRODUCTION_COMPOSE_FILE: every
+     * project-owned service gets its final `image:` tag and loses `build:`.
      */
     private function writeReleaseCompose(string $releaseDir): void
     {
@@ -257,12 +240,8 @@ final class ReleaseCommand extends Command
     }
 
     /**
-     * One `docker save` per unique image (see ProductionImagePlan) -- never per service, so two
-     * services sharing one image (e.g. "app" and a `processes` entry) don't double the archive.
-     * Returns false on the first failure -- its exit code is checked, not ignored, since a
-     * release would otherwise report success with a missing or truncated tar (disk full, a bad
-     * tag, docker daemon hiccup, anything `docker save` itself would have failed loudly for on
-     * its own).
+     * One `docker save` per unique image (see ProductionImagePlan), not per service. Returns false
+     * on the first failure, so a release never reports success with a missing or truncated tar.
      *
      * @param list<array{tag: string, canonicalService: string, members: list<string>}> $images
      */
@@ -283,24 +262,15 @@ final class ReleaseCommand extends Command
     }
 
     /**
-     * Only written when ship.json's deployCommands is set -- a plain shell script, not something
-     * that shells out to `ship` itself, since the destination server has no PHP/ship installed at
-     * all (that's the entire point of this release format). Brings up any registry-pulled
-     * infrastructure first (nothing else starts it -- see DeployPlan::infrastructureServices()'s own
-     * docblock), then runs each command once against a one-off container of the app's own image.
+     * Written only when ship.json's deployCommands is set. A plain shell script, since the server
+     * has no PHP or ship: it brings up the infrastructure services, then runs each command in a
+     * one-off container of the app image.
      *
-     * Reads ComposeCommand::PRODUCTION_COMPOSE_FILE (ProductionBuildRunner's own working copy,
-     * still carrying every project-owned service's `build:`), not the release's own
-     * docker-compose.yml -- writeReleaseCompose() strips `build:` from *every* project-owned
-     * service there, "app" and "webserver" included, which would otherwise make
-     * DeployPlan::infrastructureServices() see no `build:` anywhere and misclassify them as
-     * infrastructure too, defeating the entire reason this runs before they start.
+     * Infrastructure is determined from ComposeCommand::PRODUCTION_COMPOSE_FILE, which still has
+     * `build:`. The release's own compose file has it stripped, which would make "app" and
+     * "webserver" look like infrastructure too (see DeployPlan::infrastructureServices()).
      *
-     * chmod() below is a real, working executable-bit set on Linux/macOS, but a silent no-op on
-     * Windows -- NTFS has no Unix executable bit for it to set at all, which matters for a
-     * release built on a Windows dev machine (nothing about `ship release` requires Linux/macOS
-     * specifically). execute() warns about it explicitly on PHP_OS_FAMILY === 'Windows' rather
-     * than claiming an executable bit that was never actually set.
+     * chmod() is a no-op on Windows; execute() warns about that.
      */
     private function writeDeployScript(ShipConfig $config, string $releaseDir): void
     {
@@ -340,8 +310,7 @@ final class ReleaseCommand extends Command
     }
 
     /**
-     * $osFamily is injectable (default PHP_OS_FAMILY) purely so this is testable without actually
-     * running on Windows -- see writeDeployScript()'s own docblock for why the warning exists.
+     * $osFamily is injectable so this is testable without running on Windows.
      */
     private function windowsExecutableBitWarning(ShipConfig $config, string $osFamily = PHP_OS_FAMILY): ?string
     {

@@ -25,9 +25,8 @@ final class SymfonyAdapter implements FrameworkAdapter
     }
 
     /**
-     * Symfony's optimize equivalent: cache:clear recompiles the container and warms routes/cache in one
-     * step (unless --no-warmup is passed). No --env/--no-debug flags -- relies on APP_ENV/APP_DEBUG as
-     * real env vars at boot, so it reflects whatever the orchestrator actually injected.
+     * cache:clear recompiles the container and warms the cache. No --env/--no-debug flags: it
+     * relies on APP_ENV/APP_DEBUG being set as real env vars at boot.
      *
      * @return list<string>
      */

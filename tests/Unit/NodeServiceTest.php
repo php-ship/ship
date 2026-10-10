@@ -9,9 +9,8 @@ use Ship\Contracts\ShipEnvironment;
 use Ship\Services\NodeService;
 
 /**
- * Deliberately shallow (see this service's own docblock: Node installs unconditionally in the
- * base image regardless of selection) -- this only locks in the identity contract ship init's
- * prompt-building and ServiceRegistry::inGroup() depend on.
+ * NodeService is deliberately shallow; this only locks in the identity `ship init`'s prompts and
+ * ServiceRegistry::inGroup() depend on.
  */
 final class NodeServiceTest extends TestCase
 {

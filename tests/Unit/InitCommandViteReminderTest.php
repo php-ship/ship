@@ -11,13 +11,8 @@ use Symfony\Component\Console\Tester\CommandTester;
 use Symfony\Component\Filesystem\Filesystem;
 
 /**
- * Covers InitCommand::warnAboutViteDevServerConfigIfNeeded() -- see its
- * docblock and docs/roadmap.md's former "Known gaps" entry ("ship init
- * doesn't currently print a reminder [...] it probably should") for why
- * this exists. Doesn't cover the interactive service-picker part of
- * InitCommand at all (registry is empty here on purpose, so every group
- * is skipped) -- that's still untested, tracked separately in
- * docs/roadmap.md.
+ * Covers InitCommand::warnAboutViteDevServerConfigIfNeeded(). The registry is empty on purpose,
+ * so every service group is skipped.
  */
 final class InitCommandViteReminderTest extends TestCase
 {

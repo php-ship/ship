@@ -28,9 +28,8 @@ final class ShellCommandTest extends TestCase
     }
 
     /**
-     * A project that renamed its own app service (ship.json's serviceNames -- see ShipConfig)
-     * needs `ship shell` with no argument to still target the right container, not the literal
-     * "app" that no longer exists in its generated compose file.
+     * With a renamed app service (ship.json's serviceNames), `ship shell` with no argument
+     * targets the renamed one.
      */
     public function test_it_defaults_to_ship_jsons_configured_app_name(): void
     {
@@ -55,8 +54,7 @@ final class ShellCommandTest extends TestCase
     }
 
     /**
-     * Alpine images (everything in this stack) ship `sh`, not `bash` -- a regression here would
-     * mean every `ship shell` fails with "bash: not found" instead of opening a shell.
+     * The Alpine images ship `sh`, not `bash`.
      */
     public function test_it_always_runs_sh_not_bash(): void
     {

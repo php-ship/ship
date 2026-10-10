@@ -57,7 +57,7 @@ final class ServiceRegistry
     }
 
     /**
-     * The default, built-in service set; extensions from ship.json's array register on top, at boot.
+     * The built-in services; extensions from ship.json register on top at boot.
      *
      * @return list<ServiceDefinition>
      */

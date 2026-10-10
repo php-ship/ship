@@ -16,12 +16,10 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Yaml\Yaml;
 
 /**
- * The one shared implementation `ship build` and `ship release --tag` both build on: generate the
- * prod entrypoint (a build input, see EntrypointScriptBuilder), build the production compose file,
- * work out which services are project-owned images (ProductionImagePlan), and actually run `docker
- * compose build` for them. `ship build` calls this with $tagSuffix "local"; `ship release` calls it
- * with the real `--tag` value -- same code path either way, so there's exactly one place that
- * decides what a production image is and how it gets built.
+ * The implementation behind `ship build` and `ship release --tag`: generates the prod entrypoint
+ * (see EntrypointScriptBuilder), writes the production compose file, works out which services are
+ * project-owned images (ProductionImagePlan) and runs `docker compose build` for them. Only the
+ * tag suffix differs between the two commands.
  */
 final class ProductionBuildRunner
 {
@@ -31,10 +29,8 @@ final class ProductionBuildRunner
     }
 
     /**
-     * @param list<FrameworkAdapter> $extensionFrameworkAdapters already-instantiated extension
-     *     FrameworkAdapters (see ExtensionLoader::load()) — the caller has already built these once
-     *     for its own registry/warnings, so this runs detect() against them directly instead of
-     *     re-instantiating every extension class a second time just to find them again.
+     * @param list<FrameworkAdapter> $extensionFrameworkAdapters extension FrameworkAdapters the
+     *     caller already instantiated (see ExtensionLoader::load())
      * @return array{
      *     composeServices: array<string, array<string, mixed>>,
      *     images: list<array{tag: string, canonicalService: string, members: list<string>}>,
@@ -49,10 +45,8 @@ final class ProductionBuildRunner
         string $tagSuffix,
         OutputInterface $output,
     ): ?array {
-        // Re-applied here, not just at `ship init` time -- this is the actual moment `docker
-        // compose build`'s `COPY . .` runs, so a project whose .dockerignore was hand-edited,
-        // reverted, or never existed because `ship init` ran before this guard did would
-        // otherwise bake .env/auth.json/.npmrc straight into the image with nothing to catch it.
+        // Re-applied at build time, when `COPY . .` runs, in case .dockerignore was edited or
+        // removed since `ship init`.
         DockerignoreGuard::ensure($projectRoot);
 
         $this->generateEntrypoint($config, $projectRoot, $extensionFrameworkAdapters);
@@ -69,10 +63,7 @@ final class ProductionBuildRunner
         if (!is_dir($composeDir)) {
             mkdir($composeDir, recursive: true);
         }
-        // ComposeCommand::PRODUCTION_COMPOSE_FILE, never docker-compose.generated.yml -- sharing
-        // the dev file would mean ship build/ship release overwrite it with a production compose
-        // until the next ship up regenerates it, during which ship exec/shell/composer/npm would
-        // all read the wrong target.
+        // See ComposeCommand::PRODUCTION_COMPOSE_FILE for why this isn't the dev file.
         file_put_contents(
             $projectRoot . '/' . ComposeCommand::PRODUCTION_COMPOSE_FILE,
             Yaml::dump($parsed, inline: 6, indent: 2, flags: Yaml::DUMP_EMPTY_ARRAY_AS_SEQUENCE),
@@ -86,15 +77,12 @@ final class ProductionBuildRunner
             return ['composeServices' => $plan['services'], 'images' => []];
         }
 
-        // Only ever non-null when the project's own .env.production sets something -- see
-        // EnvFile's own docblock for why this is Compose's `${VAR}` build-arg substitution, not
-        // anything baked into the image automatically.
+        // Passed to `docker compose build` for Compose's own `${VAR}` substitution; nothing here
+        // is baked into the image automatically.
         $buildEnv = EnvFile::parse($projectRoot . '/.env.production');
 
         $result = $this->runner->runInteractive(
-            // includeOverride: false -- never docker-compose.override.yml here, see
-            // ComposeCommand::baseArgs()'s own docblock. composeFile: PRODUCTION_COMPOSE_FILE --
-            // never the dev file, see that constant's own docblock.
+            // No override file and the production compose file: see ComposeCommand::baseArgs().
             [
                 ...ComposeCommand::baseArgs($projectRoot, includeOverride: false, composeFile: ComposeCommand::PRODUCTION_COMPOSE_FILE),
                 'build',
@@ -118,9 +106,8 @@ final class ProductionBuildRunner
     }
 
     /**
-     * Generated fresh on every `ship build`/`ship release` (not a static stub) -- its content depends
-     * on which FrameworkAdapter matches the project. A build input: baked into the image by `ship/
-     * Dockerfile`'s `prod` stage's own `COPY`, not something the release artifact carries separately.
+     * The entrypoint's content depends on which FrameworkAdapter matches the project. It is a
+     * build input, copied into the image by the Dockerfile's `prod` stage.
      *
      * @param list<FrameworkAdapter> $extensionFrameworkAdapters
      */
@@ -145,9 +132,7 @@ final class ProductionBuildRunner
     }
 
     /**
-     * Same detection Application/UpCommand do at boot -- duplicated since this runs standalone, but
-     * the extension side of it is already-instantiated FrameworkAdapters the caller handed in, not
-     * extension class names to instantiate all over again (see this class's own build() docblock).
+     * The same detection Application does at boot, against the adapters the caller handed in.
      *
      * @param list<FrameworkAdapter> $extensionFrameworkAdapters
      * @return list<FrameworkAdapter>

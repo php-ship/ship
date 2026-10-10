@@ -9,11 +9,10 @@ use Ship\Contracts\ShipEnvironment;
 use Ship\Docker\RequiredEnv;
 
 /**
- * Alt driver for storage. Needs a config file present before it starts, unlike SeaweedFS -- published
- * from stubs/docker/garage/garage.toml by InitCommand. --single-node auto-creates the cluster layout
- * every node needs; --default-access-key/--default-bucket provision credentials on boot. The RPC
- * secret and admin token are deliberately *not* in that file -- see composeFragment()'s own
- * GARAGE_RPC_SECRET/GARAGE_ADMIN_TOKEN comment.
+ * Alt driver for storage. Needs a config file before it starts, published from
+ * stubs/docker/garage/garage.toml by InitCommand. --single-node creates the cluster layout;
+ * --default-access-key/--default-bucket provision credentials and a bucket on boot. The RPC
+ * secret and admin token come from env vars, not that file (see composeFragment()).
  */
 final class GarageService implements ServiceDefinition
 {
@@ -44,43 +43,25 @@ final class GarageService implements ServiceDefinition
                 'build' => [
                     'context' => './ship/garage',
                     'dockerfile' => 'Dockerfile',
-                    // garage.toml's rpc_public_addr has to match this exact instance's own
-                    // compose service name, never the hardcoded literal "garage" -- wrong for any
-                    // named additional instance (ship.json's additionalServices), whose real
-                    // compose service name is never just "garage". The Dockerfile's own "config"
-                    // stage substitutes this into the file at build time -- see that file's
-                    // docblock for why it can't be done at container boot instead (no shell in
-                    // the final, FROM-scratch image).
+                    // garage.toml's rpc_public_addr must match this instance's compose service
+                    // name. The Dockerfile's "config" stage substitutes it at build time, since
+                    // the final FROM-scratch image has no shell to do it at boot.
                     'args' => ['GARAGE_RPC_PUBLIC_ADDR' => "{$name}:3901"],
                 ],
                 // The image is FROM scratch with only the /garage binary in it.
                 'command' => ['/garage', 'server', '--single-node', '--default-access-key', '--default-bucket'],
                 'environment' => [
-                    // Must match environmentVariables() below exactly, or "app" authenticates
-                    // with credentials Garage never provisioned. These are only the *defaults* --
-                    // same `${VAR:-default}` pattern every other credentialed service
-                    // (MySqlService's DB_PASSWORD, ...) already uses, so a project's own
-                    // .env/.env.production can override them instead of every Garage deployment
-                    // everywhere sharing one publicly-known, hardcoded credential. The secret key
-                    // specifically is required (not just overridable) in production -- see
-                    // RequiredEnv's own docblock -- the access key id is access-key-ID-shaped, not
-                    // secret-shaped, same reasoning DB_USERNAME is never required either.
+                    // Must match environmentVariables() below, or "app" authenticates with
+                    // credentials Garage never provisioned. Overridable defaults; the secret key
+                    // is required in production (see RequiredEnv).
                     //
-                    // Longer than every other storage service's own "ship"/"shipsecret" defaults --
-                    // this specific image's own `--default-access-key` validates minimum lengths
-                    // and refuses to start at all otherwise ("Key identifiers should be at least
-                    // 8 characters long", "Secret keys should be at least 16 characters long").
+                    // Longer than the other storage services' defaults because this image
+                    // enforces minimum lengths: 8 characters for the key id, 16 for the secret.
                     'GARAGE_DEFAULT_ACCESS_KEY' => "\${{$prefix}AWS_ACCESS_KEY_ID:-shipaccesskey}",
                     'GARAGE_DEFAULT_SECRET_KEY' => RequiredEnv::expr("{$prefix}AWS_SECRET_ACCESS_KEY", 'shipsecretplaceholder', $environment),
                     'GARAGE_DEFAULT_BUCKET' => "\${{$prefix}AWS_BUCKET:-local}",
-                    // garage.toml ships neither value at all -- both are real per-project
-                    // secrets, not something every project selecting Garage should share a
-                    // hardcoded default for: an all-zero rpc_secret, or no admin-API token at all
-                    // (bucket/key management, reachable by anything else on the "ship" network).
-                    // Garage's own CLI reads both of these as env vars directly (`garage --help`:
-                    // GARAGE_RPC_SECRET/GARAGE_ADMIN_TOKEN, explicitly documented to override
-                    // config.toml), so no wrapper script or generated file is needed the way
-                    // SeaweedFS's identity config required.
+                    // Per-project secrets, so garage.toml ships neither. Garage reads both from
+                    // these env vars, which override the config file.
                     'GARAGE_RPC_SECRET' => RequiredEnv::expr(
                         "{$prefix}GARAGE_RPC_SECRET",
                         '0000000000000000000000000000000000000000000000000000000000000000',
@@ -88,10 +69,10 @@ final class GarageService implements ServiceDefinition
                     ),
                     'GARAGE_ADMIN_TOKEN' => RequiredEnv::expr("{$prefix}GARAGE_ADMIN_TOKEN", 'shipsecret', $environment),
                 ],
-                // Persisted in both environments -- see MySqlService's own comment for why.
+                // Persisted in both environments, like every stateful service.
                 'volumes' => ["ship-{$name}-data:/data", "ship-{$name}-meta:/meta"],
-                // No shell or curl in a FROM-scratch image -- `status` is the
-                // only way to check the node is up, over its own local RPC.
+                // No shell or curl in a FROM-scratch image; `status` checks the node over its
+                // local RPC.
                 'healthcheck' => [
                     'test' => ['CMD', '/garage', 'status'],
                     'interval' => '5s',
@@ -112,9 +93,7 @@ final class GarageService implements ServiceDefinition
             "{$prefix}AWS_ENDPOINT" => "http://{$name}:3900",
             "{$prefix}AWS_USE_PATH_STYLE_ENDPOINT" => 'true',
             "{$prefix}AWS_DEFAULT_REGION" => 'garage',
-            // Same expressions as composeFragment()'s own GARAGE_DEFAULT_ACCESS_KEY/
-            // GARAGE_DEFAULT_SECRET_KEY/GARAGE_DEFAULT_BUCKET, so both sides always resolve from
-            // the same source at the same compose-parse time, never two independent guesses.
+            // The same expressions composeFragment() provisions Garage with.
             "{$prefix}AWS_ACCESS_KEY_ID" => "\${{$prefix}AWS_ACCESS_KEY_ID:-shipaccesskey}",
             "{$prefix}AWS_SECRET_ACCESS_KEY" => "\${{$prefix}AWS_SECRET_ACCESS_KEY:-shipsecretplaceholder}",
             "{$prefix}AWS_BUCKET" => "\${{$prefix}AWS_BUCKET:-local}",

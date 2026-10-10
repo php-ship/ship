@@ -23,10 +23,7 @@ final class RustFsServiceTest extends TestCase
     }
 
     /**
-     * "ship"/"shipsecret" must only ever be the *default* a project's own .env/.env.production
-     * can override -- a bare literal would mean every RustFS deployment everywhere shares one
-     * publicly-known, hardcoded credential, unlike every other credentialed service in the
-     * registry (MySqlService's DB_PASSWORD, ...).
+     * "ship"/"shipsecret" are overridable defaults, not literals.
      */
     public function test_credentials_are_overridable_defaults_not_hardcoded_literals(): void
     {
@@ -37,9 +34,7 @@ final class RustFsServiceTest extends TestCase
     }
 
     /**
-     * Production requires a real value instead of falling back to the same friendly default
-     * development uses -- `docker compose` itself refuses to run at all when no real value is
-     * set in .env.production.
+     * Production requires a real secret key instead of the development default.
      */
     public function test_the_secret_key_is_required_in_production_not_just_overridable(): void
     {
@@ -68,11 +63,7 @@ final class RustFsServiceTest extends TestCase
     }
 
     /**
-     * No console port -- unlike SiloService, verified live that this image's own console
-     * currently just returns the S3 API's own "AccessDenied" response instead of rendering
-     * (matches a currently-open upstream bug, rustfs/rustfs#8013), so publishing a port to it
-     * would only produce a broken link. Positioned the same as SeaweedFS/Garage (no console) until
-     * that's fixed upstream -- see this class's own docblock.
+     * The image's console currently doesn't render (rustfs/rustfs#8013), so no port is published.
      */
     public function test_no_port_is_published(): void
     {
@@ -82,10 +73,8 @@ final class RustFsServiceTest extends TestCase
     }
 
     /**
-     * Unlike Garage, RustFS has no way to auto-provision a default bucket -- a write to one that
-     * was never created fails outright with "NoSuchBucket". AWS_BUCKET still points at "local"
-     * (the app's expected default, same as every other storage option here), but nothing about
-     * this class secretly creates it.
+     * RustFS can't auto-provision a bucket; AWS_BUCKET names the expected one, which the project
+     * creates.
      */
     public function test_it_does_not_claim_to_provision_a_default_bucket(): void
     {

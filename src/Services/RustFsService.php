@@ -9,21 +9,12 @@ use Ship\Contracts\ShipEnvironment;
 use Ship\Docker\RequiredEnv;
 
 /**
- * Alt driver for storage. Modern Rust rewrite, drop-in S3-compatible -- the actual S3 API is
- * solid, verified live with real bucket create/list/put calls. Its web console is NOT wired up
- * here despite the image shipping one: verified live that it currently returns the same
- * "AccessDenied" XML the S3 API itself returns for an unsigned request, on both `--console-enable`
- * and an explicit `--console-address` flag -- not a misconfiguration on this end, it matches a
- * currently-open upstream bug (rustfs/rustfs#8013). Revisit publishing a console port once that's
- * fixed upstream; until then this is deliberately positioned the same as SeaweedFS/Garage (no
- * console), not as this project's actual console-having alternative -- see SiloService for that.
+ * Alt driver for storage: an S3-compatible server written in Rust. Its web console isn't
+ * published, since it currently returns "AccessDenied" instead of rendering (rustfs/rustfs#8013);
+ * see SiloService for the option with a working console.
  *
- * Like Garage, has no built-in default-bucket provisioning of its own -- unlike Garage, also has
- * no equivalent flag for it at all (verified live: a write to a bucket that was never created
- * fails outright with "NoSuchBucket"), so the app's own bucket ("local", see
- * environmentVariables()) has to be created once by hand, via any S3 client, before first use.
- * Same requirement any real S3 bucket has; Garage's auto-provisioning is the outlier here, not
- * this.
+ * There's no default-bucket provisioning: the app's bucket ("local", see environmentVariables())
+ * has to be created once with any S3 client before first use.
  */
 final class RustFsService implements ServiceDefinition
 {
@@ -53,18 +44,13 @@ final class RustFsService implements ServiceDefinition
             $name => [
                 'image' => 'rustfs/rustfs:1.0.0',
                 'environment' => [
-                    // Must match environmentVariables() below exactly, or "app"
-                    // authenticates with credentials RustFS never provisioned. "ship"/"shipsecret"
-                    // are only the *defaults* -- same `${VAR:-default}` pattern every other
-                    // credentialed service (MySqlService's DB_PASSWORD, ...) already uses, so a
-                    // project's own .env/.env.production can override them instead of every RustFS
-                    // deployment everywhere sharing one publicly-known, hardcoded credential. The
-                    // secret key specifically is required (not just overridable) in production --
-                    // see RequiredEnv's own docblock.
+                    // Must match environmentVariables() below, or "app" authenticates with
+                    // credentials RustFS never provisioned. Overridable defaults; the secret key
+                    // is required in production (see RequiredEnv).
                     'RUSTFS_ACCESS_KEY' => "\${{$prefix}AWS_ACCESS_KEY_ID:-ship}",
                     'RUSTFS_SECRET_KEY' => RequiredEnv::expr("{$prefix}AWS_SECRET_ACCESS_KEY", 'shipsecret', $environment),
                 ],
-                // Persisted in both environments -- see MySqlService's own comment for why.
+                // Persisted in both environments, like every stateful service.
                 'volumes' => ["ship-{$name}-data:/data"],
                 'healthcheck' => [
                     'test' => ['CMD', 'curl', '-f', 'http://127.0.0.1:9000/health'],
@@ -82,15 +68,12 @@ final class RustFsService implements ServiceDefinition
         $name = $this->composeServiceName($instanceName);
         $prefix = $this->envPrefix($instanceName);
 
-        // Generic AWS SDK-standard names, not framework-specific, so any
-        // S3 client (Laravel's Storage facade, aws-sdk-php directly,
-        // Flysystem, ...) can consume them the same way.
+        // AWS SDK-standard names, usable by any S3 client.
         return [
             "{$prefix}AWS_ENDPOINT" => "http://{$name}:9000",
             "{$prefix}AWS_USE_PATH_STYLE_ENDPOINT" => 'true',
             "{$prefix}AWS_DEFAULT_REGION" => 'us-east-1',
-            // Same expressions as composeFragment()'s own RUSTFS_ACCESS_KEY/RUSTFS_SECRET_KEY, so
-            // both sides always resolve from the same source at the same compose-parse time.
+            // The same expressions composeFragment() provisions RustFS with.
             "{$prefix}AWS_ACCESS_KEY_ID" => "\${{$prefix}AWS_ACCESS_KEY_ID:-ship}",
             "{$prefix}AWS_SECRET_ACCESS_KEY" => "\${{$prefix}AWS_SECRET_ACCESS_KEY:-shipsecret}",
             "{$prefix}AWS_BUCKET" => 'local',
