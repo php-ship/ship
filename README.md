@@ -16,8 +16,8 @@ a real production HTTP request, a real database, and a real crashed-
 container recovery. CI passes on every push, across Ubuntu/macOS/Windows
 x PHP 8.2/8.3/8.4 plus a separate job that runs the same dev/production
 verification against a real Docker daemon on every commit. See
-[`docs/roadmap.md`](docs/roadmap.md) for the small number of known,
-low-severity gaps that remain.
+[`docs/roadmap.md`](docs/roadmap.md) for what's built and what isn't
+started yet.
 
 ## Contents
 
@@ -120,7 +120,7 @@ release`.
 
 | Command | What it does |
 |---|---|
-| `ship init` | Interactive picker for services (database, cache, runtime, ...); writes `ship.json` and publishes the `ship/` directory. Re-run it after upgrading `ship` to pick up stub changes — see `docs/roadmap.md`'s "Known gaps". |
+| `ship init` | Interactive picker for services (database, cache, runtime, ...); writes `ship.json` and publishes the `ship/` directory. Re-run it after upgrading `ship` to pick up stub changes — see [Adding a service later](#adding-a-service-later). |
 | `ship up` | Regenerates `ship/docker-compose.generated.yml` from `ship.json` and runs `docker compose up --build -d`. Development only — see `ship build`/`ship release` below for production. |
 | `ship build` | Builds every project-owned production image, tagged locally. Needs a real `.env.production` the moment any selected service has a required credential — see that section below. See [Production releases](#production-releases). |
 | `ship release --tag <tag>` | Builds the same images (re-tagged) and assembles the portable release artifact under `dist/ship/<tag>/`. See [Production releases](#production-releases). |
@@ -194,7 +194,7 @@ plain, readable JSON document:
 - `node` — the Node.js major version built into the image (`ARG
   NODE_VERSION`), independent of whether the `frontend` group's Node
   service is selected — Node installs unconditionally either way (see
-  the Services table below).
+  the [Services](#services) table above).
 - `services` — one selected service key per group; a group with no entry
   means "none selected".
 - `additionalServices` — extra, named instances beyond the one in
