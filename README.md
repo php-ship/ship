@@ -313,21 +313,26 @@ variables at `ship up` time, not by editing `ship.json` — see
 
 ### Adding a service later
 
-`ship init` asks about every group each time it runs, so re-running it to
-add one service means re-picking all of them. For most services, that's
-not actually necessary: add the entry directly to `ship.json`'s
-`services` object (e.g. `"broadcasting": "reverb"`) and run `ship up`
-again — it reads `ship.json` fresh every time, regardless of how it got
-there. The one exception is Garage, which needs a config file `ship
-init` publishes into `ship/garage/`; picking it that way is the reliable
-option. Re-running `ship init` is safe too — every prompt defaults to
-whatever's already selected (just press Enter to keep it, including
-every existing `additionalServices` entry, which isn't re-prompted for
-at all), and it republishes `ship/`'s stub files. Every hand-edited
-field it doesn't prompt for (`serviceNames`, `externalNetwork`,
-`phpExtensions`, `publishPorts`, `deployCommands`, `processes`,
-`hostUser`, `name`, `extensions`) carries over from the existing
-`ship.json` unchanged too.
+There are two ways to add a service to an existing project.
+
+For most services, add the entry directly to `ship.json`'s `services`
+object (e.g. `"broadcasting": "reverb"`) and run `ship up` again — it
+reads `ship.json` fresh every time, regardless of how it got there. The
+one exception is Garage, which needs a config file `ship init` publishes
+into `ship/garage/`, so add that one by re-running `ship init`.
+
+Re-running `ship init` works for every service. It asks about each group
+again, but every prompt defaults to whatever's already selected, so press
+Enter to keep it; existing `additionalServices` entries are kept without
+being asked about at all. Every field it doesn't prompt for
+(`serviceNames`, `externalNetwork`, `phpExtensions`, `publishPorts`,
+`deployCommands`, `processes`, `hostUser`, `name`, `extensions`) carries
+over from the existing `ship.json` unchanged.
+
+It also republishes the stub files in `ship/`, **overwriting them**. If
+you edited any by hand (the Dockerfile, the nginx config, the dev
+entrypoint), commit or back them up first and re-apply your changes
+afterwards.
 
 Upgrading the `php-ship/ship` package itself is different: `ship up`
 doesn't republish stub files on its own — only `ship init` does — so

@@ -103,7 +103,10 @@ final class UpCommandTest extends TestCase
 
         (new Filesystem())->remove($projectRoot);
 
-        self::assertStringContainsString('some-other-version-1.2.3', $output->fetch());
+        $warning = $output->fetch();
+
+        self::assertStringContainsString('some-other-version-1.2.3', $warning);
+        self::assertStringContainsString('overwrites the files in ship/', $warning);
     }
 
     public function test_it_stays_quiet_when_the_recorded_version_matches(): void
