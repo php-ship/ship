@@ -457,12 +457,11 @@ Selected services' own credentials (`DB_PASSWORD`, `MEILISEARCH_KEY`,
 compose` itself refuses to build or start anything at all if one was never
 set, rather than silently falling back to the same friendly default
 development uses — one every project that forgot would otherwise share.
-This applies to `ship build` too, not only `ship release` — it has no
-upfront `.env.production`-exists check of its own, so a project with any
-credentialed service selected and no `.env.production` at all fails with
-Compose's own `${VAR:?...}` error instead of `ship release`'s friendlier
-one. Create `.env.production` before running either once a project has a
-credentialed service, not just before releasing.
+This applies to `ship build` too, not only `ship release`: both check for
+a missing required credential up front and fail with a message naming it,
+before Docker is invoked at all. `ship build` only needs `.env.production`
+to exist once a project has a credentialed service selected; `ship release`
+always does.
 
 ### What `ship release --tag` produces
 

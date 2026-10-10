@@ -6,10 +6,11 @@
   piece), `FrameworkAdapter` (one per target framework), and the optional
   `ProvidesDatabaseShell` add-on a database `ServiceDefinition` can
   implement for `ship db`. `ExtensionLoader` resolves `ship.json`'s
-  `extensions` array (a list of FQCNs) into registered instances of each,
-  used independently by `Application`, `InitCommand`, and `UpCommand`.
-- 11 built-in `ServiceDefinition`s: Postgres, MySQL, Redis, SeaweedFS
-  (default object storage) + Garage (alt driver), Octane x
+  `extensions` array (a list of FQCNs) into registered instances of each.
+  `Application` loads them once and passes the populated registry into
+  every command.
+- 15 built-in `ServiceDefinition`s: Postgres, MySQL, Redis, SeaweedFS
+  (default object storage) + Garage/RustFS/Silo (alt drivers), Octane x
   Swoole/RoadRunner/FrankenPHP, Meilisearch, Mailpit, Dusk/Selenium, Node,
   Reverb.
 - Two built-in `FrameworkAdapter`s: `LaravelAdapter` (`ship artisan`,
@@ -49,11 +50,11 @@
   known ownership instead (see `EntrypointScriptBuilder` below).
 - `EntrypointScriptBuilder` renders the `prod` stage's `ENTRYPOINT` script
   from whatever `FrameworkAdapter::releaseCommands()` returns, generated
-  fresh by every `ship up` since its content depends on which adapter
-  matches.
-- Commands: `init`, `up` (`--prod` for production), `down`, `exec`,
-  `shell`, `db`, `logs`, plus `composer`/`npm`/`artisan`/`console` via
-  `ProxyCommand`. `ComposeCommand::baseArgs()` is the shared
+  fresh by every `ship build`/`ship release` (`ProductionBuildRunner`)
+  since its content depends on which adapter matches.
+- Commands: `init`, `up` (development only), `build` and `release --tag`
+  (production), `down`, `exec`, `shell`, `db`, `logs`, `config:test`, plus
+  `composer`/`npm`/`artisan`/`console` via `ProxyCommand`. `ComposeCommand::baseArgs()` is the shared
   `docker compose -f ... --project-directory ...` prefix every command
   uses, appending a second `-f docker-compose.override.yml` when a
   project has one.
@@ -166,11 +167,13 @@
   suffix and an environment variable prefix, and confirmed live that a
   space in it makes `docker compose config` reject the whole generated
   file outright, with an error that never points back to this prompt.
-- CI matrix across Ubuntu/macOS/Windows x PHP 8.2/8.3/8.4, plus a
+- CI matrix across Ubuntu/macOS/Windows x PHP 8.2/8.3/8.4/8.5, plus a
   separate `docker-build` job that actually runs `ship init`/`up`/
-  `up --prod` against a real fixture Laravel app and a real Docker
-  daemon — building both images, migrating a real database, and
-  checking the app actually answers over HTTP in both modes. Invokes
+  `build`/`release --tag` against a real fixture Laravel app and a real
+  Docker daemon — building both images, migrating a real database,
+  booting the stack from the release artifact alone, and checking the
+  app actually answers over HTTP in both modes. The same job covers an
+  Octane/Swoole fixture and a `SHIP_MUTAGEN=1` fixture. Invokes
   `bin/ship` directly against a plain fixture app rather than through a
   Composer dependency, since `$projectRoot` is just `getcwd()` (see
   `bin/ship`) — that sidesteps a real limitation where a Composer path
@@ -565,11 +568,9 @@
   failed migration leaves the previous containers serving instead of new
   code booting against a schema it doesn't match. The docker argv building
   lives in `Ship\Docker\DeployPlan`, not in `UpCommand`, so anything else
-  needing the same sequence can reuse it. This ran inside `ship up --prod`
-  itself at the time -- superseded by `ship build`/`ship release --tag`
-  (see that entry below), which instead writes the same sequence into the
-  release's own `deploy-commands.sh` for the operator to run, since neither
-  command talks to a production server directly.
+  needing the same sequence can reuse it. `ship release --tag` writes this
+  sequence into the release's own `deploy-commands.sh` for the operator to
+  run, since neither production command talks to a server directly.
 
   Verified live against a real production stack with MySQL: the command
   ran once against a database that was actually ready (this is what
@@ -866,13 +867,13 @@
   those same env vars now read the overridden values instead.
 
 - `ship init`'s own `.dockerignore` entries use `**`-prefixed patterns (`**/.env`, `**/.env.*`,
-  `!**/.env.example`), which match at any depth, plus an outright `/dist` exclusion -- a bare
+  `!**/.env.example`), which match at any depth, plus a `/dist/ship` exclusion -- a bare
   `.env`/`.env.*` pattern only ever matches at the build context *root*. Without the recursive
   form, `dist/ship/<tag>/.env` (`ship release`'s own copy of `.env.production`) is never excluded,
   and the builder stage's `COPY . .` picks it straight up, landing readable inside the very next
   image built in that project -- carrying every earlier release's own tars forward too. Verified
   live: a minimal image built with these exact patterns excludes both the nested `.env` and the
-  whole `dist/` tree, while still preserving a root `.env.example`.
+  whole `dist/ship/` tree, while still preserving a root `.env.example`.
 
 - An empty `composeFragment()` is a service's own signal to `ComposeFileBuilder::applyService()`
   that it contributes nothing at all in this environment -- no compose service, no env vars
@@ -916,8 +917,8 @@
 
 - nginx's `location ~ \.php$` is restricted to an exact `location = /index.php` match, the only
   path that block should ever see -- a bare regex would pass *any* request path ending in `.php`
-  to PHP-FPM, existing file or not; a `.php` file somehow ending up under `public/` some other way
-  instead gets served statically by `location /`'s `try_files`. Its upstream host also follows
+  to PHP-FPM, existing file or not. Every other `.php` path returns 404 (`location ~ \.php$ {
+  return 404; }`) rather than being served statically as raw source. Its upstream host also follows
   `ship.json`'s `serviceNames`: `ship init` substitutes the resolved app service name into the
   published config whenever it differs from the hardcoded `app:9000` default -- a no-op for the
   overwhelming majority of projects that never touch `serviceNames`, but otherwise nginx 502s
@@ -1060,9 +1061,9 @@
   `ProductionBuildRunner::build()` takes the already-resolved list from its caller instead of
   re-instantiating every class itself.
 
-  `Application`'s constructor is the only place that prints an extension-loading warning to
-  STDERR -- `UpCommand`/`BuildCommand`/`ReleaseCommand` each load the extensions again for their
-  own fresh `ServiceRegistry`, but don't re-print what `Application` already surfaced once.
+  `Application`'s constructor is the only place that loads extensions and prints a loading
+  warning to STDERR -- it builds one `ServiceRegistry` and passes it into every command, so no
+  extension class is instantiated more than once per invocation.
   Verified live: a `ship.json` extension class that doesn't exist prints exactly one `ship:
   warning: ...` line on both `ship up` and `ship build`, not two.
 
@@ -1207,11 +1208,9 @@
   category) to that user before exec'ing it, *if* that variable is set; without it Reverb kept
   running as root in dev even with `hostUser` enabled.
 
-- Documented (no code change) that `ship build` needs a real `.env.production` the moment any
-  selected service has a required production credential, same as `ship release` -- it has no
-  upfront existence check of its own, so it fails with Compose's own `${VAR:?...}` error instead
-  of `ship release`'s friendlier one. The README described `ship build` as a dependency-free
-  standalone check, which stopped being accurate once production credentials became required.
+- `ship build` needs a real `.env.production` the moment any selected service has a required
+  production credential, same as `ship release`. Both check this up front (see the
+  `RequiredEnv::missingFrom()` entry below) and fail before Docker is invoked.
 
 - Stopped a single invalid `ship.json` field from erasing every other one --
   `InitCommand::readExistingConfig()` calls `ShipConfig::fromFile()`, which validates and throws
