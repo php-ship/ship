@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ship\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
+use Ship\Config\ShipConfig;
 use Ship\Contracts\ShipEnvironment;
 use Ship\Services\SiloService;
 
@@ -103,5 +104,63 @@ final class SiloServiceTest extends TestCase
         $fragment = (new SiloService())->composeFragment(ShipEnvironment::Development);
 
         self::assertSame(['server', '/data', '--console-address', ':9001'], $fragment['silo']['command']);
+    }
+
+    public function test_the_standard_image_is_used_by_default(): void
+    {
+        $fragment = (new SiloService())->composeFragment(ShipEnvironment::Development);
+
+        self::assertMatchesRegularExpression('/^pgsty\/silo:RELEASE\.[0-9TZ-]+$/', $fragment['silo']['image']);
+    }
+
+    /**
+     * The standard image's RHEL 9 base needs an x86-64-v2 CPU; ship.json's siloImage switches
+     * every instance to the distroless image of the same release.
+     */
+    public function test_the_distroless_image_is_the_same_release_with_a_distroless_suffix(): void
+    {
+        $standard = new SiloService();
+        $distroless = $standard->withConfig(new ShipConfig(
+            phpVersion: '8.4',
+            services: ['storage' => 'silo'],
+            siloImage: ShipConfig::SILO_IMAGE_DISTROLESS,
+        ));
+
+        $standardImage = $standard->composeFragment(ShipEnvironment::Development)['silo']['image'];
+
+        self::assertSame(
+            $standardImage . '-distroless',
+            $distroless->composeFragment(ShipEnvironment::Development)['silo']['image'],
+        );
+        self::assertSame(
+            $standardImage . '-distroless',
+            $distroless->composeFragment(ShipEnvironment::Production, 'archive')['silo-archive']['image'],
+        );
+    }
+
+    /**
+     * Switching images must keep the data: same compose service name, same volume.
+     */
+    public function test_both_images_share_the_same_service_name_and_data_volume(): void
+    {
+        $standard = new SiloService();
+        $distroless = new SiloService(ShipConfig::SILO_IMAGE_DISTROLESS);
+
+        self::assertSame(
+            $standard->composeFragment(ShipEnvironment::Development)['silo']['volumes'],
+            $distroless->composeFragment(ShipEnvironment::Development)['silo']['volumes'],
+        );
+        self::assertSame($standard->environmentVariables(), $distroless->environmentVariables());
+    }
+
+    /**
+     * The distroless image has no curl or shell, so the healthcheck uses the server's own probe,
+     * which both images ship.
+     */
+    public function test_the_healthcheck_does_not_depend_on_tools_the_distroless_image_lacks(): void
+    {
+        $fragment = (new SiloService(ShipConfig::SILO_IMAGE_DISTROLESS))->composeFragment(ShipEnvironment::Development);
+
+        self::assertSame(['CMD', '/usr/bin/silo', 'healthcheck', 'live'], $fragment['silo']['healthcheck']['test']);
     }
 }

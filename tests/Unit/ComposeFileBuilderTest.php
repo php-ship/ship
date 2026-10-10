@@ -723,4 +723,25 @@ final class ComposeFileBuilderTest extends TestCase
 
         $builder->build($config, ShipEnvironment::Production);
     }
+
+    /**
+     * A service's fragment can depend on ship.json (ConfigAwareService): siloImage reaches the
+     * default Silo instance and every named one.
+     */
+    public function test_the_configured_silo_image_applies_to_every_silo_instance(): void
+    {
+        $builder = new ComposeFileBuilder(new ServiceRegistry([new SiloService()]));
+        $config = new ShipConfig(
+            phpVersion: '8.4',
+            services: ['storage' => 'silo'],
+            additionalServices: [['group' => 'storage', 'service' => 'silo', 'name' => 'archive']],
+            siloImage: ShipConfig::SILO_IMAGE_DISTROLESS,
+        );
+
+        /** @var array{services: array<string, array{image?: string}>} $parsed */
+        $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Production));
+
+        self::assertStringEndsWith('-distroless', $parsed['services']['silo']['image'] ?? '');
+        self::assertStringEndsWith('-distroless', $parsed['services']['silo-archive']['image'] ?? '');
+    }
 }

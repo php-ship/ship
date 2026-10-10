@@ -303,6 +303,32 @@ final class ShipConfigTest extends TestCase
         self::assertStringNotContainsString('processes', $written);
         self::assertStringNotContainsString('hostUser', $written);
         self::assertStringNotContainsString('"name"', $written);
+        self::assertStringNotContainsString('siloImage', $written);
+    }
+
+    public function test_silo_image_defaults_to_standard_and_round_trips_when_distroless(): void
+    {
+        $path = $this->projectRoot . '/ship.json';
+        file_put_contents($path, '{"php": "8.4"}');
+
+        self::assertSame(ShipConfig::SILO_IMAGE_STANDARD, ShipConfig::fromFile($path)->siloImage);
+
+        (new ShipConfig(phpVersion: '8.4', services: [], siloImage: ShipConfig::SILO_IMAGE_DISTROLESS))->toFile($path);
+
+        self::assertStringContainsString('"siloImage": "distroless"', (string) file_get_contents($path));
+        self::assertSame(ShipConfig::SILO_IMAGE_DISTROLESS, ShipConfig::fromFile($path)->siloImage);
+        self::assertSame(ShipConfig::SILO_IMAGE_DISTROLESS, ShipConfig::tryFromFile($path)?->siloImage);
+    }
+
+    public function test_from_file_rejects_an_unknown_silo_image(): void
+    {
+        $path = $this->projectRoot . '/ship.json';
+        file_put_contents($path, '{"php": "8.4", "siloImage": "alpine"}');
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('"siloImage" must be "standard" or "distroless"');
+
+        ShipConfig::fromFile($path);
     }
 
     public function test_to_file_persists_explicit_production_port_publishing(): void

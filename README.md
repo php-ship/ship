@@ -26,6 +26,7 @@ started yet.
 - [Quick start](#quick-start)
 - [Commands](#commands)
 - [Services](#services)
+  - [Silo on older CPUs](#silo-on-older-cpus)
 - [Configuration (`ship.json`)](#configuration-shipjson)
   - [Adding a service later](#adding-a-service-later)
   - [Multiple instances of a service](#multiple-instances-of-a-service)
@@ -157,7 +158,7 @@ doesn't make for you.
 | Redis | `CACHE_STORE`/`SESSION_DRIVER`/`REDIS_*`, `redis` PHP extension | Nothing — works out of the box |
 | Mailpit | `MAIL_HOST`/`MAIL_PORT` | Nothing (fresh Laravel already defaults `MAIL_MAILER=smtp`) |
 | Meilisearch | `SCOUT_DRIVER`/`MEILISEARCH_*` | `composer require laravel/scout meilisearch/meilisearch-php` |
-| Garage / SeaweedFS / RustFS / Silo | `AWS_*` env vars (S3-compatible) | `composer require league/flysystem-aws-s3-v3`, and set `FILESYSTEM_DISK=s3` yourself. Garage auto-provisions its own default bucket; RustFS/SeaweedFS/Silo don't — create it yourself once (Silo has a web console for this at `${SILO_CONSOLE_PORT:-9001}`; RustFS's own console doesn't currently work, see that class's own docblock) |
+| Garage / SeaweedFS / RustFS / Silo | `AWS_*` env vars (S3-compatible) | `composer require league/flysystem-aws-s3-v3`, and set `FILESYSTEM_DISK=s3` yourself. Garage auto-provisions its own default bucket; RustFS/SeaweedFS/Silo don't — create it yourself once (Silo has a web console for this at `${SILO_CONSOLE_PORT:-9001}`; RustFS's own console doesn't currently work, see that class's own docblock). Silo has two image variants — see [Silo on older CPUs](#silo-on-older-cpus) |
 | Octane (Swoole/RoadRunner/FrankenPHP) | `swoole` PHP extension (Swoole only), `OCTANE_SERVER` | `composer require laravel/octane`, then `php artisan octane:install` inside the container once (downloads the RoadRunner binary if that's the one picked) |
 | Dusk | Selenium container, `DUSK_DRIVER_URL` | `composer require --dev laravel/dusk` |
 | Node.js / npm | Installed unconditionally in the base image, at the version `ship init`'s "Node.js version" prompt sets (`ship.json`'s `node` field, default 24); `ship npm run dev` works regardless of whether this group is selected | See [Frontend dev server](#frontend-dev-server-vite-hmr) below for HMR |
@@ -166,6 +167,43 @@ doesn't make for you.
 Everything in the right column is one-time setup per project, not a `ship`
 limitation — `ship`'s job stops at "the infrastructure is reachable with the
 right env vars," not "every possible Composer package is pre-installed."
+
+### Silo on older CPUs
+
+Silo publishes two images of every release, and they don't run on the same
+set of machines:
+
+| `siloImage` | Image | What's in it |
+|---|---|---|
+| `standard` (default) | `pgsty/silo:<release>` | The server on a RHEL 9 base, with a shell and the usual tools. |
+| `distroless` | `pgsty/silo:<release>-distroless` | The server binary only. No shell, so `ship shell silo` can't open one. |
+
+RHEL 9 requires a CPU with the x86-64-v2 instruction set. On an older CPU —
+or a virtual machine configured with a generic CPU model, which hides those
+instructions from the guest — the standard image's container fails to
+start. The distroless image of the same release has no such requirement.
+
+`ship init` explains this and asks which image to use whenever Silo is
+selected, then records the answer in `ship.json`:
+
+```json
+"siloImage": "distroless"
+```
+
+`ship.json` is shared by everyone who runs the project, so pick `distroless`
+if *any* machine that will run this stack might be affected: yours, a
+teammate's, or the production server. To check a Linux machine:
+
+```sh
+/lib64/ld-linux-x86-64.so.2 --help | grep x86-64-v2
+```
+
+`x86-64-v2 (supported, searched)` means the standard image will run there.
+
+You can change your mind later: edit `siloImage` and run `ship up` again (or
+cut a new release). Both images are the same Silo release and mount the same
+data volume, so buckets and objects carry over. The setting applies to every
+Silo instance, including ones added through `additionalServices`.
 
 ## Configuration (`ship.json`)
 
@@ -219,6 +257,9 @@ plain, readable JSON document:
   ```
   Fed to [`mlocati/docker-php-extension-installer`](https://github.com/mlocati/docker-php-extension-installer),
   which handles each extension's own build dependencies for you.
+- `siloImage` — `"standard"` (the default, omitted) or `"distroless"`: which
+  image the Silo storage service runs. `ship init` asks when Silo is
+  selected — see [Silo on older CPUs](#silo-on-older-cpus).
 - `publishPorts` — defaults to `false`, so production publishes nothing to
   the host. A reverse proxy (Caddy, Traefik, ...) can reach the HTTP service
   when joined to the project's `ship` Docker network. `externalNetwork`
@@ -871,7 +912,9 @@ your project) and implement one of the two extension points:
   an optional infrastructure piece (database, cache, runtime, ...). A
   database service can also implement
   [`Ship\Contracts\ProvidesDatabaseShell`](src/Contracts/ProvidesDatabaseShell.php)
-  to support `ship db`.
+  to support `ship db`, and any service can implement
+  [`Ship\Contracts\ConfigAwareService`](src/Contracts/ConfigAwareService.php)
+  to read `ship.json` before building its fragment.
 - [`Ship\Contracts\FrameworkAdapter`](src/Contracts/FrameworkAdapter.php) —
   framework-specific console commands (like `ship artisan`) and
   production boot-time release commands.

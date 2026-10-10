@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ship\Docker;
 
 use Ship\Config\ShipConfig;
+use Ship\Contracts\ConfigAwareService;
 use Ship\Contracts\ShipEnvironment;
 use Ship\Services\ServiceRegistry;
 use Ship\Services\SupportsNamedInstances;
@@ -62,7 +63,7 @@ final class ComposeFileBuilder
         $removed = [];
 
         foreach ($config->services as $key) {
-            [$compose, $appEnv, $removed] = $this->applyService($compose, $appEnv, $removed, $key, null, $environment, $serviceNames);
+            [$compose, $appEnv, $removed] = $this->applyService($compose, $appEnv, $removed, $key, null, $environment, $config);
         }
 
         foreach ($config->additionalServices as $additional) {
@@ -73,7 +74,7 @@ final class ComposeFileBuilder
                 $additional['service'],
                 $additional['name'],
                 $environment,
-                $serviceNames,
+                $config,
             );
         }
 
@@ -169,7 +170,6 @@ final class ComposeFileBuilder
      * @param array<string, mixed> $compose
      * @param array<string, string> $appEnv
      * @param list<string> $removed
-     * @param array<string, string> $serviceNames
      * @return array{0: array<string, mixed>, 1: array<string, string>, 2: list<string>}
      */
     private function applyService(
@@ -179,9 +179,15 @@ final class ComposeFileBuilder
         string $key,
         ?string $instanceName,
         ShipEnvironment $environment,
-        array $serviceNames,
+        ShipConfig $config,
     ): array {
+        $serviceNames = $config->serviceNames;
         $service = $this->registry->get($key);
+
+        if ($service instanceof ConfigAwareService) {
+            $service = $service->withConfig($config);
+        }
+
         $fragment = $service->composeFragment($environment, $instanceName);
 
         // An empty fragment means the service is absent in this environment (Mailpit and Dusk in

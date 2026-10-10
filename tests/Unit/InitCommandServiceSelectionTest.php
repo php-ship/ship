@@ -8,6 +8,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Ship\Console\Commands\InitCommand;
 use Ship\Services\ServiceRegistry;
+use Ship\Services\SiloService;
 use Ship\Support\ShipVersion;
 use Symfony\Component\Console\Tester\CommandTester;
 use Symfony\Component\Filesystem\Filesystem;
@@ -319,5 +320,65 @@ final class InitCommandServiceSelectionTest extends TestCase
 
         self::assertCount(1, $additional);
         self::assertSame(['group' => 'database', 'service' => 'mysql', 'name' => 'analytics'], $additional[0]);
+    }
+
+    /**
+     * Silo's standard image doesn't run on every CPU, so selecting Silo asks which image to use
+     * and explains why.
+     */
+    public function test_selecting_silo_asks_for_its_image_and_records_a_distroless_choice(): void
+    {
+        $command = new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults()));
+        $tester = new CommandTester($command);
+        $tester->setInputs([
+            'None', 'None', 'None', (new SiloService())->label(), 'None', 'None', 'None', 'None', 'None',
+            'no',
+            'Distroless (runs on older CPUs too; no shell in the container)',
+            '8.4', '24',
+        ]);
+        $tester->execute([]);
+
+        self::assertSame('silo', $this->shipJson()['services']['storage']);
+        self::assertSame('distroless', $this->shipJson()['siloImage']);
+        self::assertStringContainsString('x86-64-v2', $tester->getDisplay());
+        self::assertStringContainsString('Which Silo image?', $tester->getDisplay());
+    }
+
+    public function test_the_standard_silo_image_is_the_default_and_is_not_written_to_ship_json(): void
+    {
+        $command = new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults()));
+        $tester = new CommandTester($command);
+        $tester->setInputs([
+            'None', 'None', 'None', (new SiloService())->label(), 'None', 'None', 'None', 'None', 'None',
+            'no',
+            '',
+            '8.4', '24',
+        ]);
+        $tester->execute([]);
+
+        self::assertSame('silo', $this->shipJson()['services']['storage']);
+        self::assertArrayNotHasKey('siloImage', $this->shipJson());
+    }
+
+    public function test_re_running_init_defaults_the_silo_image_to_the_existing_choice(): void
+    {
+        file_put_contents(
+            $this->projectRoot . '/ship.json',
+            json_encode(['php' => '8.4', 'services' => ['storage' => 'silo'], 'siloImage' => 'distroless']),
+        );
+
+        $command = new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults()));
+        $tester = new CommandTester($command);
+        $tester->setInputs(['None', 'None', 'None', '', 'None', 'None', 'None', 'None', 'None', 'no', '', '8.4', '24']);
+        $tester->execute([]);
+
+        self::assertSame('distroless', $this->shipJson()['siloImage']);
+    }
+
+    public function test_the_silo_image_question_is_not_asked_when_silo_is_not_selected(): void
+    {
+        $this->runInit(['PostgreSQL', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
+
+        self::assertArrayNotHasKey('siloImage', $this->shipJson());
     }
 }

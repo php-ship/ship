@@ -11,6 +11,8 @@ and records the non-obvious reasons behind each decision.
 - `ServiceDefinition` (one per optional infrastructure piece),
   `FrameworkAdapter` (one per framework), and the optional
   `ProvidesDatabaseShell` a database service implements for `ship db`.
+  `ConfigAwareService` lets a service read `ship.json` before it builds its
+  fragment.
 - `ExtensionLoader` resolves `ship.json`'s `extensions` (a list of class
   names) in one pass. `Application` loads them once and passes the
   populated `ServiceRegistry` into every command, so no extension class is
@@ -54,6 +56,10 @@ and records the non-obvious reasons behind each decision.
   - RustFS publishes no console port: the console currently returns
     "AccessDenied" (rustfs/rustfs#8013).
   - Silo publishes its web console, on an instance-scoped port variable.
+    `siloImage` selects the standard image or the distroless one of the
+    same release: the standard image's RHEL 9 base needs an x86-64-v2 CPU.
+    `ship init` asks when Silo is selected. The healthcheck uses `silo
+    healthcheck live`, since the distroless image has no curl.
   - RustFS, SeaweedFS and Silo don't create a bucket; the project does,
     once.
 - Octane:

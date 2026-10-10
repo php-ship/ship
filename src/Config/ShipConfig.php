@@ -11,6 +11,10 @@ use RuntimeException;
  */
 final class ShipConfig
 {
+    public const SILO_IMAGE_STANDARD = 'standard';
+    public const SILO_IMAGE_DISTROLESS = 'distroless';
+    public const SILO_IMAGES = [self::SILO_IMAGE_STANDARD, self::SILO_IMAGE_DISTROLESS];
+
     /**
      * @param array<string, string> $services group => selected service key, e.g.
      *        ['database' => 'pgsql'] -- the default instance of that group.
@@ -40,6 +44,10 @@ final class ShipConfig
      *        combined with SHIP_MUTAGEN.
      * @param ?string $name project name used for the compose `name:` and production image tags.
      *        Null falls back to the project directory's basename.
+     * @param string $siloImage which image the Silo storage service runs: "standard" (the default)
+     *        or "distroless", the same release for CPUs without x86-64-v2, which the standard
+     *        image's RHEL 9 base requires. Prompted by `ship init` when Silo is selected. Applies to
+     *        every Silo instance, since it depends on the machines running the stack.
      */
     public function __construct(
         public readonly string $phpVersion,
@@ -55,6 +63,7 @@ final class ShipConfig
         public readonly array $processes = [],
         public readonly bool $hostUser = false,
         public readonly ?string $name = null,
+        public readonly string $siloImage = self::SILO_IMAGE_STANDARD,
     ) {
     }
 
@@ -91,6 +100,7 @@ final class ShipConfig
          *     processes?: array<string,string>,
          *     hostUser?: bool,
          *     name?: ?string,
+         *     siloImage?: string,
          * } $data
          */
         return new self(
@@ -107,6 +117,7 @@ final class ShipConfig
             processes: $data['processes'] ?? [],
             hostUser: $data['hostUser'] ?? false,
             name: $data['name'] ?? null,
+            siloImage: $data['siloImage'] ?? self::SILO_IMAGE_STANDARD,
         );
     }
 
@@ -147,6 +158,7 @@ final class ShipConfig
             processes: self::filterStringMap($data['processes'] ?? null),
             hostUser: is_bool($data['hostUser'] ?? null) ? $data['hostUser'] : false,
             name: is_string($data['name'] ?? null) ? $data['name'] : null,
+            siloImage: is_string($data['siloImage'] ?? null) ? $data['siloImage'] : self::SILO_IMAGE_STANDARD,
         );
     }
 
@@ -210,6 +222,12 @@ final class ShipConfig
             if (isset($data[$key]) && !is_string($data[$key])) {
                 throw new RuntimeException("ship.json's \"{$key}\" must be a string at {$path}.");
             }
+        }
+
+        if (isset($data['siloImage']) && !in_array($data['siloImage'], self::SILO_IMAGES, true)) {
+            throw new RuntimeException(
+                "ship.json's \"siloImage\" must be \"standard\" or \"distroless\" at {$path}.",
+            );
         }
 
         foreach (['publishPorts', 'hostUser'] as $key) {
@@ -339,6 +357,9 @@ final class ShipConfig
         }
         if ($this->name !== null) {
             $payload['name'] = $this->name;
+        }
+        if ($this->siloImage !== self::SILO_IMAGE_STANDARD) {
+            $payload['siloImage'] = $this->siloImage;
         }
 
         file_put_contents(

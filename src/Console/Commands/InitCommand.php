@@ -70,6 +70,13 @@ final class InitCommand extends Command
         }
 
         $additionalServices = $this->promptForAdditionalInstances($io, $input, $existing->additionalServices ?? []);
+        $siloImage = $this->promptForSiloImage(
+            $io,
+            $input,
+            $selected,
+            $additionalServices,
+            $existing->siloImage ?? ShipConfig::SILO_IMAGE_STANDARD,
+        );
 
         $phpVersion = $io->ask('PHP version', '8.4');
         $nodeVersion = $io->ask('Node.js version', '24');
@@ -88,6 +95,7 @@ final class InitCommand extends Command
             processes: $existing->processes ?? [],
             hostUser: $existing->hostUser ?? false,
             name: $existing?->name,
+            siloImage: $siloImage,
         );
         $config->toFile($this->projectRoot . '/ship.json');
 
@@ -235,6 +243,53 @@ final class InitCommand extends Command
         }
 
         return $additional;
+    }
+
+    /**
+     * Silo's standard image doesn't run on every CPU (see ShipConfig::$siloImage), which the
+     * service list alone can't convey, so whenever Silo is selected the choice is asked for
+     * together with the reason. $current is kept when Silo isn't selected.
+     *
+     * @param array<string, string> $selected
+     * @param list<array{group: string, service: string, name: string}> $additionalServices
+     */
+    private function promptForSiloImage(
+        SymfonyStyle $io,
+        InputInterface $input,
+        array $selected,
+        array $additionalServices,
+        string $current,
+    ): string {
+        $siloSelected = ($selected['storage'] ?? null) === 'silo'
+            || in_array('silo', array_column($additionalServices, 'service'), strict: true);
+
+        if (!$siloSelected) {
+            return $current;
+        }
+
+        $io->note([
+            'Silo publishes two images of the same release. The standard one is built on RHEL 9, '
+                . 'which requires a CPU with the x86-64-v2 instruction set: on an older CPU, or a '
+                . 'virtual machine that exposes a generic CPU model, its container fails to start. '
+                . 'The distroless one has no such requirement, but no shell either, so `ship shell` '
+                . 'can\'t open one in it.',
+            'Pick distroless if any machine that will run this stack (yours, a teammate\'s, the '
+                . 'production server) might be affected. On Linux, check a machine with:',
+            '    /lib64/ld-linux-x86-64.so.2 --help | grep x86-64-v2',
+            'It prints "x86-64-v2 (supported, searched)" when the standard image will run. You can '
+                . 'switch later with ship.json\'s "siloImage"; both images use the same data volume.',
+        ]);
+
+        return $this->select(
+            $io,
+            $input,
+            'Which Silo image?',
+            [
+                ShipConfig::SILO_IMAGE_STANDARD => 'Standard (needs an x86-64-v2 CPU)',
+                ShipConfig::SILO_IMAGE_DISTROLESS => 'Distroless (runs on older CPUs too; no shell in the container)',
+            ],
+            in_array($current, ShipConfig::SILO_IMAGES, true) ? $current : ShipConfig::SILO_IMAGE_STANDARD,
+        );
     }
 
     private function projectUsesVite(): bool

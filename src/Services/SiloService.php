@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Ship\Services;
 
+use Ship\Config\ShipConfig;
+use Ship\Contracts\ConfigAwareService;
 use Ship\Contracts\ServiceDefinition;
 use Ship\Contracts\ShipEnvironment;
 use Ship\Docker\DevPortBinding;
@@ -17,10 +19,23 @@ use Ship\Docker\RequiredEnv;
  * There's no default-bucket provisioning: the app's bucket ("local", see environmentVariables())
  * has to be created once, via the console at http://localhost:${SILO_CONSOLE_PORT:-9001} or any
  * S3 client, before first use.
+ *
+ * Two image variants of the same release (ship.json's siloImage, see ShipConfig::$siloImage). The
+ * standard image is built on RHEL 9, which needs an x86-64-v2 CPU; the distroless one has no such
+ * requirement, and no shell either.
  */
-final class SiloService implements ServiceDefinition
+final class SiloService implements ServiceDefinition, ConfigAwareService
 {
     use SupportsNamedInstances;
+
+    public function __construct(private readonly string $image = ShipConfig::SILO_IMAGE_STANDARD)
+    {
+    }
+
+    public function withConfig(ShipConfig $config): static
+    {
+        return new self($config->siloImage);
+    }
 
     public function key(): string
     {
@@ -44,7 +59,8 @@ final class SiloService implements ServiceDefinition
 
         return [
             $name => [
-                'image' => 'pgsty/silo:RELEASE.2026-09-16T00-00-00Z',
+                // One literal for both variants, so Renovate bumps them together.
+                'image' => 'pgsty/silo:RELEASE.2026-09-16T00-00-00Z' . $this->imageTagSuffix(),
                 'command' => ['server', '/data', '--console-address', ':9001'],
                 'environment' => [
                     // Must match environmentVariables() below, or "app" authenticates with
@@ -61,7 +77,8 @@ final class SiloService implements ServiceDefinition
                 // Persisted in both environments, like every stateful service.
                 'volumes' => ["ship-{$name}-data:/data"],
                 'healthcheck' => [
-                    'test' => ['CMD', 'curl', '-f', 'http://127.0.0.1:9000/minio/health/live'],
+                    // The server's own probe: the distroless image has no curl.
+                    'test' => ['CMD', '/usr/bin/silo', 'healthcheck', 'live'],
                     'interval' => '5s',
                     'timeout' => '5s',
                     'retries' => 10,
@@ -91,6 +108,11 @@ final class SiloService implements ServiceDefinition
     public function removes(): array
     {
         return [];
+    }
+
+    private function imageTagSuffix(): string
+    {
+        return $this->image === ShipConfig::SILO_IMAGE_DISTROLESS ? '-distroless' : '';
     }
 
     private function consolePortMapping(?string $instanceName): string
