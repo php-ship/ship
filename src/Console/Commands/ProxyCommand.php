@@ -44,13 +44,20 @@ final class ProxyCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $forwarded = $this->rawArgumentsAfterCommandName($input);
-        $binaryParts = explode(' ', $this->binary);
+        return $this->runner->runInteractive($this->buildCommand($input), $this->projectRoot);
+    }
 
-        return $this->runner->runInteractive(
-            [...ComposeCommand::execPrefix($this->projectRoot, $this->service), $this->service, ...$binaryParts, ...$forwarded],
-            $this->projectRoot,
-        );
+    /**
+     * @return list<string>
+     */
+    private function buildCommand(InputInterface $input): array
+    {
+        return [
+            ...ComposeCommand::execPrefix($this->projectRoot, $this->service),
+            $this->service,
+            ...explode(' ', $this->binary),
+            ...$this->rawArgumentsAfterCommandName($input),
+        ];
     }
 
     /**

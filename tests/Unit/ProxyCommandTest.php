@@ -67,6 +67,105 @@ final class ProxyCommandTest extends TestCase
     }
 
     /**
+     * `ship composer require foo/bar` runs Composer inside the app container, not on the host.
+     */
+    public function test_ship_composer_runs_composer_inside_the_app_service(): void
+    {
+        $command = $this->buildCommand(
+            new ProxyCommand('composer', 'app', 'composer', $this->projectRoot(), new ProcessRunner()),
+            new ArgvInput(['ship', 'composer', 'require', 'foo/bar']),
+        );
+
+        self::assertSame(
+            [...$this->execPrefix(), 'app', 'composer', 'require', 'foo/bar'],
+            $command,
+        );
+    }
+
+    /**
+     * Composer's own flags ("--dev", "-W", "--no-interaction") must not be parsed as options on
+     * `ship`.
+     */
+    public function test_ship_composer_forwards_composers_own_flags_untouched(): void
+    {
+        $command = $this->buildCommand(
+            new ProxyCommand('composer', 'app', 'composer', $this->projectRoot(), new ProcessRunner()),
+            new ArgvInput(['ship', 'composer', 'require', '--dev', 'phpunit/phpunit', '-W', '--no-interaction']),
+        );
+
+        self::assertSame(
+            [...$this->execPrefix(), 'app', 'composer', 'require', '--dev', 'phpunit/phpunit', '-W', '--no-interaction'],
+            $command,
+        );
+    }
+
+    /**
+     * Bare `ship composer` runs bare `composer` (its own command list), not an error from ship.
+     */
+    public function test_bare_ship_composer_runs_bare_composer(): void
+    {
+        $command = $this->buildCommand(
+            new ProxyCommand('composer', 'app', 'composer', $this->projectRoot(), new ProcessRunner()),
+            new ArgvInput(['ship', 'composer']),
+        );
+
+        self::assertSame([...$this->execPrefix(), 'app', 'composer'], $command);
+    }
+
+    /**
+     * A multi-word binary ("php artisan") is split into separate argv entries, not passed as one
+     * "php artisan" executable name.
+     */
+    public function test_a_multi_word_binary_is_split_into_separate_arguments(): void
+    {
+        $command = $this->buildCommand(
+            new ProxyCommand('artisan', 'app', 'php artisan', $this->projectRoot(), new ProcessRunner()),
+            new ArgvInput(['ship', 'artisan', 'migrate', '--force']),
+        );
+
+        self::assertSame([...$this->execPrefix(), 'app', 'php', 'artisan', 'migrate', '--force'], $command);
+    }
+
+    public function test_it_targets_the_service_it_was_built_for(): void
+    {
+        $command = $this->buildCommand(
+            new ProxyCommand('composer', 'client-app', 'composer', $this->projectRoot(), new ProcessRunner()),
+            new ArgvInput(['ship', 'composer', 'install']),
+        );
+
+        self::assertSame([...$this->execPrefix(), 'client-app', 'composer', 'install'], $command);
+    }
+
+    private function projectRoot(): string
+    {
+        return sys_get_temp_dir();
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function execPrefix(): array
+    {
+        return [
+            'docker', 'compose',
+            '-f', $this->projectRoot() . '/ship/docker-compose.generated.yml',
+            '--project-directory', $this->projectRoot(),
+            'exec',
+        ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function buildCommand(ProxyCommand $command, InputInterface $input): array
+    {
+        $method = new \ReflectionMethod($command, 'buildCommand');
+
+        /** @var list<string> */
+        return $method->invoke($command, $input);
+    }
+
+    /**
      * @return list<string>
      */
     private function rawArgumentsAfterCommandName(InputInterface $input): array
