@@ -9,6 +9,7 @@ use Ship\Contracts\ConfigAwareService;
 use Ship\Contracts\ShipEnvironment;
 use Ship\Services\ServiceRegistry;
 use Ship\Services\SupportsNamedInstances;
+use Ship\Support\PhpSecurityFloor;
 use Symfony\Component\Yaml\Yaml;
 
 final class ComposeFileBuilder
@@ -47,6 +48,7 @@ final class ComposeFileBuilder
         $this->assertNoServiceNameCollisions($config->services, $serviceNames);
         $this->assertUniqueAdditionalServiceNames($config->additionalServices);
         $this->assertAdditionalServicesSupportNamedInstances($config->additionalServices);
+        $this->assertPhpVersionIsPatched($config->phpVersion);
 
         $compose = [
             ...($projectName !== null ? ['name' => $projectName] : []),
@@ -89,6 +91,14 @@ final class ComposeFileBuilder
             implode(' ', $config->phpExtensions),
         );
         $compose['services'] = $this->backfillRestartPolicy($compose['services']);
+
+        // `docker compose build` reuses a locally cached base image (php:8.4-fpm-alpine) forever,
+        // so a production build always re-resolves its FROM images and picks up PHP's latest
+        // patch release. Development skips this so `ship up` still works offline; the
+        // PHP_SECURITY_FLOOR check in the Dockerfile catches a stale dev base image instead.
+        if (!$environment->isDevelopment()) {
+            $compose['services'] = $this->backfillBuildPull($compose['services']);
+        }
 
         // Fragment keys are already renamed (see applyService()); this fixes references to a
         // renamed service from another fragment, e.g. "webserver"'s depends_on: ["app"].
@@ -523,8 +533,8 @@ final class ComposeFileBuilder
 
     /**
      * Gives every service building a ship/Dockerfile PHP stage ("app", Reverb) the same
-     * PHP_VERSION/NODE_VERSION/PHP_EXTENSIONS build args. dev-nginx/prod-nginx don't consume
-     * them. `??=` lets a value that's already set win.
+     * PHP_VERSION/NODE_VERSION/PHP_EXTENSIONS/PHP_SECURITY_FLOOR build args. dev-nginx/prod-nginx
+     * don't consume them. `??=` lets a value that's already set win.
      *
      * @param array<string, array<string, mixed>> $services
      * @return array<string, array<string, mixed>>
@@ -542,9 +552,39 @@ final class ComposeFileBuilder
             $services[$name]['build']['args']['PHP_VERSION'] ??= $phpVersion;
             $services[$name]['build']['args']['NODE_VERSION'] ??= $nodeVersion;
             $services[$name]['build']['args']['PHP_EXTENSIONS'] ??= $phpExtensions;
+            // Not `??=`: a fragment has no business lowering the security floor.
+            $services[$name]['build']['args']['PHP_SECURITY_FLOOR'] = PhpSecurityFloor::buildArg();
         }
 
         return $services;
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $services
+     * @return array<string, array<string, mixed>>
+     */
+    private function backfillBuildPull(array $services): array
+    {
+        foreach ($services as $name => $service) {
+            if (isset($service['build'])) {
+                $services[$name]['build']['pull'] = true;
+            }
+        }
+
+        return $services;
+    }
+
+    /**
+     * Fails before a long Docker build that the Dockerfile's PHP_SECURITY_FLOOR check would only
+     * reject at the end of the base stage anyway.
+     */
+    private function assertPhpVersionIsPatched(string $phpVersion): void
+    {
+        $problem = PhpSecurityFloor::problemWith($phpVersion);
+
+        if ($problem !== null) {
+            throw new \InvalidArgumentException("ship.json \"php\": {$problem}");
+        }
     }
 
     /**

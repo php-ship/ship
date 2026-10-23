@@ -8,6 +8,14 @@ FROM node:${NODE_VERSION}-bookworm-slim AS node
 
 FROM dunglas/frankenphp:1-php${PHP_VERSION}-bookworm AS base
 
+# Refuses to build on a PHP patch release with known security vulnerabilities, or on an end-of-life
+# branch -- see ship/check-php-security-floor.php. PHP_SECURITY_FLOOR is set by the generated
+# compose file; empty skips the check.
+ARG PHP_VERSION
+ARG PHP_SECURITY_FLOOR=""
+COPY ship/check-php-security-floor.php /usr/local/share/ship/check-php-security-floor.php
+RUN SHIP_BASE_IMAGE="dunglas/frankenphp:1-php${PHP_VERSION}-bookworm" php /usr/local/share/ship/check-php-security-floor.php
+
 # The same unconditional extension set as the main Dockerfile, with redis pinned the same way.
 ARG REDIS_EXTENSION_VERSION=6.3.0
 RUN install-php-extensions pdo_pgsql pdo_mysql intl mbstring opcache redis-$REDIS_EXTENSION_VERSION pcntl

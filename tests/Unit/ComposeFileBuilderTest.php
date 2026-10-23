@@ -17,6 +17,7 @@ use Ship\Services\RedisService;
 use Ship\Services\ReverbService;
 use Ship\Services\ServiceRegistry;
 use Ship\Services\SiloService;
+use Ship\Support\PhpSecurityFloor;
 use Symfony\Component\Yaml\Yaml;
 
 final class ComposeFileBuilderTest extends TestCase
@@ -743,5 +744,95 @@ final class ComposeFileBuilderTest extends TestCase
 
         self::assertStringEndsWith('-distroless', $parsed['services']['silo']['image'] ?? '');
         self::assertStringEndsWith('-distroless', $parsed['services']['silo-archive']['image'] ?? '');
+    }
+
+    /**
+     * The Dockerfiles' base stage checks the image's actual PHP against this floor, in both
+     * environments and for every PHP-building service (Reverb included).
+     */
+    public function test_every_php_building_service_gets_the_security_floor_build_arg(): void
+    {
+        $registry = new ServiceRegistry([new MySqlService(), new OctaneSwooleService(), new ReverbService()]);
+        $config = new ShipConfig(
+            phpVersion: '8.4',
+            services: ['database' => 'mysql', 'runtime' => 'octane-swoole', 'broadcasting' => 'reverb'],
+        );
+
+        foreach ([ShipEnvironment::Development, ShipEnvironment::Production] as $environment) {
+            $parsed = Yaml::parse((new ComposeFileBuilder($registry))->build($config, $environment));
+
+            foreach (['app', 'reverb'] as $service) {
+                self::assertSame(
+                    PhpSecurityFloor::buildArg(),
+                    $parsed['services'][$service]['build']['args']['PHP_SECURITY_FLOOR'] ?? null,
+                    "{$service} ({$environment->name}) is missing PHP_SECURITY_FLOOR.",
+                );
+            }
+        }
+    }
+
+    /**
+     * FrankenPHP swaps the Dockerfile but must keep the floor.
+     */
+    public function test_frankenphp_keeps_the_security_floor_build_arg(): void
+    {
+        $builder = new ComposeFileBuilder(new ServiceRegistry([new OctaneFrankenPhpService()]));
+        $config = new ShipConfig(phpVersion: '8.4', services: ['runtime' => 'octane-frankenphp']);
+
+        $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Production));
+
+        self::assertSame('ship/Dockerfile.frankenphp', $parsed['services']['app']['build']['dockerfile']);
+        self::assertSame(PhpSecurityFloor::buildArg(), $parsed['services']['app']['build']['args']['PHP_SECURITY_FLOOR']);
+    }
+
+    /**
+     * Without `pull`, `docker compose build` keeps reusing a locally cached php:8.4-fpm-alpine on
+     * an old, vulnerable patch release.
+     */
+    public function test_production_builds_always_pull_a_fresh_base_image(): void
+    {
+        $builder = new ComposeFileBuilder($this->registry());
+        $config = new ShipConfig(phpVersion: '8.4', services: ['database' => 'pgsql']);
+
+        $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Production));
+
+        self::assertTrue($parsed['services']['app']['build']['pull']);
+        self::assertTrue($parsed['services']['webserver']['build']['pull']);
+        // An image-only service has nothing to build.
+        self::assertArrayNotHasKey('build', $parsed['services']['pgsql']);
+    }
+
+    /**
+     * Development stays usable offline; the Dockerfile's floor check catches a stale image there.
+     */
+    public function test_development_builds_do_not_force_a_pull(): void
+    {
+        $builder = new ComposeFileBuilder($this->registry());
+        $config = new ShipConfig(phpVersion: '8.4', services: []);
+
+        $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Development));
+
+        self::assertArrayNotHasKey('pull', $parsed['services']['app']['build']);
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function insecurePhpVersions(): iterable
+    {
+        yield 'an end-of-life branch' => ['8.1'];
+        yield 'a pinned vulnerable patch release' => ['8.4.20'];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('insecurePhpVersions')]
+    public function test_it_refuses_an_insecure_php_version_before_any_docker_build(string $phpVersion): void
+    {
+        $builder = new ComposeFileBuilder($this->registry());
+        $config = new ShipConfig(phpVersion: $phpVersion, services: []);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('ship.json "php"');
+
+        $builder->build($config, ShipEnvironment::Development);
     }
 }

@@ -7,6 +7,14 @@ FROM node:${NODE_VERSION}-alpine AS node
 FROM php:${PHP_VERSION}-fpm-alpine AS base
 ARG OCTANE_RUNTIME
 
+# Refuses to build on a PHP patch release with known security vulnerabilities, or on an end-of-life
+# branch -- see ship/check-php-security-floor.php. PHP_SECURITY_FLOOR is set by the generated
+# compose file; empty skips the check.
+ARG PHP_VERSION
+ARG PHP_SECURITY_FLOOR=""
+COPY ship/check-php-security-floor.php /usr/local/share/ship/check-php-security-floor.php
+RUN SHIP_BASE_IMAGE="php:${PHP_VERSION}-fpm-alpine" php /usr/local/share/ship/check-php-security-floor.php
+
 # pdo_pgsql/pdo_mysql/pcntl are installed regardless of which database or runtime is selected:
 # cheap, and it avoids a build arg per extension. pcntl is needed by Octane and Reverb for signal
 # handling.

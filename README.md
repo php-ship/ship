@@ -32,6 +32,7 @@ started yet.
   - [Multiple instances of a service](#multiple-instances-of-a-service)
   - [Custom service names and an external network](#custom-service-names-and-an-external-network)
 - [Production releases](#production-releases)
+  - [PHP security floor](#php-security-floor)
 - [HTTPS / TLS](#https--tls)
 - [Backing up data volumes](#backing-up-data-volumes)
 - [Frontend dev server (Vite HMR)](#frontend-dev-server-vite-hmr)
@@ -228,7 +229,9 @@ plain, readable JSON document:
 ```
 
 - `php` — the PHP version built into the image (`ARG PHP_VERSION` in
-  `ship/Dockerfile`).
+  `ship/Dockerfile`). Keep it a bare branch (`"8.4"`) so every build gets
+  that branch's latest patch release. See [PHP security
+  floor](#php-security-floor) for the versions ship refuses.
 - `node` — the Node.js major version built into the image (`ARG
   NODE_VERSION`), independent of whether the `frontend` group's Node
   service is selected — Node installs unconditionally either way (see
@@ -482,6 +485,50 @@ same one with a flag flipped:
   the same `ship/Dockerfile` as `app` (a `prod-nginx` target that copies
   from the `assets` stage), so it has access to `public/`'s built CSS/JS
   instead of only being able to proxy PHP requests to `app`.
+
+### PHP security floor
+
+ship refuses to build on a PHP release with known security
+vulnerabilities. The current floor comes from the October 2026 critical
+releases, which fixed two unauthenticated remote code execution bugs:
+[CVE-2026-109618](https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w)
+(OOM corruption) and
+[CVE-2026-109619](https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp)
+(stale global state).
+
+| Branch | Oldest release ship builds on |
+| --- | --- |
+| 8.2 | 8.2.35 |
+| 8.3 | 8.3.36 |
+| 8.4 | 8.4.27 |
+| 8.5 | 8.5.12 |
+| 8.6 (pre-release) | 8.6.0RC4 |
+| 8.1 and older | none (end of life, no upstream fixes) |
+
+It is enforced at three points:
+
+- **`ship init` and every command that generates a compose file** reject
+  an end-of-life `php` branch, or a pinned patch release below the floor
+  (`"8.4.20"`).
+- **The Dockerfiles' `base` stage** checks the PHP that is actually in the
+  base image, and fails the build if it is below the floor. This catches a
+  stale `php:8.4-fpm-alpine` that Docker keeps reusing from its local
+  cache. The fix is in the error message: `docker pull` that image and
+  build again.
+- **`ship build`/`ship release` always pull fresh base images**
+  (`build.pull: true` in the production compose file), so a release never
+  ships on a cached, outdated PHP. `ship up` doesn't force a pull, so it
+  still works offline.
+
+Both `php.ini` overlays also set `session.upload_progress.enabled=Off`,
+which PHP's advisory recommends keeping off even on patched releases when
+nothing uses it. The production overlay sets `fatal_error_backtraces=Off`,
+which only exists on PHP 8.5 and is ignored on older branches.
+
+The Dockerfile check only exists in stubs published by this version, so
+after upgrading ship, run `ship init` again (`ship up` warns until you do).
+The floor lives in `Ship\Support\PhpSecurityFloor`, raised whenever
+php.net ships a security release.
 
 ### `.env.production`
 

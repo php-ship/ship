@@ -7,6 +7,7 @@ namespace Ship\Console\Commands;
 use Ship\Config\ShipConfig;
 use Ship\Docker\DockerignoreGuard;
 use Ship\Services\ServiceRegistry;
+use Ship\Support\PhpSecurityFloor;
 use Ship\Support\ShipVersion;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -78,7 +79,18 @@ final class InitCommand extends Command
             $existing->siloImage ?? ShipConfig::SILO_IMAGE_STANDARD,
         );
 
-        $phpVersion = $io->ask('PHP version', '8.4');
+        // Rejects an end-of-life branch or a pinned patch release with known vulnerabilities
+        // here, rather than at the end of the first `ship up`.
+        $phpVersion = $io->ask('PHP version', '8.4', static function (?string $answer): string {
+            $answer = trim((string) $answer);
+            $problem = PhpSecurityFloor::problemWith($answer);
+
+            if ($problem !== null) {
+                throw new \RuntimeException($problem);
+            }
+
+            return $answer;
+        });
         $nodeVersion = $io->ask('Node.js version', '24');
 
         $config = new ShipConfig(

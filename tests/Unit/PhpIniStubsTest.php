@@ -37,4 +37,22 @@ final class PhpIniStubsTest extends TestCase
     {
         self::assertStringContainsString('expose_php=Off', (string) file_get_contents($path));
     }
+
+    /**
+     * The confirmed CVE-2026-109619 path; PHP's advisory recommends keeping it off even once
+     * patched, when unused.
+     */
+    #[DataProvider('iniPaths')]
+    public function test_session_upload_progress_is_off(string $path): void
+    {
+        self::assertStringContainsString('session.upload_progress.enabled=Off', (string) file_get_contents($path));
+    }
+
+    public function test_fatal_error_backtraces_are_off_in_production(): void
+    {
+        self::assertStringContainsString(
+            'fatal_error_backtraces=Off',
+            (string) file_get_contents(dirname(__DIR__, 2) . '/stubs/docker/php/prod/php.ini'),
+        );
+    }
 }

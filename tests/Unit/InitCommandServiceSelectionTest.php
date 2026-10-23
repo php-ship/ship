@@ -381,4 +381,28 @@ final class InitCommandServiceSelectionTest extends TestCase
 
         self::assertArrayNotHasKey('siloImage', $this->shipJson());
     }
+
+    /**
+     * The Dockerfiles COPY it from ship/ in their base stage.
+     */
+    public function test_the_php_security_floor_check_is_published(): void
+    {
+        $this->runInit(['None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
+
+        self::assertFileExists($this->projectRoot . '/ship/check-php-security-floor.php');
+    }
+
+    /**
+     * An end-of-life branch is re-asked at the prompt instead of failing the first `ship up`.
+     */
+    public function test_an_end_of_life_php_version_is_re_asked(): void
+    {
+        $command = new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults()));
+        $tester = new CommandTester($command);
+        $tester->setInputs(['None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'no', '8.1', '8.4']);
+        $tester->execute([]);
+
+        self::assertStringContainsString('past end of life', $tester->getDisplay());
+        self::assertSame('8.4', $this->shipJson()['php']);
+    }
 }
