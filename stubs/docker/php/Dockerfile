@@ -18,8 +18,15 @@ RUN SHIP_BASE_IMAGE="php:${PHP_VERSION}-fpm-alpine" php /usr/local/share/ship/ch
 # pdo_pgsql/pdo_mysql/pcntl are installed regardless of which database or runtime is selected:
 # cheap, and it avoids a build arg per extension. pcntl is needed by Octane and Reverb for signal
 # handling.
+#
+# OPcache is only built when PHP doesn't already have it. The official images ship it enabled on
+# PHP < 8.5, and from 8.5 it is compiled into PHP itself, so there is no shared module to build:
+# `docker-php-ext-install opcache` fails there with "cp: can't stat 'modules/*'".
 RUN apk add --no-cache libpq-dev icu-dev oniguruma-dev \
-    && docker-php-ext-install pdo_pgsql pdo_mysql intl mbstring opcache pcntl
+    && docker-php-ext-install pdo_pgsql pdo_mysql intl mbstring pcntl \
+    && if ! php -r 'exit(extension_loaded("Zend OPcache") ? 0 : 1);'; then \
+        docker-php-ext-install opcache; \
+    fi
 
 # Extra extensions from ship.json's phpExtensions, installed with
 # mlocati/docker-php-extension-installer, which knows each extension's build dependencies. Skipped

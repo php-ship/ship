@@ -17,6 +17,7 @@ COPY ship/check-php-security-floor.php /usr/local/share/ship/check-php-security-
 RUN SHIP_BASE_IMAGE="dunglas/frankenphp:1-php${PHP_VERSION}-bookworm" php /usr/local/share/ship/check-php-security-floor.php
 
 # The same unconditional extension set as the main Dockerfile, with redis pinned the same way.
+# opcache is built into PHP 8.5; install-php-extensions only warns that it's already installed.
 ARG REDIS_EXTENSION_VERSION=6.3.0
 RUN install-php-extensions pdo_pgsql pdo_mysql intl mbstring opcache redis-$REDIS_EXTENSION_VERSION pcntl
 
