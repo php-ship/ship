@@ -176,6 +176,11 @@ and records the non-obvious reasons behind each decision.
     (retrying once), waits for each declared healthcheck for as long as
     that healthcheck's own budget, and confirms every published port
     actually bound on the host.
+- `ship doctor` reports the installed and published versions and every
+  container's state and health from `docker compose ps`, with a recovery hint.
+  It reads the compose file `ship up` generated rather than regenerating it,
+  so it never changes what `ship exec` runs against. `StackHealth` holds the
+  logic, testable without Docker. Python Ship has the same command.
 - `ship config:test` validates `ship.json`, builds both compose files,
   and checks required production variables, the nginx upstream and
   `DB_USERNAME=root`, without Docker. It reports every problem in one pass.
@@ -225,6 +230,14 @@ and records the non-obvious reasons behind each decision.
   prompting.
 
 ### Configuration
+
+- `schema/ship.schema.json` is the ship.json schema shared with Python Ship,
+  kept identical in both repositories. `ship init` writes `$schema`, and
+  `ShipConfigTest` checks that every field `toFile()` can write is declared.
+- PostgreSQL's key is written `postgres` (Python Ship's name) and `pgsql` is
+  accepted. `ShipConfig::SERVICE_ALIASES` maps it to the registry key `pgsql`
+  on read, so the compose service, volumes and `DB_CONNECTION=pgsql` are
+  unchanged for existing projects.
 
 - `ShipConfig::fromFile()` validates every field's type and the name
   formats, and reports problems with a message naming `ship.json`.

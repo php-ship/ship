@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/ship-ecosystem/python-ship/main/schema/ship.schema.json",
+  "title": "ship.json",
+  "description": "Project configuration for the Ship ecosystem: PHP Ship (php-ship/ship) and Python Ship (python-ship). This file is shared: keep it identical in both repositories. Fields marked PHP or Python are read only by that package; the others mean the same in both.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "The URL of this schema, for editors."
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$",
+      "description": "The Compose project name. Defaults to the sanitized project directory name."
+    },
+    "services": {
+      "type": "object",
+      "description": "One selected service key per group (database, cache, storage, search, mail, testing, frontend, ...). A group without an entry means none. PostgreSQL is \"postgres\"; \"pgsql\" is accepted as an alias by both packages.",
+      "additionalProperties": {"type": "string", "minLength": 1},
+      "examples": [{"database": "postgres", "cache": "redis"}]
+    },
+    "additionalServices": {
+      "type": "array",
+      "description": "Extra, named instances of a service. The name becomes the Compose service suffix ({service}-{name}) and the environment variable prefix ({NAME}_).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["group", "service", "name"],
+        "properties": {
+          "group": {"enum": ["database", "cache", "storage", "search", "mail"]},
+          "service": {"type": "string", "minLength": 1},
+          "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"}
+        }
+      }
+    },
+    "serviceNames": {
+      "type": "object",
+      "description": "Renames Compose services: default name (\"app\", or a selected service key) to a new name.",
+      "additionalProperties": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$"}
+    },
+    "externalNetwork": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$",
+      "description": "A Docker network created outside Ship, attached to the app."
+    },
+    "extensions": {
+      "type": "array",
+      "description": "Community extensions to load: PHP class names, or Python entry point names.",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "siloImage": {
+      "enum": ["standard", "distroless"],
+      "description": "Silo's image variant. The standard image needs an x86-64-v2 CPU."
+    },
+    "publishPorts": {
+      "type": "boolean",
+      "description": "Publish the app's port to the host in production. Development always publishes on 127.0.0.1."
+    },
+    "hostUser": {
+      "type": "boolean",
+      "description": "Run the development app as the host user's UID/GID on Linux. Defaults: false in PHP, true in Python."
+    },
+    "deployCommands": {
+      "type": "array",
+      "description": "Commands run once per deploy, before the app starts (migrations, typically). Python also accepts argument lists.",
+      "items": {"$ref": "#/$defs/command"}
+    },
+    "processes": {
+      "type": "object",
+      "description": "Extra long-running processes from the app's image (workers, schedulers): name to command. Python also accepts argument lists.",
+      "propertyNames": {"pattern": "^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$"},
+      "additionalProperties": {"$ref": "#/$defs/command"}
+    },
+    "php": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+(?:\\.\\d+)?$",
+      "description": "PHP: the PHP branch (or release) built into the image."
+    },
+    "node": {
+      "type": "string",
+      "description": "PHP: the Node.js major version built into the image."
+    },
+    "phpExtensions": {
+      "type": "array",
+      "description": "PHP: extra PHP extensions to install.",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "framework": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$",
+      "description": "Python: the framework adapter: generic, django, fastapi, flask, or an extension's key."
+    },
+    "app": {
+      "type": "string",
+      "pattern": "^[A-Za-z_]\\w*(?:\\.[A-Za-z_]\\w*)*:[A-Za-z_]\\w*$",
+      "description": "Python: the ASGI or WSGI target to serve, module:callable."
+    },
+    "python": {
+      "type": "string",
+      "pattern": "^3\\.\\d+(?:\\.\\d+)?$",
+      "description": "Python: the Python branch (or release) built into the image."
+    },
+    "server": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$",
+      "description": "Python: the web server: uvicorn, hypercorn, granian (ASGI); gunicorn, granian (WSGI); or an extension's key. Defaults to the one recommended for the app."
+    },
+    "nodeAssets": {
+      "type": "boolean",
+      "description": "Python: build npm assets into the production image."
+    },
+    "djangoCollectstatic": {
+      "type": "boolean",
+      "description": "Python: run collectstatic at every production boot (Django only)."
+    }
+  },
+  "$defs": {
+    "command": {
+      "oneOf": [
+        {"type": "string", "minLength": 1},
+        {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+      ]
+    }
+  }
+}

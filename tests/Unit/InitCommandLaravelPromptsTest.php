@@ -57,6 +57,6 @@ final class InitCommandLaravelPromptsTest extends TestCase
             flags: JSON_THROW_ON_ERROR,
         );
 
-        self::assertSame('pgsql', $config['services']['database']);
+        self::assertSame('postgres', $config['services']['database']);
     }
 }

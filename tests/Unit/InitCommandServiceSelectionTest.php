@@ -54,7 +54,7 @@ final class InitCommandServiceSelectionTest extends TestCase
 
         $services = $this->shipJson()['services'];
 
-        self::assertSame('pgsql', $services['database']);
+        self::assertSame('postgres', $services['database']);
         self::assertSame('redis', $services['cache']);
         self::assertSame('meilisearch', $services['search']);
         self::assertSame('mailpit', $services['mail']);

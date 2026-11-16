@@ -8,6 +8,7 @@ use Ship\Config\ShipConfig;
 use Ship\Console\Commands\BuildCommand;
 use Ship\Console\Commands\ConfigTestCommand;
 use Ship\Console\Commands\DbCommand;
+use Ship\Console\Commands\DoctorCommand;
 use Ship\Console\Commands\DownCommand;
 use Ship\Console\Commands\ExecCommand;
 use Ship\Console\Commands\InitCommand;
@@ -60,6 +61,7 @@ final class Application extends SymfonyApplication
         $this->registerCommand(new LogsCommand($this->projectRoot, $runner));
         $this->registerCommand(new DbCommand($this->projectRoot, $runner, $registry));
         $this->registerCommand(new ConfigTestCommand($this->projectRoot, $registry));
+        $this->registerCommand(new DoctorCommand($this->projectRoot, $runner));
 
         // Package-manager commands are always available. Node is installed in the app image, so
         // `ship npm` targets the app service too.

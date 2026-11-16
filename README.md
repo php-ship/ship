@@ -132,6 +132,7 @@ release`.
 | `ship logs [service] [-f]` | Tails logs for one service, or all services if none given. `-f`/`--follow` streams live. |
 | `ship db [instance]` | Opens a database's interactive client shell (`psql`/`mysql`), reading credentials from that container's own environment. Omit `instance` for the default database; name one of `additionalServices`' database entries to open that instance instead. Fails clearly if no database is selected, or the named instance doesn't exist. |
 | `ship config:test` | `ship.json`'s equivalent of `nginx -t`: validates `ship.json`, builds both the development and production compose files, and checks for a required production credential missing from `.env.production` or a stale nginx upstream — all without starting or building anything. Reports every problem it finds in one pass, not just the first. |
+| `ship doctor` | Shows the installed and published versions and the state and health of every container in the development stack, with a recovery hint for anything that crashed or is unhealthy. Reads the compose file `ship up` generated; changes nothing. |
 | `ship composer <args...>` | Proxies to `composer` inside the `app` container. |
 | `ship npm <args...>` | Proxies to `npm` inside the `app` container (e.g. `ship npm run dev`, `ship npm install`). |
 | `ship artisan <args...>` | Proxies to `php artisan` inside `app` — only registered when Laravel's `artisan` is detected at the project root. |
@@ -154,7 +155,7 @@ doesn't make for you.
 
 | Service | Wired automatically | Still needed in the app |
 |---|---|---|
-| Postgres | `DB_*` env vars, `pdo_pgsql` extension | Nothing — works out of the box |
+| Postgres (`postgres`, or `pgsql`) | `DB_*` env vars, `pdo_pgsql` extension | Nothing — works out of the box |
 | MySQL | `DB_*` env vars, `pdo_mysql` extension | Nothing — works out of the box |
 | Redis | `CACHE_STORE`/`SESSION_DRIVER`/`REDIS_*`, `redis` PHP extension | Nothing — works out of the box |
 | Mailpit | `MAIL_HOST`/`MAIL_PORT` | Nothing (fresh Laravel already defaults `MAIL_MAILER=smtp`) |
@@ -213,10 +214,11 @@ plain, readable JSON document:
 
 ```json
 {
+    "$schema": "https://raw.githubusercontent.com/ship-ecosystem/python-ship/main/schema/ship.schema.json",
     "php": "8.4",
     "node": "24",
     "services": {
-        "database": "pgsql",
+        "database": "postgres",
         "cache": "redis",
         "frontend": "node",
         "broadcasting": "reverb"
@@ -228,6 +230,10 @@ plain, readable JSON document:
 }
 ```
 
+- `$schema` — the shared [ship.json schema](schema/ship.schema.json), which
+  `ship init` writes so editors validate and complete the file. It is the same
+  schema [Python Ship](https://github.com/ship-ecosystem/python-ship) uses: the
+  field names below mean the same thing in both packages.
 - `php` — the PHP version built into the image (`ARG PHP_VERSION` in
   `ship/Dockerfile`). Keep it a bare branch (`"8.4"`) so every build gets
   that branch's latest patch release. See [PHP security
@@ -237,7 +243,10 @@ plain, readable JSON document:
   service is selected — Node installs unconditionally either way (see
   the [Services](#services) table above).
 - `services` — one selected service key per group; a group with no entry
-  means "none selected".
+  means "none selected". PostgreSQL is written `postgres`, and `pgsql` (its
+  original name) is still accepted, here and in `additionalServices` and
+  `serviceNames`. Either way its compose service is `pgsql` and its volume
+  `ship-pgsql-data`, so existing projects keep their data.
 - `additionalServices` — extra, named instances beyond the one in
   `services` (a second database, a second Redis, ...). See
   [Multiple instances of a service](#multiple-instances-of-a-service)

@@ -404,4 +404,75 @@ final class ShipConfigTest extends TestCase
         self::assertSame(['app' => 'client-app'], $config->serviceNames);
         self::assertFalse($config->publishPorts);
     }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function postgresSpellings(): iterable
+    {
+        yield 'pgsql' => ['pgsql'];
+        yield 'postgres' => ['postgres'];
+    }
+
+    #[DataProvider('postgresSpellings')]
+    public function test_both_postgres_spellings_read_as_the_same_service(string $spelling): void
+    {
+        $path = $this->projectRoot . '/ship.json';
+        file_put_contents($path, json_encode([
+            'services' => ['database' => $spelling],
+            'additionalServices' => [['group' => 'database', 'service' => $spelling, 'name' => 'reports']],
+            'serviceNames' => [$spelling => 'client-db'],
+        ]));
+
+        foreach ([ShipConfig::fromFile($path), ShipConfig::tryFromFile($path)] as $config) {
+            self::assertNotNull($config);
+            // The registry key, and the compose service and volumes existing projects already have.
+            self::assertSame(['database' => 'pgsql'], $config->services);
+            self::assertSame('pgsql', $config->additionalServices[0]['service']);
+            self::assertSame(['pgsql' => 'client-db'], $config->serviceNames);
+        }
+    }
+
+    public function test_to_file_writes_postgres_and_the_shared_schema(): void
+    {
+        $path = $this->projectRoot . '/ship.json';
+        (new ShipConfig(
+            phpVersion: '8.4',
+            services: ['database' => 'pgsql', 'cache' => 'redis'],
+            additionalServices: [['group' => 'database', 'service' => 'pgsql', 'name' => 'reports']],
+        ))->toFile($path);
+
+        $data = json_decode((string) file_get_contents($path), associative: true, flags: JSON_THROW_ON_ERROR);
+
+        self::assertSame(ShipConfig::SCHEMA_URL, $data['$schema']);
+        self::assertSame(['database' => 'postgres', 'cache' => 'redis'], $data['services']);
+        self::assertSame('postgres', $data['additionalServices'][0]['service']);
+        self::assertSame(['database' => 'pgsql', 'cache' => 'redis'], ShipConfig::fromFile($path)->services);
+    }
+
+    public function test_the_shared_schema_declares_every_field_ship_json_can_hold(): void
+    {
+        $schema = json_decode((string) file_get_contents(__DIR__ . '/../../schema/ship.schema.json'), associative: true, flags: JSON_THROW_ON_ERROR);
+
+        self::assertSame(ShipConfig::SCHEMA_URL, $schema['$id']);
+        $path = $this->projectRoot . '/ship.json';
+        (new ShipConfig(
+            phpVersion: '8.4',
+            services: ['database' => 'pgsql'],
+            additionalServices: [['group' => 'database', 'service' => 'mysql', 'name' => 'analytics']],
+            serviceNames: ['app' => 'web'],
+            externalNetwork: 'shared',
+            phpExtensions: ['gd'],
+            publishPorts: true,
+            deployCommands: ['php artisan migrate --force'],
+            processes: ['horizon' => 'php artisan horizon'],
+            hostUser: true,
+            name: 'site',
+            siloImage: ShipConfig::SILO_IMAGE_DISTROLESS,
+        ))->toFile($path);
+        $written = json_decode((string) file_get_contents($path), associative: true, flags: JSON_THROW_ON_ERROR);
+
+        self::assertSame([], array_values(array_diff(array_keys($written), array_keys($schema['properties']))));
+        self::assertFalse($schema['additionalProperties']);
+    }
 }
