@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Ship\Services;
 
-use Ship\Contracts\RequiresPhpExtensions;
 use Ship\Contracts\ServiceDefinition;
 use Ship\Contracts\ShipEnvironment;
 use Ship\Docker\DevPortBinding;
@@ -12,11 +11,12 @@ use Ship\Docker\RequiredEnv;
 
 /**
  * RabbitMQ with its management plugin. The app gets RABBITMQ_HOST/PORT/USER/PASSWORD/VHOST, the
- * variables vladimir-yuldashev/laravel-queue-rabbitmq reads. QUEUE_CONNECTION is left alone: until
- * that package is installed, a "rabbitmq" queue connection doesn't exist and every dispatch would
- * fail. One per project, like the other non-data groups, so $instanceName is ignored.
+ * variables vladimir-yuldashev/laravel-queue-rabbitmq reads; its php-amqplib needs ext-sockets,
+ * which is in the Dockerfiles' fixed extension set. QUEUE_CONNECTION is left alone: until that
+ * package is installed, a "rabbitmq" queue connection doesn't exist and every dispatch would fail.
+ * One per project, like the other non-data groups, so $instanceName is ignored.
  */
-final class RabbitMqService implements ServiceDefinition, RequiresPhpExtensions
+final class RabbitMqService implements ServiceDefinition
 {
     public function key(): string
     {
@@ -82,14 +82,5 @@ final class RabbitMqService implements ServiceDefinition, RequiresPhpExtensions
     public function removes(): array
     {
         return [];
-    }
-
-    /**
-     * php-amqplib, the client under laravel-queue-rabbitmq, requires ext-sockets; without it
-     * `composer require` fails.
-     */
-    public function requiredPhpExtensions(): array
-    {
-        return ['sockets'];
     }
 }

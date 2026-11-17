@@ -68,14 +68,6 @@ final class RabbitMqServiceTest extends TestCase
         self::assertSame('20s', $healthcheck['start_period']);
     }
 
-    /**
-     * php-amqplib (under laravel-queue-rabbitmq) requires ext-sockets.
-     */
-    public function test_it_requires_the_sockets_php_extension(): void
-    {
-        self::assertSame(['sockets'], (new RabbitMqService())->requiredPhpExtensions());
-    }
-
     public function test_it_is_the_broker_group(): void
     {
         self::assertSame('broker', (new RabbitMqService())->group());

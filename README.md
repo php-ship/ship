@@ -163,7 +163,7 @@ doesn't make for you.
 | MongoDB | `MONGODB_URI`/`MONGODB_DATABASE`, `mongodb` PHP extension (added to the image automatically) | `composer require mongodb/laravel-mongodb`, add its `mongodb` connection to `config/database.php` (reading those two variables), and set `DB_CONNECTION=mongodb` yourself if it should be the default. `MONGODB_PASSWORD` is embedded in the URI, so keep it free of characters that need percent-encoding (`@ : / ? # [ ] %`) |
 | SQL Server (`sqlserver`) | **Development only** — Developer Edition isn't licensed for production, so in production no container is started and the app uses the licensed server set in `.env.production`. `DB_*` env vars (`DB_CONNECTION=sqlsrv`) plus `DB_URL` with `trust_server_certificate=true` (the container's certificate is self-signed), the app database and a login owning it created on first boot, `pdo_sqlsrv` and Microsoft's ODBC driver (added to the image automatically, in production too) | Nothing on Laravel. Passwords must meet SQL Server's policy (8+ characters from three of upper/lowercase, digits, symbols) — the defaults do; `DB_PASSWORD` also goes into `DB_URL`, so keep it free of characters that need percent-encoding. `DB_USERNAME` can't be `sa`. Needs about 2 GB of RAM, and the image is amd64-only (emulated on Apple Silicon) |
 | Elasticsearch | Single node with security on, `ELASTICSEARCH_HOST`/`USERNAME`/`PASSWORD` (the `elastic` user), JVM heap capped at 1 GB in development | An Elasticsearch client package of your choice, configured from those variables (Laravel has no built-in driver, so `SCOUT_DRIVER` is left alone). On Linux, raise `vm.max_map_count` to 262144 for real workloads |
-| RabbitMQ | Its own `rabbitmq` container with the management UI on `127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}` (development only), `RABBITMQ_HOST`/`PORT`/`USER`/`PASSWORD`/`VHOST`, `sockets` PHP extension (added to the image automatically) | `composer require vladimir-yuldashev/laravel-queue-rabbitmq`, then set `QUEUE_CONNECTION=rabbitmq` yourself |
+| RabbitMQ | Its own `rabbitmq` container with the management UI on `127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}` (development only), `RABBITMQ_HOST`/`PORT`/`USER`/`PASSWORD`/`VHOST`, `sockets` PHP extension (always in the image) | `composer require vladimir-yuldashev/laravel-queue-rabbitmq`, then set `QUEUE_CONNECTION=rabbitmq` yourself |
 | Redis | `CACHE_STORE`/`SESSION_DRIVER`/`REDIS_*`, `redis` PHP extension | Nothing — works out of the box |
 | Mailpit | `MAIL_HOST`/`MAIL_PORT` | Nothing (fresh Laravel already defaults `MAIL_MAILER=smtp`) |
 | Meilisearch | `SCOUT_DRIVER`/`MEILISEARCH_*` | `composer require laravel/scout meilisearch/meilisearch-php` |
@@ -279,9 +279,9 @@ plain, readable JSON document:
   [Custom service names and an external network](#custom-service-names-and-an-external-network).
 - `phpExtensions` — extra PHP extensions to install beyond the fixed set
   every project already gets (`pdo_pgsql`, `pdo_mysql`, `intl`,
-  `mbstring`, `opcache`, `pcntl`, `redis`), and beyond what a selected
-  service adds on its own (`mongodb` for MongoDB, `pdo_sqlsrv` for SQL
-  Server, `sockets` for RabbitMQ). Omitted here since most
+  `mbstring`, `opcache`, `pcntl`, `redis`, `zip`, `sockets`), and beyond
+  what a selected service adds on its own (`mongodb` for MongoDB,
+  `pdo_sqlsrv` for SQL Server). Omitted here since most
   projects don't need any — hand-edit it in when a Composer package's
   own platform requirement isn't already covered, e.g.:
   ```json

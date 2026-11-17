@@ -176,8 +176,12 @@ and records the non-obvious reasons behind each decision.
   and `dev-nginx`/`prod-nginx` (the webserver). `Dockerfile.frankenphp`
   mirrors the PHP stages on FrankenPHP's base image.
 - Fixed extension set: `pdo_pgsql`, `pdo_mysql`, `intl`, `mbstring`,
-  `opcache`, `pcntl`, `redis`. `phpExtensions`, plus whatever selected
-  services require (`RequiresPhpExtensions`), adds more through
+  `opcache`, `pcntl`, `redis`, `zip`, `sockets`. `zip` (laravel/dusk,
+  spreadsheet and archive libraries) and `sockets` (RoadRunner,
+  php-amqplib) are common and cheap, so they're always in rather than
+  declared per service; `RequiresPhpExtensions` is for heavier ones.
+  `phpExtensions`, plus whatever selected services require
+  (`RequiresPhpExtensions`), adds more through
   `mlocati/docker-php-extension-installer`.
 - Apart from the PHP and Node versions `ship.json` sets, the Dockerfiles'
   build inputs are pinned to exact versions: Composer, nginx, the PECL

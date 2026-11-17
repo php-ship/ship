@@ -19,13 +19,13 @@ RUN SHIP_BASE_IMAGE="dunglas/frankenphp:1-php${PHP_VERSION}-bookworm" php /usr/l
 # The same unconditional extension set as the main Dockerfile, with redis pinned the same way.
 # opcache is built into PHP 8.5; install-php-extensions only warns that it's already installed.
 ARG REDIS_EXTENSION_VERSION=6.3.0
-RUN install-php-extensions pdo_pgsql pdo_mysql intl mbstring opcache redis-$REDIS_EXTENSION_VERSION pcntl
+RUN install-php-extensions pdo_pgsql pdo_mysql intl mbstring opcache redis-$REDIS_EXTENSION_VERSION pcntl zip sockets
 
 # ship.json's phpExtensions. install-php-extensions is already in this base image.
 ARG PHP_EXTENSIONS=""
 RUN if [ -n "$PHP_EXTENSIONS" ]; then install-php-extensions $PHP_EXTENSIONS; fi
 
-# The base image has neither ext-zip nor unzip, which Composer needs to extract packages.
+# The base image has no unzip, which Composer prefers over ext-zip for extracting packages.
 RUN apt-get update && apt-get install -y --no-install-recommends unzip && rm -rf /var/lib/apt/lists/*
 
 # Copied from the official node image at NODE_VERSION (glibc-built, matching this Debian base),

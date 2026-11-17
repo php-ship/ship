@@ -62,8 +62,10 @@ a runtime — is a class implementing `Ship\Contracts\ServiceDefinition`.
   Dockerfile's fixed set, implement `Ship\Contracts\RequiresPhpExtensions`
   rather than telling users to edit `phpExtensions` — `ComposeFileBuilder`
   merges the list into the app image's `PHP_EXTENSIONS` build arg.
-  `MongoDbService` (`mongodb`), `SqlServerService` (`pdo_sqlsrv`) and
-  `RabbitMqService` (`sockets`) are the examples. The extensions are built
+  `MongoDbService` (`mongodb`) and `SqlServerService` (`pdo_sqlsrv`) are
+  the examples. Keep it for extensions that are heavy or rarely needed;
+  a cheap, widely used one belongs in the Dockerfiles' fixed set instead
+  (as `zip` and `sockets` are). The extensions are built
   into both images even when the service itself is development-only, as
   SQL Server's is.
 

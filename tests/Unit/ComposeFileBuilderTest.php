@@ -540,21 +540,24 @@ final class ComposeFileBuilderTest extends TestCase
      */
     public function test_selected_services_add_their_required_php_extensions_to_the_build_arg(): void
     {
-        $registry = new ServiceRegistry([new PostgresService(), new MongoDbService(), new RabbitMqService(), new ReverbService()]);
+        $registry = new ServiceRegistry([new SqlServerService(), new MongoDbService(), new ReverbService()]);
         $builder = new ComposeFileBuilder($registry);
 
         $config = new ShipConfig(
             phpVersion: '8.4',
-            services: ['database' => 'pgsql', 'broker' => 'rabbitmq', 'broadcasting' => 'reverb'],
-            phpExtensions: ['gd', 'sockets'],
-            additionalServices: [['group' => 'database', 'service' => 'mongodb', 'name' => 'events']],
+            services: ['database' => 'sqlserver', 'broadcasting' => 'reverb'],
+            phpExtensions: ['gd', 'pdo_sqlsrv'],
+            additionalServices: [
+                ['group' => 'database', 'service' => 'mongodb', 'name' => 'events'],
+                ['group' => 'database', 'service' => 'mongodb', 'name' => 'audit'],
+            ],
         );
 
         foreach ([ShipEnvironment::Development, ShipEnvironment::Production] as $environment) {
             $parsed = Yaml::parse($builder->build($config, $environment));
 
-            self::assertSame('gd sockets mongodb', $parsed['services']['app']['build']['args']['PHP_EXTENSIONS']);
-            self::assertSame('gd sockets mongodb', $parsed['services']['reverb']['build']['args']['PHP_EXTENSIONS']);
+            self::assertSame('gd pdo_sqlsrv mongodb', $parsed['services']['app']['build']['args']['PHP_EXTENSIONS']);
+            self::assertSame('gd pdo_sqlsrv mongodb', $parsed['services']['reverb']['build']['args']['PHP_EXTENSIONS']);
         }
     }
 

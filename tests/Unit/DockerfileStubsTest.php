@@ -27,4 +27,24 @@ final class DockerfileStubsTest extends TestCase
             $dockerfile,
         );
     }
+
+    /**
+     * zip (laravel/dusk, spreadsheet and archive libraries) and sockets (RoadRunner, php-amqplib)
+     * are in the fixed set of both PHP images, so `composer require` of those packages works.
+     */
+    public function test_both_php_images_always_install_zip_and_sockets(): void
+    {
+        $root = dirname(__DIR__, 2) . '/stubs/docker/php';
+
+        $dockerfile = (string) file_get_contents($root . '/Dockerfile');
+        self::assertSame(1, preg_match('/&& docker-php-ext-install (pdo_pgsql[^\\\\\n]*)/', $dockerfile, $matches));
+        self::assertContains('zip', explode(' ', trim($matches[1])));
+        self::assertContains('sockets', explode(' ', trim($matches[1])));
+        self::assertStringContainsString('libzip-dev', $dockerfile);
+
+        $frankenphp = (string) file_get_contents($root . '/Dockerfile.frankenphp');
+        self::assertSame(1, preg_match('/^RUN install-php-extensions (pdo_pgsql.*)$/m', $frankenphp, $matches));
+        self::assertContains('zip', explode(' ', $matches[1]));
+        self::assertContains('sockets', explode(' ', $matches[1]));
+    }
 }

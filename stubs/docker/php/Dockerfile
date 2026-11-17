@@ -15,18 +15,22 @@ ARG PHP_SECURITY_FLOOR=""
 COPY ship/check-php-security-floor.php /usr/local/share/ship/check-php-security-floor.php
 RUN SHIP_BASE_IMAGE="php:${PHP_VERSION}-fpm-alpine" php /usr/local/share/ship/check-php-security-floor.php
 
-# pdo_pgsql/pdo_mysql/pcntl are installed regardless of which database or runtime is selected:
-# cheap, and it avoids a build arg per extension. pcntl is needed by Octane and Reverb for signal
-# handling.
+# pdo_pgsql/pdo_mysql/pcntl/zip/sockets are installed regardless of which database or runtime is
+# selected: cheap, and it avoids a build arg per extension. pcntl is needed by Octane and Reverb for
+# signal handling, zip by laravel/dusk and the common spreadsheet/archive libraries, sockets by
+# RoadRunner and RabbitMQ's php-amqplib. sockets needs the kernel headers to compile, which are
+# removed again afterwards.
 #
 # OPcache is only built when PHP doesn't already have it. The official images ship it enabled on
 # PHP < 8.5, and from 8.5 it is compiled into PHP itself, so there is no shared module to build:
 # `docker-php-ext-install opcache` fails there with "cp: can't stat 'modules/*'".
-RUN apk add --no-cache libpq-dev icu-dev oniguruma-dev \
-    && docker-php-ext-install pdo_pgsql pdo_mysql intl mbstring pcntl \
+RUN apk add --no-cache libpq-dev icu-dev oniguruma-dev libzip-dev \
+    && apk add --no-cache --virtual .build-deps-headers linux-headers \
+    && docker-php-ext-install pdo_pgsql pdo_mysql intl mbstring pcntl zip sockets \
     && if ! php -r 'exit(extension_loaded("Zend OPcache") ? 0 : 1);'; then \
         docker-php-ext-install opcache; \
-    fi
+    fi \
+    && apk del .build-deps-headers
 
 # Extra extensions from ship.json's phpExtensions, installed with
 # mlocati/docker-php-extension-installer, which knows each extension's build dependencies. Skipped
