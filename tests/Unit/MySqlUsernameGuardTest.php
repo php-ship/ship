@@ -45,4 +45,28 @@ final class MySqlUsernameGuardTest extends TestCase
 
         self::assertSame(['ANALYTICS_DB_USERNAME'], MySqlUsernameGuard::problems($config, ['ANALYTICS_DB_USERNAME' => 'root']));
     }
+
+    /**
+     * The official mariadb image refuses MARIADB_USER=root the same way.
+     */
+    public function test_it_flags_db_username_root_for_mariadb_too(): void
+    {
+        $config = new ShipConfig(
+            phpVersion: '8.4',
+            services: ['database' => 'mariadb'],
+            additionalServices: [['group' => 'database', 'service' => 'mariadb', 'name' => 'legacy']],
+        );
+
+        self::assertSame(
+            ['DB_USERNAME', 'LEGACY_DB_USERNAME'],
+            MySqlUsernameGuard::problems($config, ['DB_USERNAME' => 'root', 'LEGACY_DB_USERNAME' => 'root']),
+        );
+    }
+
+    public function test_it_is_silent_for_mongodb(): void
+    {
+        $config = new ShipConfig(phpVersion: '8.4', services: ['database' => 'mongodb']);
+
+        self::assertSame([], MySqlUsernameGuard::problems($config, ['DB_USERNAME' => 'root']));
+    }
 }

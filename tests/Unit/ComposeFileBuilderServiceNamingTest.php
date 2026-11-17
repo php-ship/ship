@@ -10,6 +10,7 @@ use Ship\Contracts\ShipEnvironment;
 use Ship\Docker\ComposeFileBuilder;
 use Ship\Services\DuskService;
 use Ship\Services\MeilisearchService;
+use Ship\Services\MongoDbService;
 use Ship\Services\MySqlService;
 use Ship\Services\OctaneSwooleService;
 use Ship\Services\PostgresService;
@@ -32,6 +33,7 @@ final class ComposeFileBuilderServiceNamingTest extends TestCase
             new MeilisearchService(),
             new OctaneSwooleService(),
             new DuskService(),
+            new MongoDbService(),
         ]);
     }
 
@@ -141,6 +143,27 @@ final class ComposeFileBuilderServiceNamingTest extends TestCase
         self::assertArrayNotHasKey('meilisearch', $parsed['services']);
         self::assertArrayHasKey('client-search', $parsed['services']);
         self::assertSame('http://client-search:7700', $parsed['services']['app']['environment']['MEILISEARCH_HOST']);
+    }
+
+    /**
+     * MONGODB_URI carries credentials before the hostname ("user:pass@mongodb:27017").
+     */
+    public function test_a_renamed_services_hostname_is_fixed_up_in_a_uri_after_credentials(): void
+    {
+        $builder = new ComposeFileBuilder($this->registry());
+        $config = new ShipConfig(
+            phpVersion: '8.4',
+            services: ['database' => 'mongodb'],
+            serviceNames: ['mongodb' => 'client-docs'],
+        );
+
+        $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Development));
+
+        self::assertArrayHasKey('client-docs', $parsed['services']);
+        self::assertSame(
+            'mongodb://${MONGODB_USERNAME:-app}:${MONGODB_PASSWORD:-secret}@client-docs:27017/${MONGODB_DATABASE:-app}',
+            $parsed['services']['app']['environment']['MONGODB_URI'],
+        );
     }
 
     /**

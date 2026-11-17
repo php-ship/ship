@@ -210,9 +210,9 @@ final class ConfigTestCommand extends Command
 
         $this->problems++;
         $output->writeln(sprintf(
-            '<error>ship.json (%s): %s is set to "root" -- the official mysql image\'s own '
-                . 'entrypoint refuses to start at all with that value (reserved for '
-                . 'MYSQL_ROOT_PASSWORD, not MYSQL_USER).</error>',
+            '<error>ship.json (%s): %s is set to "root" -- the official mysql and mariadb images\' own '
+                . 'entrypoints refuse to start at all with that value (reserved for the root '
+                . 'password variable, not the app user).</error>',
             $label,
             implode(', ', $problems),
         ));

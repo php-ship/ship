@@ -23,8 +23,8 @@ final class InitCommand extends Command
     private const NONE = '__none__';
 
     // Groups whose services give each instance its own env var prefix and compose service name
-    // (see SupportsNamedInstances). Only one runtime, testing driver, frontend tool or
-    // broadcasting server makes sense per project.
+    // (see SupportsNamedInstances). Only one runtime, testing driver, frontend tool,
+    // broadcasting server or message broker makes sense per project.
     private const GROUPS_SUPPORTING_ADDITIONAL_INSTANCES = ['database', 'cache', 'storage', 'search', 'mail'];
 
     public function __construct(
@@ -489,6 +489,7 @@ final class InitCommand extends Command
             'testing' => 'browser testing driver',
             'frontend' => 'frontend tooling',
             'broadcasting' => 'broadcasting service',
+            'broker' => 'message broker',
         ];
     }
 }

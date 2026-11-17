@@ -11,7 +11,9 @@ a runtime — is a class implementing `Ship\Contracts\ServiceDefinition`.
    - `label()` — shown in `ship init`'s interactive picker
    - `group()` — which single-select group it belongs to (`database`,
      `cache`, `runtime`, `storage`, `search`, `mail`, `testing`,
-     `frontend` — or a new group name if it doesn't fit any of these)
+     `frontend`, `broadcasting`, `broker` — or a new group name if it
+     doesn't fit any of these; a new group also needs an entry in
+     `InitCommand::groups()` for `ship init` to prompt for it)
    - `composeFragment(ShipEnvironment $environment, ?string $instanceName = null)`
      — the Docker Compose service(s) this contributes, keyed by service
      name. `$instanceName` is only non-null for an additional named
@@ -56,6 +58,13 @@ a runtime — is a class implementing `Ship\Contracts\ServiceDefinition`.
   everyone using `:latest` overnight. Check the registry for a current tag
   before adding a new service.
 
+- **If your service's PHP client needs an extension** outside the
+  Dockerfile's fixed set, implement `Ship\Contracts\RequiresPhpExtensions`
+  rather than telling users to edit `phpExtensions` — `ComposeFileBuilder`
+  merges the list into the app image's `PHP_EXTENSIONS` build arg.
+  `MongoDbService` (`mongodb`) and `RabbitMqService` (`sockets`) are the
+  examples.
+
 - **If your service needs a config file** (like Garage's `garage.toml`),
   add it under `stubs/docker/<service>/` and publish it conditionally from
   `InitCommand::publishStubs()` — see the existing Garage branch there for
@@ -77,8 +86,9 @@ separate from the default cache/session store. `ship.json`'s
 `additionalServices` is how a project asks for that (see README's
 "Multiple instances of a service"); on your side, supporting it means
 using the `Ship\Services\SupportsNamedInstances` trait, already used by
-`PostgresService`/`MySqlService`/`RedisService`/`SeaweedFsService`/
-`GarageService`/`MeilisearchService`/`MailpitService` — any of those is
+`PostgresService`/`MySqlService`/`MariaDbService`/`MongoDbService`/
+`RedisService`/`SeaweedFsService`/`GarageService`/`MeilisearchService`/
+`MailpitService` — any of those is
 a reference to copy from. The trait gives you two methods:
 
 - `composeServiceName(?string $instanceName)` — `key()` itself for the
@@ -102,10 +112,10 @@ only be returned for the default (`null`) instance. `RedisService` and
 
 If running two of your service at once genuinely makes no sense (a
 runtime, a frontend toolchain, a testing driver, a broadcasting
-server), don't use the trait — just accept and ignore `$instanceName`
-in both methods, matching `NodeService`/`OctaneSwooleService`/
-`OctaneRoadRunnerService`/`OctaneFrankenPhpService`/`DuskService`/
-`ReverbService`. `InitCommand::GROUPS_SUPPORTING_ADDITIONAL_INSTANCES`
+server, a message broker), don't use the trait — just accept and ignore
+`$instanceName` in both methods, matching `NodeService`/
+`OctaneSwooleService`/`OctaneRoadRunnerService`/`OctaneFrankenPhpService`/
+`DuskService`/`ReverbService`/`RabbitMqService`. `InitCommand::GROUPS_SUPPORTING_ADDITIONAL_INSTANCES`
 is the list of groups `ship init`'s "add another instance" prompt
 offers at all (`database`, `cache`, `storage`, `search`, `mail`) — a
 service in a group outside that list is never asked to support more

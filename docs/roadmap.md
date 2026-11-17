@@ -12,7 +12,9 @@ and records the non-obvious reasons behind each decision.
   `FrameworkAdapter` (one per framework), and the optional
   `ProvidesDatabaseShell` a database service implements for `ship db`.
   `ConfigAwareService` lets a service read `ship.json` before it builds its
-  fragment.
+  fragment. `RequiresPhpExtensions` lets a service add the PHP extensions
+  its client library needs to the app image's `PHP_EXTENSIONS` build arg,
+  merged with `ship.json`'s `phpExtensions`.
 - `ExtensionLoader` resolves `ship.json`'s `extensions` (a list of class
   names) in one pass. `Application` loads them once and passes the
   populated `ServiceRegistry` into every command, so no extension class is
@@ -24,9 +26,9 @@ and records the non-obvious reasons behind each decision.
 
 ### Services
 
-- 15 built-in services: Postgres, MySQL, Redis, SeaweedFS, Garage, RustFS,
-  Silo, Octane with Swoole/RoadRunner/FrankenPHP, Meilisearch, Mailpit,
-  Dusk/Selenium, Node, Reverb.
+- 18 built-in services: Postgres, MySQL, MariaDB, MongoDB, Redis,
+  SeaweedFS, Garage, RustFS, Silo, Octane with Swoole/RoadRunner/FrankenPHP,
+  Meilisearch, Mailpit, Dusk/Selenium, Node, Reverb, RabbitMQ.
 - Named instances (`additionalServices`) for the `database`, `cache`,
   `storage`, `search` and `mail` groups. `SupportsNamedInstances` gives the
   shared naming: compose service `{key}-{name}`, env var prefix `{NAME}_`.
@@ -46,6 +48,24 @@ and records the non-obvious reasons behind each decision.
   ping succeeds against the image's temporary init-phase server before TCP
   connections are accepted. `MySqlUsernameGuard` rejects `DB_USERNAME=root`
   up front, which the official image refuses to start with.
+- MariaDB mirrors MySQL: a separate root password, `MySqlUsernameGuard`
+  (the mariadb image rejects a root app user too), and the image's own
+  `healthcheck.sh --connect`, which goes over TCP and so can't pass against
+  the init-phase server. It sets `DB_CONNECTION=mariadb`, Laravel 11+'s
+  own driver.
+- MongoDB: the image only creates a root user, so the entrypoint writes an
+  init script creating an app user that owns only the app's database; the
+  root password (`MONGODB_ROOT_PASSWORD`) stays a separate secret. The
+  healthcheck pings the container's own address, since the init-phase
+  server listens on 127.0.0.1 only. The app gets `MONGODB_URI`, which
+  `serviceNames` renaming follows (`_URI` keys, hostname after `@`), and
+  `DB_CONNECTION` is left alone: without laravel-mongodb installed there
+  is no `mongodb` connection.
+- RabbitMQ (the `broker` group, one per project): a fixed `hostname`,
+  because RabbitMQ keys its data directory by node name, which otherwise
+  follows the container id and orphans the persisted queues on every
+  recreate. The management UI is published in development only.
+  `QUEUE_CONNECTION` is left alone, as with MongoDB's `DB_CONNECTION`.
 - Storage:
   - SeaweedFS has no S3 authentication without an identity file, so its
     entrypoint generates one from the injected credentials at boot
@@ -118,7 +138,8 @@ and records the non-obvious reasons behind each decision.
   and `dev-nginx`/`prod-nginx` (the webserver). `Dockerfile.frankenphp`
   mirrors the PHP stages on FrankenPHP's base image.
 - Fixed extension set: `pdo_pgsql`, `pdo_mysql`, `intl`, `mbstring`,
-  `opcache`, `pcntl`, `redis`. `phpExtensions` adds more through
+  `opcache`, `pcntl`, `redis`. `phpExtensions`, plus whatever selected
+  services require (`RequiresPhpExtensions`), adds more through
   `mlocati/docker-php-extension-installer`.
 - Apart from the PHP and Node versions `ship.json` sets, the Dockerfiles'
   build inputs are pinned to exact versions: Composer, nginx, the PECL

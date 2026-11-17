@@ -75,7 +75,7 @@ A few other differences beyond the WSL requirement:
   The destination server needs nothing but Docker: `docker load` the
   images, then `docker compose up -d`.
 - **A real database client shell, without a published port.** `ship db`
-  opens `psql`/`mysql` inside whichever database container is selected,
+  opens `psql`/`mysql`/`mariadb`/`mongosh` inside whichever database container is selected,
   reading its own credentials from its own environment — no port needs to
   be exposed to the host at all, and nothing needs to know the password.
 - **Extend the stack without forking or hand-maintaining a Dockerfile.** A
@@ -87,8 +87,9 @@ A few other differences beyond the WSL requirement:
   small class implementing one of two public interfaces, loadable from a
   separate Composer package via `ship.json`'s `extensions` array — see
   [Extending ship](#extending-ship) — not a fork of this one.
-- **MySQL and Postgres, Swoole and RoadRunner and FrankenPHP, Meilisearch,
-  object storage, Reverb, browser testing** — `ship init` picks one
+- **Postgres, MySQL, MariaDB and MongoDB, RabbitMQ, Swoole and RoadRunner
+  and FrankenPHP, Meilisearch, object storage, Reverb, browser testing** —
+  `ship init` picks one
   option per group interactively; nothing needed is hardcoded to a single
   choice the way Sail's own service list is.
 
@@ -130,7 +131,7 @@ release`.
 | `ship exec <service> <cmd...>` | Runs an arbitrary command inside a running service container. The generic escape hatch every shortcut below wraps. |
 | `ship shell [service]` | Opens an interactive shell (`sh`) in a service; defaults to `app`. |
 | `ship logs [service] [-f]` | Tails logs for one service, or all services if none given. `-f`/`--follow` streams live. |
-| `ship db [instance]` | Opens a database's interactive client shell (`psql`/`mysql`), reading credentials from that container's own environment. Omit `instance` for the default database; name one of `additionalServices`' database entries to open that instance instead. Fails clearly if no database is selected, or the named instance doesn't exist. |
+| `ship db [instance]` | Opens a database's interactive client shell (`psql`/`mysql`/`mariadb`/`mongosh`), reading credentials from that container's own environment. Omit `instance` for the default database; name one of `additionalServices`' database entries to open that instance instead. Fails clearly if no database is selected, or the named instance doesn't exist. |
 | `ship config:test` | `ship.json`'s equivalent of `nginx -t`: validates `ship.json`, builds both the development and production compose files, and checks for a required production credential missing from `.env.production` or a stale nginx upstream — all without starting or building anything. Reports every problem it finds in one pass, not just the first. |
 | `ship doctor` | Shows the installed and published versions and the state and health of every container in the development stack, with a recovery hint for anything that crashed or is unhealthy. Reads the compose file `ship up` generated; changes nothing. |
 | `ship composer <args...>` | Proxies to `composer` inside the `app` container. |
@@ -157,6 +158,9 @@ doesn't make for you.
 |---|---|---|
 | Postgres (`postgres`, or `pgsql`) | `DB_*` env vars, `pdo_pgsql` extension | Nothing — works out of the box |
 | MySQL | `DB_*` env vars, `pdo_mysql` extension | Nothing — works out of the box |
+| MariaDB | `DB_*` env vars (`DB_CONNECTION=mariadb`), `pdo_mysql` extension | Nothing on Laravel 11+, whose `mariadb` connection this uses |
+| MongoDB | `MONGODB_URI`/`MONGODB_DATABASE`, `mongodb` PHP extension (added to the image automatically) | `composer require mongodb/laravel-mongodb`, add its `mongodb` connection to `config/database.php` (reading those two variables), and set `DB_CONNECTION=mongodb` yourself if it should be the default. `MONGODB_PASSWORD` is embedded in the URI, so keep it free of characters that need percent-encoding (`@ : / ? # [ ] %`) |
+| RabbitMQ | Its own `rabbitmq` container with the management UI on `127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}` (development only), `RABBITMQ_HOST`/`PORT`/`USER`/`PASSWORD`/`VHOST`, `sockets` PHP extension (added to the image automatically) | `composer require vladimir-yuldashev/laravel-queue-rabbitmq`, then set `QUEUE_CONNECTION=rabbitmq` yourself |
 | Redis | `CACHE_STORE`/`SESSION_DRIVER`/`REDIS_*`, `redis` PHP extension | Nothing — works out of the box |
 | Mailpit | `MAIL_HOST`/`MAIL_PORT` | Nothing (fresh Laravel already defaults `MAIL_MAILER=smtp`) |
 | Meilisearch | `SCOUT_DRIVER`/`MEILISEARCH_*` | `composer require laravel/scout meilisearch/meilisearch-php` |
@@ -261,7 +265,9 @@ plain, readable JSON document:
   [Custom service names and an external network](#custom-service-names-and-an-external-network).
 - `phpExtensions` — extra PHP extensions to install beyond the fixed set
   every project already gets (`pdo_pgsql`, `pdo_mysql`, `intl`,
-  `mbstring`, `opcache`, `pcntl`, `redis`). Omitted here since most
+  `mbstring`, `opcache`, `pcntl`, `redis`), and beyond what a selected
+  service adds on its own (`mongodb` for MongoDB, `sockets` for
+  RabbitMQ). Omitted here since most
   projects don't need any — hand-edit it in when a Composer package's
   own platform requirement isn't already covered, e.g.:
   ```json
@@ -664,6 +670,7 @@ public internet.
 ## Backing up data volumes
 
 Every stateful service (`ship-pgsql-data`, `ship-mysql-data`,
+`ship-mariadb-data`, `ship-mongodb-data`, `ship-rabbitmq-data`,
 `ship-redis-data`, `ship-seaweedfs-data`, `ship-meilisearch-data`, ...)
 persists to a named Docker volume, not a bind mount — `docker volume ls`
 lists them, prefixed with the project's directory name. `ship` doesn't
@@ -679,7 +686,7 @@ docker run --rm -v <project>_ship-pgsql-data:/data -v "$PWD":/backup \
 and restoring is the same in reverse (`tar xzf` into a fresh volume
 mounted the same way). For anything beyond an occasional manual backup —
 scheduled snapshots, offsite storage, point-in-time recovery — use your
-database engine's own tooling (`pg_dump`/`mysqldump` via `ship db`, or
+database engine's own tooling (`pg_dump`/`mysqldump`/`mariadb-dump`/`mongodump`, or
 the volume backup approach above pointed at a proper backup destination)
 rather than relying on the named volume alone.
 

@@ -66,6 +66,8 @@ final class ServiceRegistry
         return [
             new PostgresService(),
             new MySqlService(),
+            new MariaDbService(),
+            new MongoDbService(),
             new RedisService(),
             new SeaweedFsService(),
             new GarageService(),
@@ -79,6 +81,7 @@ final class ServiceRegistry
             new DuskService(),
             new NodeService(),
             new ReverbService(),
+            new RabbitMqService(),
         ];
     }
 }

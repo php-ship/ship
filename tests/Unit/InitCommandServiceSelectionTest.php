@@ -49,7 +49,7 @@ final class InitCommandServiceSelectionTest extends TestCase
     {
         $this->runInit([
             'PostgreSQL', 'Redis', 'None', 'None', 'Meilisearch',
-            'Mailpit (local mail capture)', 'None', 'None', 'None',
+            'Mailpit (local mail capture)', 'None', 'None', 'None', 'None',
         ]);
 
         $services = $this->shipJson()['services'];
@@ -63,11 +63,12 @@ final class InitCommandServiceSelectionTest extends TestCase
         self::assertArrayNotHasKey('testing', $services);
         self::assertArrayNotHasKey('frontend', $services);
         self::assertArrayNotHasKey('broadcasting', $services);
+        self::assertArrayNotHasKey('broker', $services);
     }
 
     public function test_nginx_is_published_when_no_runtime_is_selected(): void
     {
-        $this->runInit(['None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
+        $this->runInit(['None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
 
         self::assertFileExists($this->projectRoot . '/ship/nginx/default.conf');
     }
@@ -77,7 +78,7 @@ final class InitCommandServiceSelectionTest extends TestCase
      */
     public function test_nginx_restricts_php_execution_to_the_front_controller(): void
     {
-        $this->runInit(['None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
+        $this->runInit(['None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
 
         $conf = (string) file_get_contents($this->projectRoot . '/ship/nginx/default.conf');
 
@@ -89,7 +90,7 @@ final class InitCommandServiceSelectionTest extends TestCase
      */
     public function test_nginx_denies_every_other_php_file_instead_of_serving_it_as_source(): void
     {
-        $this->runInit(['None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
+        $this->runInit(['None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
 
         $conf = (string) file_get_contents($this->projectRoot . '/ship/nginx/default.conf');
 
@@ -101,7 +102,7 @@ final class InitCommandServiceSelectionTest extends TestCase
      */
     public function test_nginx_does_not_advertise_its_own_version(): void
     {
-        $this->runInit(['None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
+        $this->runInit(['None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
 
         $conf = (string) file_get_contents($this->projectRoot . '/ship/nginx/default.conf');
 
@@ -118,7 +119,7 @@ final class InitCommandServiceSelectionTest extends TestCase
             json_encode(['php' => '8.4', 'services' => [], 'serviceNames' => ['app' => 'client-app']]),
         );
 
-        $this->runInit(['None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
+        $this->runInit(['None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
 
         $conf = (string) file_get_contents($this->projectRoot . '/ship/nginx/default.conf');
 
@@ -132,7 +133,7 @@ final class InitCommandServiceSelectionTest extends TestCase
         // console-codepage problem with the em dash in Swoole's label.
         $this->runInit([
             'None', 'None', 'Octane (RoadRunner)', 'None', 'None',
-            'None', 'None', 'None', 'None',
+            'None', 'None', 'None', 'None', 'None',
         ]);
 
         self::assertFileDoesNotExist($this->projectRoot . '/ship/nginx/default.conf');
@@ -142,7 +143,7 @@ final class InitCommandServiceSelectionTest extends TestCase
     {
         $this->runInit([
             'None', 'None', 'None', 'Garage (S3-compatible storage, lightweight alt.)',
-            'None', 'None', 'None', 'None', 'None',
+            'None', 'None', 'None', 'None', 'None', 'None',
         ]);
 
         self::assertFileExists($this->projectRoot . '/ship/garage/garage.toml');
@@ -152,7 +153,7 @@ final class InitCommandServiceSelectionTest extends TestCase
     {
         $this->runInit([
             'None', 'None', 'None', 'SeaweedFS (S3-compatible storage)',
-            'None', 'None', 'None', 'None', 'None',
+            'None', 'None', 'None', 'None', 'None', 'None',
         ]);
 
         self::assertDirectoryDoesNotExist($this->projectRoot . '/ship/garage');
@@ -166,7 +167,7 @@ final class InitCommandServiceSelectionTest extends TestCase
         $command = new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults()));
         $tester = new CommandTester($command);
         $tester->setInputs([
-            'None', 'None', 'None', 'SeaweedFS (S3-compatible storage)', 'None', 'None', 'None', 'None', 'None',
+            'None', 'None', 'None', 'SeaweedFS (S3-compatible storage)', 'None', 'None', 'None', 'None', 'None', 'None',
             'yes', 'storage', 'Garage (S3-compatible storage, lightweight alt.)', 'archive', 'no',
             '8.4', '24',
         ]);
@@ -177,7 +178,7 @@ final class InitCommandServiceSelectionTest extends TestCase
 
     public function test_the_base_php_stubs_are_always_published_regardless_of_selection(): void
     {
-        $this->runInit(['None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
+        $this->runInit(['None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
 
         self::assertFileExists($this->projectRoot . '/ship/Dockerfile');
     }
@@ -187,7 +188,7 @@ final class InitCommandServiceSelectionTest extends TestCase
      */
     public function test_the_installed_ship_version_is_recorded_for_later_mismatch_detection(): void
     {
-        $this->runInit(['None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
+        $this->runInit(['None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
 
         self::assertFileExists($this->projectRoot . '/ship/.ship-version');
         self::assertSame(ShipVersion::current(), trim(file_get_contents($this->projectRoot . '/ship/.ship-version')));
@@ -199,7 +200,7 @@ final class InitCommandServiceSelectionTest extends TestCase
         $tester = new CommandTester($command);
         $tester->setInputs([
             // Main loop: default database only, everything else None.
-            'PostgreSQL', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None',
+            'PostgreSQL', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None',
             // Add-another-instance loop.
             'yes', 'database', 'MySQL', 'analytics', 'no',
             // PHP / Node versions.
@@ -218,7 +219,7 @@ final class InitCommandServiceSelectionTest extends TestCase
         $command = new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults()));
         $tester = new CommandTester($command);
         $tester->setInputs([
-            'PostgreSQL', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None',
+            'PostgreSQL', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None',
             'yes', 'database', 'MySQL', 'analytics',
             'yes', 'cache', 'Redis', 'analytics', 'queue',
             'no',
@@ -254,7 +255,7 @@ final class InitCommandServiceSelectionTest extends TestCase
         $command = new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults()));
         $tester = new CommandTester($command);
         $tester->setInputs([
-            'PostgreSQL', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None',
+            'PostgreSQL', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None',
             'yes', 'database', 'MySQL', $invalidName, 'analytics',
             'no',
             '8.4', '24',
@@ -279,7 +280,7 @@ final class InitCommandServiceSelectionTest extends TestCase
             json_encode(['php' => '8.4', 'services' => ['database' => 'mysql']]),
         );
 
-        $this->runInit(['', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
+        $this->runInit(['', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
 
         self::assertSame('mysql', $this->shipJson()['services']['database']);
     }
@@ -294,7 +295,7 @@ final class InitCommandServiceSelectionTest extends TestCase
             json_encode(['php' => '8.4', 'services' => ['database' => 'no-longer-registered']]),
         );
 
-        $this->runInit(['', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
+        $this->runInit(['', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
 
         self::assertArrayNotHasKey('database', $this->shipJson()['services']);
     }
@@ -314,7 +315,7 @@ final class InitCommandServiceSelectionTest extends TestCase
             ]),
         );
 
-        $this->runInit(['None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'no']);
+        $this->runInit(['None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'no']);
 
         $additional = $this->shipJson()['additionalServices'];
 
@@ -331,7 +332,7 @@ final class InitCommandServiceSelectionTest extends TestCase
         $command = new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults()));
         $tester = new CommandTester($command);
         $tester->setInputs([
-            'None', 'None', 'None', (new SiloService())->label(), 'None', 'None', 'None', 'None', 'None',
+            'None', 'None', 'None', (new SiloService())->label(), 'None', 'None', 'None', 'None', 'None', 'None',
             'no',
             'Distroless (runs on older CPUs too; no shell in the container)',
             '8.4', '24',
@@ -349,7 +350,7 @@ final class InitCommandServiceSelectionTest extends TestCase
         $command = new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults()));
         $tester = new CommandTester($command);
         $tester->setInputs([
-            'None', 'None', 'None', (new SiloService())->label(), 'None', 'None', 'None', 'None', 'None',
+            'None', 'None', 'None', (new SiloService())->label(), 'None', 'None', 'None', 'None', 'None', 'None',
             'no',
             '',
             '8.4', '24',
@@ -369,7 +370,7 @@ final class InitCommandServiceSelectionTest extends TestCase
 
         $command = new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults()));
         $tester = new CommandTester($command);
-        $tester->setInputs(['None', 'None', 'None', '', 'None', 'None', 'None', 'None', 'None', 'no', '', '8.4', '24']);
+        $tester->setInputs(['None', 'None', 'None', '', 'None', 'None', 'None', 'None', 'None', 'None', 'no', '', '8.4', '24']);
         $tester->execute([]);
 
         self::assertSame('distroless', $this->shipJson()['siloImage']);
@@ -377,7 +378,7 @@ final class InitCommandServiceSelectionTest extends TestCase
 
     public function test_the_silo_image_question_is_not_asked_when_silo_is_not_selected(): void
     {
-        $this->runInit(['PostgreSQL', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
+        $this->runInit(['PostgreSQL', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
 
         self::assertArrayNotHasKey('siloImage', $this->shipJson());
     }
@@ -387,7 +388,7 @@ final class InitCommandServiceSelectionTest extends TestCase
      */
     public function test_the_php_security_floor_check_is_published(): void
     {
-        $this->runInit(['None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
+        $this->runInit(['None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None']);
 
         self::assertFileExists($this->projectRoot . '/ship/check-php-security-floor.php');
     }
@@ -399,7 +400,7 @@ final class InitCommandServiceSelectionTest extends TestCase
     {
         $command = new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults()));
         $tester = new CommandTester($command);
-        $tester->setInputs(['None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'no', '8.1', '8.4']);
+        $tester->setInputs(['None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'no', '8.1', '8.4']);
         $tester->execute([]);
 
         self::assertStringContainsString('past end of life', $tester->getDisplay());

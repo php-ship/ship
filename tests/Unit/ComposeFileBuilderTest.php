@@ -9,10 +9,13 @@ use Ship\Config\ShipConfig;
 use Ship\Contracts\ShipEnvironment;
 use Ship\Docker\ComposeFileBuilder;
 use Ship\Services\MailpitService;
+use Ship\Services\MariaDbService;
+use Ship\Services\MongoDbService;
 use Ship\Services\MySqlService;
 use Ship\Services\OctaneFrankenPhpService;
 use Ship\Services\OctaneSwooleService;
 use Ship\Services\PostgresService;
+use Ship\Services\RabbitMqService;
 use Ship\Services\RedisService;
 use Ship\Services\ReverbService;
 use Ship\Services\ServiceRegistry;
@@ -528,6 +531,69 @@ final class ComposeFileBuilderTest extends TestCase
 
         self::assertSame('gd zip bcmath', $parsed['services']['app']['build']['args']['PHP_EXTENSIONS']);
         self::assertSame('gd zip bcmath', $parsed['services']['reverb']['build']['args']['PHP_EXTENSIONS']);
+    }
+
+    /**
+     * A selected service's own PHP extensions (see RequiresPhpExtensions) join ship.json's, for
+     * default and named instances alike, without duplicates.
+     */
+    public function test_selected_services_add_their_required_php_extensions_to_the_build_arg(): void
+    {
+        $registry = new ServiceRegistry([new PostgresService(), new MongoDbService(), new RabbitMqService(), new ReverbService()]);
+        $builder = new ComposeFileBuilder($registry);
+
+        $config = new ShipConfig(
+            phpVersion: '8.4',
+            services: ['database' => 'pgsql', 'broker' => 'rabbitmq', 'broadcasting' => 'reverb'],
+            phpExtensions: ['gd', 'sockets'],
+            additionalServices: [['group' => 'database', 'service' => 'mongodb', 'name' => 'events']],
+        );
+
+        foreach ([ShipEnvironment::Development, ShipEnvironment::Production] as $environment) {
+            $parsed = Yaml::parse($builder->build($config, $environment));
+
+            self::assertSame('gd sockets mongodb', $parsed['services']['app']['build']['args']['PHP_EXTENSIONS']);
+            self::assertSame('gd sockets mongodb', $parsed['services']['reverb']['build']['args']['PHP_EXTENSIONS']);
+        }
+    }
+
+    /**
+     * RabbitMQ is one per project, like Reverb.
+     */
+    public function test_rabbitmq_cannot_be_an_additional_named_instance(): void
+    {
+        $builder = new ComposeFileBuilder(new ServiceRegistry([new RabbitMqService()]));
+        $config = new ShipConfig(
+            phpVersion: '8.4',
+            services: [],
+            additionalServices: [['group' => 'broker', 'service' => 'rabbitmq', 'name' => 'events']],
+        );
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage("doesn't support more than one instance");
+
+        $builder->build($config, ShipEnvironment::Development);
+    }
+
+    /**
+     * Every new stateful service persists to a named volume, which the builder declares.
+     */
+    public function test_new_data_services_declare_their_named_volumes(): void
+    {
+        $registry = new ServiceRegistry([new MariaDbService(), new MongoDbService(), new RabbitMqService()]);
+        $config = new ShipConfig(
+            phpVersion: '8.4',
+            services: ['database' => 'mariadb', 'broker' => 'rabbitmq'],
+            additionalServices: [['group' => 'database', 'service' => 'mongodb', 'name' => 'events']],
+        );
+
+        $parsed = Yaml::parse((new ComposeFileBuilder($registry))->build($config, ShipEnvironment::Production));
+
+        self::assertArrayHasKey('ship-mariadb-data', $parsed['volumes']);
+        self::assertArrayHasKey('ship-mongodb-events-data', $parsed['volumes']);
+        self::assertArrayHasKey('ship-rabbitmq-data', $parsed['volumes']);
+        // Production publishes nothing unless publishPorts is set.
+        self::assertSame([], $parsed['services']['rabbitmq']['ports']);
     }
 
     public function test_php_extensions_defaults_to_an_empty_build_arg_when_not_specified(): void

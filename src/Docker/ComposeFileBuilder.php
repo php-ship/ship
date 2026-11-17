@@ -6,6 +6,7 @@ namespace Ship\Docker;
 
 use Ship\Config\ShipConfig;
 use Ship\Contracts\ConfigAwareService;
+use Ship\Contracts\RequiresPhpExtensions;
 use Ship\Contracts\ShipEnvironment;
 use Ship\Services\ServiceRegistry;
 use Ship\Services\SupportsNamedInstances;
@@ -88,7 +89,7 @@ final class ComposeFileBuilder
             $compose['services'],
             $config->phpVersion,
             $config->nodeVersion,
-            implode(' ', $config->phpExtensions),
+            $this->phpExtensionsBuildArg($config),
         );
         $compose['services'] = $this->backfillRestartPolicy($compose['services']);
 
@@ -231,29 +232,28 @@ final class ComposeFileBuilder
     }
 
     /**
-     * Renames a service's hostname inside its own env vars. Only keys ending in "_HOST" or
-     * "_ENDPOINT" are touched: driver identifiers such as DB_CONNECTION=mysql or CACHE_STORE=redis
-     * merely share the compose name and must not change. Within a matching key, only the bare name
-     * or the name between "://" and ":" in a URL is replaced.
+     * Renames a service's hostname inside its own env vars. Only keys ending in "_HOST",
+     * "_ENDPOINT" or "_URI" are touched: driver identifiers such as DB_CONNECTION=mysql or
+     * CACHE_STORE=redis merely share the compose name and must not change. Within a matching key,
+     * only the bare name, or the name before the port in a URL ("://name:", or "@name:" after
+     * credentials, as in MONGODB_URI), is replaced.
      *
      * @param array<string, string> $env
      * @return array<string, string>
      */
     private function renameHostnameReferences(array $env, string $oldName, string $newName): array
     {
-        $needle = "://{$oldName}:";
-        $replacement = "://{$newName}:";
+        $replacements = [
+            "://{$oldName}:" => "://{$newName}:",
+            "@{$oldName}:" => "@{$newName}:",
+        ];
 
         foreach ($env as $key => $value) {
-            if (!str_ends_with($key, '_HOST') && !str_ends_with($key, '_ENDPOINT')) {
+            if (!str_ends_with($key, '_HOST') && !str_ends_with($key, '_ENDPOINT') && !str_ends_with($key, '_URI')) {
                 continue;
             }
 
-            if ($value === $oldName) {
-                $env[$key] = $newName;
-            } elseif (str_contains($value, $needle)) {
-                $env[$key] = str_replace($needle, $replacement, $value);
-            }
+            $env[$key] = $value === $oldName ? $newName : strtr($value, $replacements);
         }
 
         return $env;
@@ -560,6 +560,26 @@ final class ComposeFileBuilder
     }
 
     /**
+     * ship.json's `phpExtensions` plus whatever the selected services (default and named
+     * instances) need for their PHP client (see RequiresPhpExtensions), deduplicated in that order.
+     */
+    private function phpExtensionsBuildArg(ShipConfig $config): string
+    {
+        $extensions = $config->phpExtensions;
+        $keys = [...array_values($config->services), ...array_column($config->additionalServices, 'service')];
+
+        foreach ($keys as $key) {
+            $service = $this->registry->get($key);
+
+            if ($service instanceof RequiresPhpExtensions) {
+                $extensions = [...$extensions, ...$service->requiredPhpExtensions()];
+            }
+        }
+
+        return implode(' ', array_values(array_unique($extensions)));
+    }
+
+    /**
      * @param array<string, array<string, mixed>> $services
      * @return array<string, array<string, mixed>>
      */
@@ -630,7 +650,7 @@ final class ComposeFileBuilder
                         'PHP_VERSION' => $config->phpVersion,
                         'NODE_VERSION' => $config->nodeVersion,
                         'OCTANE_RUNTIME' => $this->runtimeBuildArg($runtime),
-                        'PHP_EXTENSIONS' => implode(' ', $config->phpExtensions),
+                        'PHP_EXTENSIONS' => $this->phpExtensionsBuildArg($config),
                         ...($hostUser !== null ? ['HOST_UID' => (string) $hostUser['uid'], 'HOST_GID' => (string) $hostUser['gid']] : []),
                     ],
                 ],

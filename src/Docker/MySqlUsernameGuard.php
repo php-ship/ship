@@ -7,13 +7,18 @@ namespace Ship\Docker;
 use Ship\Config\ShipConfig;
 
 /**
- * The official mysql image refuses to start when `MYSQL_USER=root`, and `DB_USERNAME=root` is a
- * common value in a Laravel `.env`. ComposeFileBuilder only sees the expression
- * `${DB_USERNAME:-app}`, so this checks the env file directly and lets the caller fail with a
- * specific message instead of "mysql never became healthy".
+ * The official mysql and mariadb images refuse to start when `MYSQL_USER`/`MARIADB_USER` is `root`,
+ * and `DB_USERNAME=root` is a common value in a Laravel `.env`. ComposeFileBuilder only sees the
+ * expression `${DB_USERNAME:-app}`, so this checks the env file directly and lets the caller fail
+ * with a specific message instead of "mysql never became healthy".
  */
 final class MySqlUsernameGuard
 {
+    /**
+     * Engines whose image rejects a "root" app user.
+     */
+    private const ENGINES = ['mysql', 'mariadb'];
+
     /**
      * @param array<string, string> $env
      * @return list<string> the DB_USERNAME-shaped env var names set to "root"
@@ -41,12 +46,12 @@ final class MySqlUsernameGuard
     {
         $names = [];
 
-        if (($config->services['database'] ?? null) === 'mysql') {
+        if (in_array($config->services['database'] ?? null, self::ENGINES, true)) {
             $names[] = null;
         }
 
         foreach ($config->additionalServices as $additional) {
-            if ($additional['service'] === 'mysql') {
+            if (in_array($additional['service'], self::ENGINES, true)) {
                 $names[] = $additional['name'];
             }
         }

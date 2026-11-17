@@ -64,9 +64,9 @@ final class UpCommand extends Command
         $usernameProblems = MySqlUsernameGuard::problems($config, EnvFile::parse($this->projectRoot . '/.env'));
         if ($usernameProblems !== []) {
             $output->writeln(sprintf(
-                '<error>ship: %s is set to "root" in .env -- the official mysql image\'s own '
-                    . 'entrypoint refuses to start at all with that value (it\'s reserved for '
-                    . 'MYSQL_ROOT_PASSWORD, not MYSQL_USER). Pick a different username.</error>',
+                '<error>ship: %s is set to "root" in .env -- the official mysql and mariadb images\' '
+                    . 'own entrypoints refuse to start at all with that value (it\'s reserved for '
+                    . 'the root password variable, not the app user). Pick a different username.</error>',
                 implode(', ', $usernameProblems),
             ));
 

@@ -9,13 +9,16 @@ use PHPUnit\Framework\TestCase;
 use Ship\Services\DuskService;
 use Ship\Services\GarageService;
 use Ship\Services\MailpitService;
+use Ship\Services\MariaDbService;
 use Ship\Services\MeilisearchService;
+use Ship\Services\MongoDbService;
 use Ship\Services\MySqlService;
 use Ship\Services\NodeService;
 use Ship\Services\OctaneFrankenPhpService;
 use Ship\Services\OctaneRoadRunnerService;
 use Ship\Services\OctaneSwooleService;
 use Ship\Services\PostgresService;
+use Ship\Services\RabbitMqService;
 use Ship\Services\RedisService;
 use Ship\Services\ReverbService;
 use Ship\Services\RustFsService;
@@ -86,6 +89,8 @@ final class ServiceRegistryTest extends TestCase
     {
         yield 'PostgresService' => [PostgresService::class];
         yield 'MySqlService' => [MySqlService::class];
+        yield 'MariaDbService' => [MariaDbService::class];
+        yield 'MongoDbService' => [MongoDbService::class];
         yield 'RedisService' => [RedisService::class];
         yield 'SeaweedFsService' => [SeaweedFsService::class];
         yield 'GarageService' => [GarageService::class];
@@ -99,6 +104,7 @@ final class ServiceRegistryTest extends TestCase
         yield 'DuskService' => [DuskService::class];
         yield 'NodeService' => [NodeService::class];
         yield 'ReverbService' => [ReverbService::class];
+        yield 'RabbitMqService' => [RabbitMqService::class];
     }
 
     /**
@@ -116,6 +122,6 @@ final class ServiceRegistryTest extends TestCase
     {
         // The per-class check proves nothing is missing; the count also catches an extra or
         // duplicate registration.
-        self::assertCount(15, ServiceRegistry::defaults());
+        self::assertCount(18, ServiceRegistry::defaults());
     }
 }
