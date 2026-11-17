@@ -68,7 +68,10 @@ final class OctaneRuntimeMergeTest extends TestCase
         self::assertSame('http://webserver', $parsed['services']['app']['environment']['APP_URL']);
     }
 
-    public function test_app_url_points_at_app_itself_when_an_octane_runtime_is_selected(): void
+    /**
+     * Octane serves HTTP itself, on port 8000 inside the container.
+     */
+    public function test_app_url_points_at_app_itself_on_octanes_port_when_an_octane_runtime_is_selected(): void
     {
         $registry = new ServiceRegistry([new OctaneSwooleService(), new DuskService()]);
         $builder = new ComposeFileBuilder($registry);
@@ -76,7 +79,7 @@ final class OctaneRuntimeMergeTest extends TestCase
         $config = new ShipConfig(phpVersion: '8.4', services: ['runtime' => 'octane-swoole', 'testing' => 'dusk']);
         $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Development));
 
-        self::assertSame('http://app', $parsed['services']['app']['environment']['APP_URL']);
+        self::assertSame('http://app:8000', $parsed['services']['app']['environment']['APP_URL']);
     }
 
     /**

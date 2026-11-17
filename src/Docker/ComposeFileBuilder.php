@@ -6,6 +6,7 @@ namespace Ship\Docker;
 
 use Ship\Config\ShipConfig;
 use Ship\Contracts\ConfigAwareService;
+use Ship\Contracts\NeedsAppUrl;
 use Ship\Contracts\RequiresPhpExtensions;
 use Ship\Contracts\ShipEnvironment;
 use Ship\Services\ServiceRegistry;
@@ -125,16 +126,26 @@ final class ComposeFileBuilder
             // (see MutagenSync). The entrypoint must not race it: an early install can run before
             // composer.lock has synced and write a new lock file into the project.
             ...($mutagenSync && $environment->isDevelopment() ? ['SHIP_DEV_SKIP_INSTALL' => '1'] : []),
-            // Dev + Dusk only: Selenium reaches the app over the "ship" network, so it needs the
-            // internal hostname. Set anywhere else, this would override the project's own APP_URL
-            // (`environment:` beats `env_file:`) with a hostname no browser can resolve.
-            ...($environment->isDevelopment() && ($config->services['testing'] ?? null) === 'dusk' ? [
-                'APP_URL' => sprintf(
-                    'http://%s',
-                    isset($compose['services'][$webserverServiceName]) ? $webserverServiceName : $appServiceName,
-                ),
-            ] : []),
         ];
+
+        // After the app's own environment, so Dusk's APP_URL wins over appEnv (see NeedsAppUrl).
+        $appUrl = isset($compose['services'][$webserverServiceName])
+            ? "http://{$webserverServiceName}"
+            : "http://{$appServiceName}:8000";
+
+        foreach ($this->appUrlVariables($config, $environment) as $target => $variable) {
+            $target = $target === 'app' ? $appServiceName : ($serviceNames[$target] ?? $target);
+            $compose['services'][$target]['environment'] = [
+                ...$compose['services'][$target]['environment'] ?? [],
+                $variable => $appUrl,
+            ];
+        }
+
+        // Under Mutagen there is no bind mount of the project; any other service mounting it
+        // (Reverb, Cypress) shares the synced volume instead, as "app" and "webserver" do.
+        if ($mutagenSync && $environment->isDevelopment()) {
+            $compose['services'] = $this->useSyncVolumeForProjectMounts($compose['services']);
+        }
 
         // Attaches the app to a pre-existing network (see ShipConfig::$externalNetwork), in
         // addition to "ship", which "webserver" and Reverb still reach it over.
@@ -232,11 +243,63 @@ final class ComposeFileBuilder
     }
 
     /**
+     * The app-URL variables (see NeedsAppUrl) every selected service present in this environment
+     * asks for, keyed by default compose service name.
+     *
+     * Selenium, Playwright's browser server and Cypress reach the app over the "ship" network, so
+     * they need its internal hostname. Only set where a browser test service is present: on "app"
+     * in particular, Dusk's APP_URL overrides the project's own (`environment:` beats
+     * `env_file:`) with a hostname no browser outside Docker can resolve.
+     *
+     * @return array<string, string>
+     */
+    private function appUrlVariables(ShipConfig $config, ShipEnvironment $environment): array
+    {
+        $variables = [];
+
+        foreach ($config->services as $key) {
+            $service = $this->registry->get($key);
+
+            if ($service instanceof ConfigAwareService) {
+                $service = $service->withConfig($config);
+            }
+
+            if ($service instanceof NeedsAppUrl && $service->composeFragment($environment) !== []) {
+                $variables = [...$variables, ...$service->appUrlVariables()];
+            }
+        }
+
+        return $variables;
+    }
+
+    /**
+     * Replaces a bind mount of the project root (".:/path") with the Mutagen-synced volume.
+     *
+     * @param array<string, array<string, mixed>> $services
+     * @return array<string, array<string, mixed>>
+     */
+    private function useSyncVolumeForProjectMounts(array $services): array
+    {
+        foreach ($services as $name => $service) {
+            /** @var list<string> $volumes */
+            $volumes = $service['volumes'] ?? [];
+
+            foreach ($volumes as $index => $mount) {
+                if (str_starts_with($mount, '.:')) {
+                    $services[$name]['volumes'][$index] = 'ship-app-sync:' . substr($mount, 2);
+                }
+            }
+        }
+
+        return $services;
+    }
+
+    /**
      * Renames a service's hostname inside its own env vars. Only keys ending in "_HOST",
-     * "_ENDPOINT" or "_URI" are touched: driver identifiers such as DB_CONNECTION=mysql or
+     * "_ENDPOINT", "_URI" or "_URL" are touched: driver identifiers such as DB_CONNECTION=mysql or
      * CACHE_STORE=redis merely share the compose name and must not change. Within a matching key,
      * only the bare name, or the name before the port in a URL ("://name:", or "@name:" after
-     * credentials, as in MONGODB_URI), is replaced.
+     * credentials, as in MONGODB_URI and SQL Server's DB_URL), is replaced.
      *
      * @param array<string, string> $env
      * @return array<string, string>
@@ -249,7 +312,10 @@ final class ComposeFileBuilder
         ];
 
         foreach ($env as $key => $value) {
-            if (!str_ends_with($key, '_HOST') && !str_ends_with($key, '_ENDPOINT') && !str_ends_with($key, '_URI')) {
+            $isAddress = str_ends_with($key, '_HOST') || str_ends_with($key, '_ENDPOINT')
+                || str_ends_with($key, '_URI') || str_ends_with($key, '_URL');
+
+            if (!$isAddress) {
                 continue;
             }
 

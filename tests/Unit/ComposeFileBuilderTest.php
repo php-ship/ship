@@ -20,6 +20,7 @@ use Ship\Services\RedisService;
 use Ship\Services\ReverbService;
 use Ship\Services\ServiceRegistry;
 use Ship\Services\SiloService;
+use Ship\Services\SqlServerService;
 use Ship\Support\PhpSecurityFloor;
 use Symfony\Component\Yaml\Yaml;
 
@@ -594,6 +595,25 @@ final class ComposeFileBuilderTest extends TestCase
         self::assertArrayHasKey('ship-rabbitmq-data', $parsed['volumes']);
         // Production publishes nothing unless publishPorts is set.
         self::assertSame([], $parsed['services']['rabbitmq']['ports']);
+    }
+
+    /**
+     * The SQL Server container is development-only, but the production app still talks to a
+     * licensed SQL Server, so pdo_sqlsrv is built into both images.
+     */
+    public function test_sql_server_is_absent_from_production_but_its_php_extension_is_not(): void
+    {
+        $builder = new ComposeFileBuilder(new ServiceRegistry([new SqlServerService()]));
+        $config = new ShipConfig(phpVersion: '8.4', services: ['database' => 'sqlserver']);
+
+        $dev = Yaml::parse($builder->build($config, ShipEnvironment::Development));
+        $prod = Yaml::parse($builder->build($config, ShipEnvironment::Production));
+
+        self::assertArrayHasKey('sqlserver', $dev['services']);
+        self::assertArrayNotHasKey('sqlserver', $prod['services']);
+        self::assertArrayNotHasKey('DB_HOST', $prod['services']['app']['environment'] ?? []);
+        self::assertSame('pdo_sqlsrv', $dev['services']['app']['build']['args']['PHP_EXTENSIONS']);
+        self::assertSame('pdo_sqlsrv', $prod['services']['app']['build']['args']['PHP_EXTENSIONS']);
     }
 
     public function test_php_extensions_defaults_to_an_empty_build_arg_when_not_specified(): void

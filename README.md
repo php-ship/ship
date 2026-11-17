@@ -75,7 +75,7 @@ A few other differences beyond the WSL requirement:
   The destination server needs nothing but Docker: `docker load` the
   images, then `docker compose up -d`.
 - **A real database client shell, without a published port.** `ship db`
-  opens `psql`/`mysql`/`mariadb`/`mongosh` inside whichever database container is selected,
+  opens `psql`/`mysql`/`mariadb`/`mongosh`/`sqlcmd` inside whichever database container is selected,
   reading its own credentials from its own environment — no port needs to
   be exposed to the host at all, and nothing needs to know the password.
 - **Extend the stack without forking or hand-maintaining a Dockerfile.** A
@@ -87,8 +87,9 @@ A few other differences beyond the WSL requirement:
   small class implementing one of two public interfaces, loadable from a
   separate Composer package via `ship.json`'s `extensions` array — see
   [Extending ship](#extending-ship) — not a fork of this one.
-- **Postgres, MySQL, MariaDB and MongoDB, RabbitMQ, Swoole and RoadRunner
-  and FrankenPHP, Meilisearch, object storage, Reverb, browser testing** —
+- **Postgres, MySQL, MariaDB, MongoDB and SQL Server, RabbitMQ, Swoole and
+  RoadRunner and FrankenPHP, Meilisearch and Elasticsearch, object storage,
+  Reverb, browser testing with Dusk, Playwright or Cypress** —
   `ship init` picks one
   option per group interactively; nothing needed is hardcoded to a single
   choice the way Sail's own service list is.
@@ -131,7 +132,7 @@ release`.
 | `ship exec <service> <cmd...>` | Runs an arbitrary command inside a running service container. The generic escape hatch every shortcut below wraps. |
 | `ship shell [service]` | Opens an interactive shell (`sh`) in a service; defaults to `app`. |
 | `ship logs [service] [-f]` | Tails logs for one service, or all services if none given. `-f`/`--follow` streams live. |
-| `ship db [instance]` | Opens a database's interactive client shell (`psql`/`mysql`/`mariadb`/`mongosh`), reading credentials from that container's own environment. Omit `instance` for the default database; name one of `additionalServices`' database entries to open that instance instead. Fails clearly if no database is selected, or the named instance doesn't exist. |
+| `ship db [instance]` | Opens a database's interactive client shell (`psql`/`mysql`/`mariadb`/`mongosh`/`sqlcmd`), reading credentials from that container's own environment. Omit `instance` for the default database; name one of `additionalServices`' database entries to open that instance instead. Fails clearly if no database is selected, or the named instance doesn't exist. |
 | `ship config:test` | `ship.json`'s equivalent of `nginx -t`: validates `ship.json`, builds both the development and production compose files, and checks for a required production credential missing from `.env.production` or a stale nginx upstream — all without starting or building anything. Reports every problem it finds in one pass, not just the first. |
 | `ship doctor` | Shows the installed and published versions and the state and health of every container in the development stack, with a recovery hint for anything that crashed or is unhealthy. Reads the compose file `ship up` generated; changes nothing. |
 | `ship composer <args...>` | Proxies to `composer` inside the `app` container. |
@@ -160,19 +161,32 @@ doesn't make for you.
 | MySQL | `DB_*` env vars, `pdo_mysql` extension | Nothing — works out of the box |
 | MariaDB | `DB_*` env vars (`DB_CONNECTION=mariadb`), `pdo_mysql` extension | Nothing on Laravel 11+, whose `mariadb` connection this uses |
 | MongoDB | `MONGODB_URI`/`MONGODB_DATABASE`, `mongodb` PHP extension (added to the image automatically) | `composer require mongodb/laravel-mongodb`, add its `mongodb` connection to `config/database.php` (reading those two variables), and set `DB_CONNECTION=mongodb` yourself if it should be the default. `MONGODB_PASSWORD` is embedded in the URI, so keep it free of characters that need percent-encoding (`@ : / ? # [ ] %`) |
+| SQL Server (`sqlserver`) | **Development only** — Developer Edition isn't licensed for production, so in production no container is started and the app uses the licensed server set in `.env.production`. `DB_*` env vars (`DB_CONNECTION=sqlsrv`) plus `DB_URL` with `trust_server_certificate=true` (the container's certificate is self-signed), the app database and a login owning it created on first boot, `pdo_sqlsrv` and Microsoft's ODBC driver (added to the image automatically, in production too) | Nothing on Laravel. Passwords must meet SQL Server's policy (8+ characters from three of upper/lowercase, digits, symbols) — the defaults do; `DB_PASSWORD` also goes into `DB_URL`, so keep it free of characters that need percent-encoding. `DB_USERNAME` can't be `sa`. Needs about 2 GB of RAM, and the image is amd64-only (emulated on Apple Silicon) |
+| Elasticsearch | Single node with security on, `ELASTICSEARCH_HOST`/`USERNAME`/`PASSWORD` (the `elastic` user), JVM heap capped at 1 GB in development | An Elasticsearch client package of your choice, configured from those variables (Laravel has no built-in driver, so `SCOUT_DRIVER` is left alone). On Linux, raise `vm.max_map_count` to 262144 for real workloads |
 | RabbitMQ | Its own `rabbitmq` container with the management UI on `127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}` (development only), `RABBITMQ_HOST`/`PORT`/`USER`/`PASSWORD`/`VHOST`, `sockets` PHP extension (added to the image automatically) | `composer require vladimir-yuldashev/laravel-queue-rabbitmq`, then set `QUEUE_CONNECTION=rabbitmq` yourself |
 | Redis | `CACHE_STORE`/`SESSION_DRIVER`/`REDIS_*`, `redis` PHP extension | Nothing — works out of the box |
 | Mailpit | `MAIL_HOST`/`MAIL_PORT` | Nothing (fresh Laravel already defaults `MAIL_MAILER=smtp`) |
 | Meilisearch | `SCOUT_DRIVER`/`MEILISEARCH_*` | `composer require laravel/scout meilisearch/meilisearch-php` |
 | Garage / SeaweedFS / RustFS / Silo | `AWS_*` env vars (S3-compatible) | `composer require league/flysystem-aws-s3-v3`, and set `FILESYSTEM_DISK=s3` yourself. Garage auto-provisions its own default bucket; RustFS/SeaweedFS/Silo don't — create it yourself once (Silo has a web console for this at `${SILO_CONSOLE_PORT:-9001}`; RustFS's own console doesn't currently work, see that class's own docblock). Silo has two image variants — see [Silo on older CPUs](#silo-on-older-cpus) |
 | Octane (Swoole/RoadRunner/FrankenPHP) | `swoole` PHP extension (Swoole only), `OCTANE_SERVER` | `composer require laravel/octane`, then `php artisan octane:install` inside the container once (downloads the RoadRunner binary if that's the one picked) |
-| Dusk | Selenium container, `DUSK_DRIVER_URL` | `composer require --dev laravel/dusk` |
+| Dusk | Selenium container, `DUSK_DRIVER_URL`, and `APP_URL` set to the app's internal address (`http://webserver`, or `http://app:8000` with Octane) | `composer require --dev laravel/dusk` |
+| Playwright | Browser server container (Chromium, Firefox, WebKit), `PW_TEST_CONNECT_WS_ENDPOINT` so the test runner in `app` launches every browser there, `PLAYWRIGHT_BASE_URL` set to the app's internal address | `npm install -D @playwright/test@1.65` (the same minor version as the server — Playwright refuses a mismatch), and `use: { baseURL: process.env.PLAYWRIGHT_BASE_URL }` in `playwright.config`. No `npx playwright install` needed. Run with `ship npm exec playwright test` |
+| Cypress | Cypress container (Electron, plus Chrome, Firefox and Edge on amd64) with the project mounted at `/e2e`, `CYPRESS_BASE_URL` set to the app's internal address, `CYPRESS_INSTALL_BINARY=0` on `app` so `npm install` there skips the binary | `npm install -D cypress`. Run with `ship exec cypress cypress run` (`--browser chrome` etc.). Test artifacts (screenshots, videos) are written as root on a Linux bind mount |
 | Node.js / npm | Installed unconditionally in the base image, at the version `ship init`'s "Node.js version" prompt sets (`ship.json`'s `node` field, default 24); `ship npm run dev` works regardless of whether this group is selected | See [Frontend dev server](#frontend-dev-server-vite-hmr) below for HMR |
 | Reverb | Its own `reverb` container + published port, `BROADCAST_CONNECTION=reverb`, server-side `REVERB_HOST=reverb`/`REVERB_PORT`/`REVERB_SCHEME` (Docker DNS — `app` talking to `reverb`), browser-side `VITE_REVERB_HOST=localhost`/`VITE_REVERB_PORT`/`VITE_REVERB_SCHEME` (what Echo in the browser actually connects to) | `composer require laravel/reverb`, then `php artisan install:broadcasting` inside the container once (generates `REVERB_APP_ID`/`KEY`/`SECRET` into `.env` — real per-app credentials, not something `ship` provisions). `ship init` warns at selection time if the package isn't installed yet, since the `reverb` container won't start without it. |
 
 Everything in the right column is one-time setup per project, not a `ship`
 limitation — `ship`'s job stops at "the infrastructure is reachable with the
 right env vars," not "every possible Composer package is pre-installed."
+
+### Browser tests and Vite
+
+Dusk's, Playwright's and Cypress's browsers run in their own containers
+and reach the app at its internal address, not `localhost`, so they can't
+load assets from Vite's dev server (`ship npm run dev` writes
+`http://localhost:5173` into `public/hot`). Run browser tests against built
+assets: stop the dev server (which removes `public/hot`) and
+`ship npm run build` first.
 
 ### Silo on older CPUs
 
@@ -266,8 +280,8 @@ plain, readable JSON document:
 - `phpExtensions` — extra PHP extensions to install beyond the fixed set
   every project already gets (`pdo_pgsql`, `pdo_mysql`, `intl`,
   `mbstring`, `opcache`, `pcntl`, `redis`), and beyond what a selected
-  service adds on its own (`mongodb` for MongoDB, `sockets` for
-  RabbitMQ). Omitted here since most
+  service adds on its own (`mongodb` for MongoDB, `pdo_sqlsrv` for SQL
+  Server, `sockets` for RabbitMQ). Omitted here since most
   projects don't need any — hand-edit it in when a Composer package's
   own platform requirement isn't already covered, e.g.:
   ```json
@@ -670,7 +684,8 @@ public internet.
 ## Backing up data volumes
 
 Every stateful service (`ship-pgsql-data`, `ship-mysql-data`,
-`ship-mariadb-data`, `ship-mongodb-data`, `ship-rabbitmq-data`,
+`ship-mariadb-data`, `ship-mongodb-data`, `ship-sqlserver-data`,
+`ship-elasticsearch-data`, `ship-rabbitmq-data`,
 `ship-redis-data`, `ship-seaweedfs-data`, `ship-meilisearch-data`, ...)
 persists to a named Docker volume, not a bind mount — `docker volume ls`
 lists them, prefixed with the project's directory name. `ship` doesn't

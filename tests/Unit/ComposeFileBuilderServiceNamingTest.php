@@ -16,6 +16,7 @@ use Ship\Services\OctaneSwooleService;
 use Ship\Services\PostgresService;
 use Ship\Services\RedisService;
 use Ship\Services\ServiceRegistry;
+use Ship\Services\SqlServerService;
 use Symfony\Component\Yaml\Yaml;
 
 /**
@@ -34,6 +35,7 @@ final class ComposeFileBuilderServiceNamingTest extends TestCase
             new OctaneSwooleService(),
             new DuskService(),
             new MongoDbService(),
+            new SqlServerService(),
         ]);
     }
 
@@ -87,7 +89,7 @@ final class ComposeFileBuilderServiceNamingTest extends TestCase
 
     /**
      * With an Octane runtime there is no "webserver": renaming it must not create one, and
-     * APP_URL falls back to the app service.
+     * APP_URL falls back to the app service, on Octane's port.
      */
     public function test_webserver_name_is_ignored_when_no_webserver_exists(): void
     {
@@ -102,7 +104,7 @@ final class ComposeFileBuilderServiceNamingTest extends TestCase
 
         self::assertArrayNotHasKey('client-web', $parsed['services']);
         self::assertArrayNotHasKey('webserver', $parsed['services']);
-        self::assertSame('http://client-app', $parsed['services']['client-app']['environment']['APP_URL']);
+        self::assertSame('http://client-app:8000', $parsed['services']['client-app']['environment']['APP_URL']);
     }
 
     /**
@@ -164,6 +166,26 @@ final class ComposeFileBuilderServiceNamingTest extends TestCase
             'mongodb://${MONGODB_USERNAME:-app}:${MONGODB_PASSWORD:-secret}@client-docs:27017/${MONGODB_DATABASE:-app}',
             $parsed['services']['app']['environment']['MONGODB_URI'],
         );
+    }
+
+    /**
+     * "_URL" keys are addresses too: SQL Server's DB_URL and Dusk's DUSK_DRIVER_URL.
+     */
+    public function test_a_renamed_services_hostname_is_fixed_up_in_url_keys(): void
+    {
+        $builder = new ComposeFileBuilder($this->registry());
+        $config = new ShipConfig(
+            phpVersion: '8.4',
+            services: ['database' => 'sqlserver', 'testing' => 'dusk'],
+            serviceNames: ['sqlserver' => 'client-mssql', 'selenium' => 'client-browser'],
+        );
+
+        $env = Yaml::parse($builder->build($config, ShipEnvironment::Development))['services']['app']['environment'];
+
+        self::assertSame('client-mssql', $env['DB_HOST']);
+        self::assertStringContainsString('@client-mssql:1433/', $env['DB_URL']);
+        self::assertSame('http://client-browser:4444/wd/hub', $env['DUSK_DRIVER_URL']);
+        self::assertSame('sqlsrv', $env['DB_CONNECTION']);
     }
 
     /**

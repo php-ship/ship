@@ -6,7 +6,9 @@ namespace Ship\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Ship\Services\CypressService;
 use Ship\Services\DuskService;
+use Ship\Services\ElasticsearchService;
 use Ship\Services\GarageService;
 use Ship\Services\MailpitService;
 use Ship\Services\MariaDbService;
@@ -17,6 +19,7 @@ use Ship\Services\NodeService;
 use Ship\Services\OctaneFrankenPhpService;
 use Ship\Services\OctaneRoadRunnerService;
 use Ship\Services\OctaneSwooleService;
+use Ship\Services\PlaywrightService;
 use Ship\Services\PostgresService;
 use Ship\Services\RabbitMqService;
 use Ship\Services\RedisService;
@@ -25,6 +28,7 @@ use Ship\Services\RustFsService;
 use Ship\Services\SeaweedFsService;
 use Ship\Services\ServiceRegistry;
 use Ship\Services\SiloService;
+use Ship\Services\SqlServerService;
 
 final class ServiceRegistryTest extends TestCase
 {
@@ -91,6 +95,7 @@ final class ServiceRegistryTest extends TestCase
         yield 'MySqlService' => [MySqlService::class];
         yield 'MariaDbService' => [MariaDbService::class];
         yield 'MongoDbService' => [MongoDbService::class];
+        yield 'SqlServerService' => [SqlServerService::class];
         yield 'RedisService' => [RedisService::class];
         yield 'SeaweedFsService' => [SeaweedFsService::class];
         yield 'GarageService' => [GarageService::class];
@@ -100,8 +105,11 @@ final class ServiceRegistryTest extends TestCase
         yield 'OctaneRoadRunnerService' => [OctaneRoadRunnerService::class];
         yield 'OctaneFrankenPhpService' => [OctaneFrankenPhpService::class];
         yield 'MeilisearchService' => [MeilisearchService::class];
+        yield 'ElasticsearchService' => [ElasticsearchService::class];
         yield 'MailpitService' => [MailpitService::class];
         yield 'DuskService' => [DuskService::class];
+        yield 'PlaywrightService' => [PlaywrightService::class];
+        yield 'CypressService' => [CypressService::class];
         yield 'NodeService' => [NodeService::class];
         yield 'ReverbService' => [ReverbService::class];
         yield 'RabbitMqService' => [RabbitMqService::class];
@@ -122,6 +130,6 @@ final class ServiceRegistryTest extends TestCase
     {
         // The per-class check proves nothing is missing; the count also catches an extra or
         // duplicate registration.
-        self::assertCount(18, ServiceRegistry::defaults());
+        self::assertCount(22, ServiceRegistry::defaults());
     }
 }

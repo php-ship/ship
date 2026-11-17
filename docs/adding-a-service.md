@@ -62,20 +62,29 @@ a runtime — is a class implementing `Ship\Contracts\ServiceDefinition`.
   Dockerfile's fixed set, implement `Ship\Contracts\RequiresPhpExtensions`
   rather than telling users to edit `phpExtensions` — `ComposeFileBuilder`
   merges the list into the app image's `PHP_EXTENSIONS` build arg.
-  `MongoDbService` (`mongodb`) and `RabbitMqService` (`sockets`) are the
-  examples.
+  `MongoDbService` (`mongodb`), `SqlServerService` (`pdo_sqlsrv`) and
+  `RabbitMqService` (`sockets`) are the examples. The extensions are built
+  into both images even when the service itself is development-only, as
+  SQL Server's is.
 
 - **If your service needs a config file** (like Garage's `garage.toml`),
   add it under `stubs/docker/<service>/` and publish it conditionally from
   `InitCommand::publishStubs()` — see the existing Garage branch there for
   the pattern.
 
-- **Cross-service coordination is a known architectural gap**, not
+- **A browser that has to reach the app** (a testing driver) shouldn't
+  guess its address: it's `http://webserver` with nginx but
+  `http://app:8000` with an Octane runtime, and either can be renamed.
+  Implement `Ship\Contracts\NeedsAppUrl` instead, naming the container
+  and variable that should hold it (`DuskService`: `APP_URL` on `app`;
+  `CypressService`: `CYPRESS_BASE_URL` on its own container), and
+  `ComposeFileBuilder` fills in the right URL.
+
+- **Other cross-service coordination is a known architectural gap**, not
   something to work around per-service. If your service needs to know
-  about *other* selected services (the way Dusk's correct `APP_URL` depends
-  on whether an Octane runtime was also picked), don't hardcode a guess —
-  document the limitation the way `DuskService` currently does, and see
-  `docs/roadmap.md` for the direction a real fix should take.
+  about *other* selected services in some other way, don't hardcode a
+  guess — document the limitation, and see `docs/roadmap.md` for the
+  direction a real fix should take.
 
 ## Supporting multiple named instances
 
@@ -87,8 +96,8 @@ separate from the default cache/session store. `ship.json`'s
 "Multiple instances of a service"); on your side, supporting it means
 using the `Ship\Services\SupportsNamedInstances` trait, already used by
 `PostgresService`/`MySqlService`/`MariaDbService`/`MongoDbService`/
-`RedisService`/`SeaweedFsService`/`GarageService`/`MeilisearchService`/
-`MailpitService` — any of those is
+`SqlServerService`/`RedisService`/`SeaweedFsService`/`GarageService`/
+`MeilisearchService`/`ElasticsearchService`/`MailpitService` — any of those is
 a reference to copy from. The trait gives you two methods:
 
 - `composeServiceName(?string $instanceName)` — `key()` itself for the
@@ -115,7 +124,8 @@ runtime, a frontend toolchain, a testing driver, a broadcasting
 server, a message broker), don't use the trait — just accept and ignore
 `$instanceName` in both methods, matching `NodeService`/
 `OctaneSwooleService`/`OctaneRoadRunnerService`/`OctaneFrankenPhpService`/
-`DuskService`/`ReverbService`/`RabbitMqService`. `InitCommand::GROUPS_SUPPORTING_ADDITIONAL_INSTANCES`
+`DuskService`/`PlaywrightService`/`CypressService`/`ReverbService`/
+`RabbitMqService`. `InitCommand::GROUPS_SUPPORTING_ADDITIONAL_INSTANCES`
 is the list of groups `ship init`'s "add another instance" prompt
 offers at all (`database`, `cache`, `storage`, `search`, `mail`) — a
 service in a group outside that list is never asked to support more

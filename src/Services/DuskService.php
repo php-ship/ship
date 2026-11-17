@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 namespace Ship\Services;
 
+use Ship\Contracts\NeedsAppUrl;
 use Ship\Contracts\ServiceDefinition;
 use Ship\Contracts\ShipEnvironment;
 
-final class DuskService implements ServiceDefinition
+final class DuskService implements ServiceDefinition, NeedsAppUrl
 {
     public function key(): string
     {
@@ -47,8 +48,7 @@ final class DuskService implements ServiceDefinition
     public function environmentVariables(?string $instanceName = null): array
     {
         return [
-            // APP_URL is set by ComposeFileBuilder, which knows whether "app" or "webserver" is
-            // the HTTP entrypoint.
+            // APP_URL comes from appUrlVariables().
             'DUSK_DRIVER_URL' => 'http://selenium:4444/wd/hub',
         ];
     }
@@ -56,5 +56,14 @@ final class DuskService implements ServiceDefinition
     public function removes(): array
     {
         return [];
+    }
+
+    /**
+     * Dusk's browser visits APP_URL, so on "app" it must be the internal address Selenium can
+     * reach, not the project's own.
+     */
+    public function appUrlVariables(): array
+    {
+        return ['app' => 'APP_URL'];
     }
 }

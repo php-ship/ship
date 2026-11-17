@@ -14,7 +14,9 @@ and records the non-obvious reasons behind each decision.
   `ConfigAwareService` lets a service read `ship.json` before it builds its
   fragment. `RequiresPhpExtensions` lets a service add the PHP extensions
   its client library needs to the app image's `PHP_EXTENSIONS` build arg,
-  merged with `ship.json`'s `phpExtensions`.
+  merged with `ship.json`'s `phpExtensions`. `NeedsAppUrl` lets a browser
+  testing service receive the app's internal URL in the container and
+  variable it names.
 - `ExtensionLoader` resolves `ship.json`'s `extensions` (a list of class
   names) in one pass. `Application` loads them once and passes the
   populated `ServiceRegistry` into every command, so no extension class is
@@ -22,13 +24,15 @@ and records the non-obvious reasons behind each decision.
   warning, not a failure.
 - An empty `composeFragment()` means the service is absent in that
   environment: no compose service, no env vars injected into `app`.
-  Mailpit and Dusk use it to stay out of production.
+  Mailpit, SQL Server and the browser testing services use it to stay out
+  of production.
 
 ### Services
 
-- 18 built-in services: Postgres, MySQL, MariaDB, MongoDB, Redis,
-  SeaweedFS, Garage, RustFS, Silo, Octane with Swoole/RoadRunner/FrankenPHP,
-  Meilisearch, Mailpit, Dusk/Selenium, Node, Reverb, RabbitMQ.
+- 22 built-in services: Postgres, MySQL, MariaDB, MongoDB, SQL Server,
+  Redis, SeaweedFS, Garage, RustFS, Silo, Octane with
+  Swoole/RoadRunner/FrankenPHP, Meilisearch, Elasticsearch, Mailpit,
+  Dusk/Selenium, Playwright, Cypress, Node, Reverb, RabbitMQ.
 - Named instances (`additionalServices`) for the `database`, `cache`,
   `storage`, `search` and `mail` groups. `SupportsNamedInstances` gives the
   shared naming: compose service `{key}-{name}`, env var prefix `{NAME}_`.
@@ -58,9 +62,25 @@ and records the non-obvious reasons behind each decision.
   root password (`MONGODB_ROOT_PASSWORD`) stays a separate secret. The
   healthcheck pings the container's own address, since the init-phase
   server listens on 127.0.0.1 only. The app gets `MONGODB_URI`, which
-  `serviceNames` renaming follows (`_URI` keys, hostname after `@`), and
+  `serviceNames` renaming follows (`_URI`/`_URL` keys, hostname after `@`), and
   `DB_CONNECTION` is left alone: without laravel-mongodb installed there
   is no `mongodb` connection.
+- SQL Server runs Developer Edition in development only (an empty
+  production fragment, like Mailpit): it isn't licensed for production.
+  The image creates nothing but `sa`, so the entrypoint starts SQL Server
+  in the background and idempotently creates the app database and a login
+  owning it, with values passed as escaped literals, identifiers through
+  `QUOTENAME()` and sqlcmd's own variable substitution off. The
+  healthcheck logs in as that login, so it only passes once both exist.
+  ODBC Driver 18 rejects the self-signed certificate unless told to trust
+  it, and Laravel only reads that from an edited `config/database.php`,
+  so the app also gets a `DB_URL` carrying `trust_server_certificate=true`.
+  `pdo_sqlsrv` is required in production as well, where the app talks to a
+  licensed server. amd64-only, so `platform: linux/amd64` is explicit.
+- Elasticsearch: single node, security on with the `elastic` user's
+  password required in production, plain HTTP inside the network. The JVM
+  heap is capped at 1 GB in development only. No `SCOUT_DRIVER` change:
+  Laravel has no built-in driver.
 - RabbitMQ (the `broker` group, one per project): a fixed `hostname`,
   because RabbitMQ keys its data directory by node name, which otherwise
   follows the container id and orphans the persisted queues on every
@@ -96,9 +116,27 @@ and records the non-obvious reasons behind each decision.
   environment and build args, `SHIP_RUN_AS`/`SHIP_HOST_USER`, the Mutagen
   volume, and `SHIP_DEV_SKIP_INSTALL`, since `ReverbService` can see none of
   those itself.
-- Dusk: `APP_URL` is injected only in development with Dusk selected.
-  Selenium needs the internal hostname; anywhere else it would override the
-  project's own `APP_URL`, because `environment:` beats `env_file:`.
+- Browser testing (development only; one of Dusk, Playwright, Cypress):
+  each browser runs in its own container and reaches the app at its
+  internal address (`NeedsAppUrl`): `http://webserver`, or
+  `http://app:8000` with an Octane runtime, following renames.
+  - Dusk gets it as `APP_URL` on `app`, since Dusk visits `APP_URL`. Only
+    then: anywhere else it would override the project's own `APP_URL`,
+    because `environment:` beats `env_file:`.
+  - Playwright runs its browser server (`run-server`, version read from the
+    image tag so a bump moves both); the test runner in `app` connects via
+    `PW_TEST_CONNECT_WS_ENDPOINT`, so the Alpine app image needs no
+    browsers. The base URL is `PLAYWRIGHT_BASE_URL`, leaving `APP_URL`
+    alone. The project's `@playwright/test` must match the server's minor
+    version.
+  - Cypress runs tests in its browser's process, so its container idles
+    (`sleep infinity`; the image's own entrypoint runs the suite once and
+    would loop under the restart policy) with the project mounted, and gets
+    `CYPRESS_BASE_URL`, which Cypress applies itself. `app` gets
+    `CYPRESS_INSTALL_BINARY=0`: the binary doesn't support Alpine, and the
+    container brings its own. Under Mutagen the mount is the synced volume.
+  - The browsers can't reach Vite's dev server at `localhost:5173`, so
+    tests run against built assets.
 - Node is installed in the base image at `ship.json`'s `node` version,
   copied from the official node image. Selecting the `frontend` group
   changes nothing else.
@@ -279,6 +317,6 @@ and records the non-obvious reasons behind each decision.
 ## Not started
 
 - Cross-service coordination beyond what `ComposeFileBuilder::build()`
-  computes itself (`APP_URL`, version build args, Reverb alignment). A
+  computes itself (the app URL, version build args, Reverb alignment). A
   service that needs to know about other selected services has no general
   mechanism yet; design one when a concrete need comes up.
