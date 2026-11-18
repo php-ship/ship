@@ -60,6 +60,21 @@ COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
+# Yarn and pnpm, through Corepack: it runs the exact version package.json's packageManager names
+# (e.g. "pnpm@12.21.0+sha512..."), downloading it on first use, and refuses another tool in that
+# project. Installed with npm at a pinned version rather than copied from the node image, which
+# stopped bundling it in Node 25. COREPACK_HOME (the downloaded versions) is writable by whichever
+# user runs it (root, hostUser's user, www-data); in development it's a volume, so they're kept
+# across rebuilds. Corepack never asks before downloading, since ship's commands may run without
+# a terminal, and never writes packageManager on its own (`ship package-manager` does).
+ARG COREPACK_VERSION=0.36.0
+ENV COREPACK_HOME=/opt/corepack \
+    COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
+    COREPACK_ENABLE_AUTO_PIN=0
+RUN npm install --global --no-fund --no-audit "corepack@${COREPACK_VERSION}" \
+    && corepack enable yarn pnpm \
+    && mkdir -p "$COREPACK_HOME" && chmod 1777 "$COREPACK_HOME"
+
 # phpredis is installed unconditionally: selecting Redis sets CACHE_STORE/SESSION_DRIVER=redis,
 # and Laravel's default REDIS_CLIENT is "phpredis". Pinned to an exact PECL release; bump
 # REDIS_EXTENSION_VERSION deliberately.
@@ -119,29 +134,17 @@ COPY . .
 RUN composer dump-autoload --optimize --no-dev
 
 # ---- assets --------------------------------------------------------------
-# Runs `npm run build` so public/build exists before "prod" and "prod-nginx" copy the tree out.
-# Guarded on package.json, since not every project has a frontend build. Built from "builder" so
-# vendor/ exists in case a build step shells out to artisan.
-#
-# `npm ci` when a lockfile exists, `npm install` only when it doesn't, so lockfile drift still
-# fails the build. node_modules is a build dependency and is removed afterwards.
+# Builds the frontend (ship/build-assets.sh) so public/build exists before "prod" and "prod-nginx"
+# copy the tree out. Built from "builder" so vendor/ exists in case a build step shells out to
+# artisan.
 FROM builder AS assets
 # .env.production's VITE_* settings as `export` lines (see Ship\Docker\ViteBuildEnv), which Vite
 # bakes into the bundle. The .env files themselves are kept out of the build context.
 ARG VITE_ENV=""
-#
-# Node gives each address of a dual-stack host 250 ms by default ("happy eyeballs"), which a slow
-# link from inside a build container regularly misses, failing a build step that downloads
-# (npm itself, or Vite plugins such as Laravel's font loader). Raised where this Node supports it.
-RUN if [ -f package.json ]; then \
-        if node --network-family-autoselection-attempt-timeout=2500 -e 0 2>/dev/null; then \
-            export NODE_OPTIONS="--network-family-autoselection-attempt-timeout=2500 ${NODE_OPTIONS:-}"; \
-        fi \
-        && if [ -f package-lock.json ]; then npm ci; else npm install; fi \
-        && eval "$VITE_ENV" \
-        && npm run build \
-        && rm -rf node_modules; \
-    fi
+# The project's package manager (npm, yarn or pnpm), decided by ship (see Ship\Node\PackageManager).
+ARG PACKAGE_MANAGER=npm
+COPY ship/build-assets.sh /usr/local/bin/ship-build-assets
+RUN sh /usr/local/bin/ship-build-assets "$PACKAGE_MANAGER"
 
 # ---- prod --------------------------------------------------------------
 FROM base AS prod

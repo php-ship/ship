@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ship\Console\Commands;
 
 use Ship\Docker\ComposeCommand;
+use Ship\Node\PackageManager;
 use Ship\Runtime\ProcessRunner;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\ArgvInput;
@@ -20,6 +21,10 @@ use Symfony\Component\Console\Output\OutputInterface;
  *   new ProxyCommand('composer', 'app', 'composer', $projectRoot, $runner)
  *
  * Every argument after the command name passes straight through, e.g. `make:model Post -m`'s `-m`.
+ *
+ * $packageManager (`ship npm`, `ship yarn`, `ship pnpm`) refuses to run that tool in a project that
+ * uses another one, or whose lockfiles are mixed (see PackageManager::refusal()), since running it
+ * would leave lockfiles of two package managers. `ship exec app <tool> …` still runs it on purpose.
  */
 final class ProxyCommand extends Command
 {
@@ -29,6 +34,7 @@ final class ProxyCommand extends Command
         private readonly string $binary,
         private readonly string $projectRoot,
         private readonly ProcessRunner $runner,
+        private readonly ?string $packageManager = null,
     ) {
         parent::__construct($name);
         $this->setDescription("Run \"{$binary}\" inside the \"{$service}\" service");
@@ -44,6 +50,16 @@ final class ProxyCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        if ($this->packageManager !== null) {
+            $refusal = PackageManager::inspect($this->projectRoot)->refusal($this->packageManager);
+
+            if ($refusal !== null) {
+                $output->writeln("<error>ship: {$refusal}</error>");
+
+                return Command::FAILURE;
+            }
+        }
+
         return $this->runner->runInteractive($this->buildCommand($input), $this->projectRoot);
     }
 

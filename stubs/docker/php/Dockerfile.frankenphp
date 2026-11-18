@@ -35,6 +35,15 @@ COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
+# Yarn and pnpm through a pinned Corepack: see the matching block in stubs/docker/php/Dockerfile.
+ARG COREPACK_VERSION=0.36.0
+ENV COREPACK_HOME=/opt/corepack \
+    COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
+    COREPACK_ENABLE_AUTO_PIN=0
+RUN npm install --global --no-fund --no-audit "corepack@${COREPACK_VERSION}" \
+    && corepack enable yarn pnpm \
+    && mkdir -p "$COREPACK_HOME" && chmod 1777 "$COREPACK_HOME"
+
 WORKDIR /var/www/html
 
 # ---- dev -------------------------------------------------------------
@@ -79,19 +88,10 @@ FROM builder AS assets
 # .env.production's VITE_* settings as `export` lines (see Ship\Docker\ViteBuildEnv), which Vite
 # bakes into the bundle. The .env files themselves are kept out of the build context.
 ARG VITE_ENV=""
-#
-# Node gives each address of a dual-stack host 250 ms by default ("happy eyeballs"), which a slow
-# link from inside a build container regularly misses, failing a build step that downloads
-# (npm itself, or Vite plugins such as Laravel's font loader). Raised where this Node supports it.
-RUN if [ -f package.json ]; then \
-        if node --network-family-autoselection-attempt-timeout=2500 -e 0 2>/dev/null; then \
-            export NODE_OPTIONS="--network-family-autoselection-attempt-timeout=2500 ${NODE_OPTIONS:-}"; \
-        fi \
-        && if [ -f package-lock.json ]; then npm ci; else npm install; fi \
-        && eval "$VITE_ENV" \
-        && npm run build \
-        && rm -rf node_modules; \
-    fi
+# The project's package manager (npm, yarn or pnpm), decided by ship (see Ship\Node\PackageManager).
+ARG PACKAGE_MANAGER=npm
+COPY ship/build-assets.sh /usr/local/bin/ship-build-assets
+RUN sh /usr/local/bin/ship-build-assets "$PACKAGE_MANAGER"
 
 # ---- prod --------------------------------------------------------------
 FROM base AS prod

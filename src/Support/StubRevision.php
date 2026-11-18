@@ -8,7 +8,8 @@ namespace Ship\Support;
  * The revision of the files `ship init` publishes into ship/ (the Dockerfiles, nginx and php-fpm
  * config), recorded in ship/.stub-revision. It goes up whenever the compose files ship generates
  * start depending on something new in those files: revision 2 adds the php-fpm ping the production
- * healthchecks ask for and the assets stage's VITE_ENV.
+ * healthchecks ask for and the assets stage's VITE_ENV; revision 3 adds Corepack (Yarn, pnpm) and
+ * the assets stage's PACKAGE_MANAGER (ship/build-assets.sh).
  *
  * Building against older published files would produce images the generated compose file doesn't
  * match (a healthcheck that can never pass, a bundle without its VITE_* settings), so `ship build`
@@ -16,7 +17,7 @@ namespace Ship\Support;
  */
 final class StubRevision
 {
-    public const REQUIRED = 2;
+    public const REQUIRED = 3;
 
     /**
      * Files published before revisions were recorded count as revision 1.

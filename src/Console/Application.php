@@ -13,6 +13,7 @@ use Ship\Console\Commands\DownCommand;
 use Ship\Console\Commands\ExecCommand;
 use Ship\Console\Commands\InitCommand;
 use Ship\Console\Commands\LogsCommand;
+use Ship\Console\Commands\PackageManagerCommand;
 use Ship\Console\Commands\ProxyCommand;
 use Ship\Console\Commands\ReleaseCommand;
 use Ship\Console\Commands\ShellCommand;
@@ -21,6 +22,7 @@ use Ship\Contracts\FrameworkAdapter;
 use Ship\Extensions\ExtensionLoader;
 use Ship\Frameworks\LaravelAdapter;
 use Ship\Frameworks\SymfonyAdapter;
+use Ship\Node\PackageManager;
 use Ship\Runtime\ProcessRunner;
 use Ship\Services\ServiceRegistry;
 use Ship\Support\ShipVersion;
@@ -63,10 +65,14 @@ final class Application extends SymfonyApplication
         $this->registerCommand(new ConfigTestCommand($this->projectRoot, $registry));
         $this->registerCommand(new DoctorCommand($this->projectRoot, $runner));
 
-        // Package-manager commands are always available. Node is installed in the app image, so
-        // `ship npm` targets the app service too.
+        // Package-manager commands are always available. Node is installed in the app image, with
+        // Yarn and pnpm through Corepack, so `ship npm`/`yarn`/`pnpm` target the app service too.
+        // Each refuses to run in a project that uses another of them (see PackageManager).
         $this->registerCommand(new ProxyCommand('composer', $appServiceName, 'composer', $this->projectRoot, $runner));
-        $this->registerCommand(new ProxyCommand('npm', $appServiceName, 'npm', $this->projectRoot, $runner));
+        foreach (PackageManager::TOOLS as $tool) {
+            $this->registerCommand(new ProxyCommand($tool, $appServiceName, $tool, $this->projectRoot, $runner, packageManager: $tool));
+        }
+        $this->registerCommand(new PackageManagerCommand($this->projectRoot, $runner, $appServiceName));
 
         foreach ($this->detectFrameworkAdapters() as $adapter) {
             foreach ($adapter->consoleCommands() as $commandName => $binary) {

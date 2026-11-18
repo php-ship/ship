@@ -6,6 +6,8 @@ namespace Ship\Console\Commands;
 
 use Ship\Config\ShipConfig;
 use Ship\Docker\DockerignoreGuard;
+use Ship\Node\PackageManager;
+use Ship\Node\PackageManagerVersions;
 use Ship\Services\ServiceRegistry;
 use Ship\Support\PhpSecurityFloor;
 use Ship\Support\ShipVersion;
@@ -27,11 +29,15 @@ final class InitCommand extends Command
     // broadcasting server or message broker makes sense per project.
     private const GROUPS_SUPPORTING_ADDITIONAL_INSTANCES = ['database', 'cache', 'storage', 'search', 'mail'];
 
+    private readonly PackageManagerVersions $packageManagerVersions;
+
     public function __construct(
         private readonly string          $projectRoot,
         private readonly ServiceRegistry $registry,
+        ?PackageManagerVersions $packageManagerVersions = null,
     ) {
         parent::__construct();
+        $this->packageManagerVersions = $packageManagerVersions ?? new PackageManagerVersions();
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -92,6 +98,7 @@ final class InitCommand extends Command
             return $answer;
         });
         $nodeVersion = $io->ask('Node.js version', '24');
+        $this->promptForPackageManager($io, $input);
 
         $config = new ShipConfig(
             phpVersion: (string) $phpVersion,
@@ -342,6 +349,51 @@ final class InitCommand extends Command
     private function viteConfigLooksAlreadyHandled(string $path): bool
     {
         return str_contains((string) file_get_contents($path), 'hmr');
+    }
+
+    /**
+     * Which package manager the project uses, for a project with a package.json. The default is
+     * what it already uses (see PackageManager), so pressing Enter changes nothing.
+     *
+     * Yarn or pnpm is recorded in package.json's packageManager, at the registry's current version
+     * (the project's own Yarn line, for a Yarn 1 lockfile). Recording it is all a project that
+     * doesn't use another tool yet needs. Moving a project off another tool also removes its
+     * lockfile and installed packages and reinstalls, which needs the container, so it's left to
+     * `ship package-manager`: the recorded choice makes `ship up` remind the user, and the
+     * production build refuse, until it's done. npm needs no record: its lockfile decides.
+     */
+    private function promptForPackageManager(SymfonyStyle $io, InputInterface $input): void
+    {
+        $current = PackageManager::inspect($this->projectRoot);
+
+        if (!$current->hasPackageJson) {
+            return;
+        }
+
+        $default = $current->tool()
+            ?? (in_array($current->declared, PackageManager::TOOLS, true) ? $current->declared : null)
+            ?? ($current->lockfileTools[0] ?? 'npm');
+
+        $choice = $this->select($io, $input, 'JavaScript package manager', ['npm' => 'npm', 'yarn' => 'Yarn', 'pnpm' => 'pnpm'], $default);
+
+        $switching = $current->problem() !== null || ($current->tool() !== null && $current->tool() !== $choice);
+
+        if ($choice !== 'npm' && $current->declared !== $choice) {
+            $spec = $this->packageManagerVersions->latest($choice, $this->projectRoot);
+
+            if ($spec === null) {
+                $io->warning("Couldn't reach the npm registry to look up {$choice}'s current version, so package.json is unchanged. Run `ship package-manager {$choice}` after `ship up`.");
+
+                return;
+            }
+
+            PackageManagerVersions::record($this->projectRoot, $spec);
+            $io->writeln("Recorded \"packageManager\": \"{$spec}\" in package.json.");
+        }
+
+        if ($switching) {
+            $io->note("Switching the project to {$choice} removes the old lockfile and node_modules and reinstalls, in the container: run `ship up`, then `ship package-manager {$choice}`.");
+        }
     }
 
     /**

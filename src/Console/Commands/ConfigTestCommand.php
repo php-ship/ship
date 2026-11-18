@@ -13,6 +13,7 @@ use Ship\Docker\NginxUpstreamMismatch;
 use Ship\Docker\ProjectName;
 use Ship\Docker\RequiredEnv;
 use Ship\Extensions\ExtensionLoader;
+use Ship\Node\PackageManager;
 use Ship\Services\ServiceRegistry;
 use Ship\Support\StubRevision;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -84,6 +85,12 @@ final class ConfigTestCommand extends Command
         $nginxWarning = NginxUpstreamMismatch::warning($this->projectRoot, $config);
         if ($nginxWarning !== null) {
             $output->writeln($nginxWarning);
+        }
+
+        $packageManagerProblem = PackageManager::inspect($this->projectRoot)->problem();
+        if ($packageManagerProblem !== null) {
+            $this->problems++;
+            $output->writeln("<error>ship: {$packageManagerProblem}</error>");
         }
 
         $stubProblem = StubRevision::problem($this->projectRoot);

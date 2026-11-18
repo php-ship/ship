@@ -14,6 +14,7 @@ use Ship\Docker\MySqlUsernameGuard;
 use Ship\Docker\NginxUpstreamMismatch;
 use Ship\Docker\ProjectName;
 use Ship\Extensions\ExtensionLoader;
+use Ship\Node\PackageManager;
 use Ship\Runtime\ProcessRunner;
 use Ship\Services\ServiceRegistry;
 use Ship\Support\ShipVersion;
@@ -55,6 +56,13 @@ final class UpCommand extends Command
         }
 
         $this->warnAboutStubVersionMismatch($output);
+
+        // A warning, not a failure: development works, but the production build won't until the
+        // project uses one package manager (e.g. after `ship init` chose a new one).
+        $packageManagerProblem = PackageManager::inspect($this->projectRoot)->problem();
+        if ($packageManagerProblem !== null) {
+            $output->writeln("<comment>ship: {$packageManagerProblem}</comment>");
+        }
 
         $nginxWarning = NginxUpstreamMismatch::warning($this->projectRoot, $config);
         if ($nginxWarning !== null) {

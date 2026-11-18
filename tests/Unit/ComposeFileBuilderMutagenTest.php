@@ -31,7 +31,7 @@ final class ComposeFileBuilderMutagenTest extends TestCase
 
         $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Development, mutagenSync: true));
 
-        self::assertSame(['ship-app-sync:/var/www/html'], $parsed['services']['app']['volumes']);
+        self::assertSame(['ship-app-sync:/var/www/html', 'ship-corepack:/opt/corepack'], $parsed['services']['app']['volumes']);
         self::assertArrayHasKey('ship-app-sync', $parsed['volumes']);
     }
 
@@ -57,7 +57,7 @@ final class ComposeFileBuilderMutagenTest extends TestCase
         $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Development, mutagenSync: true));
 
         self::assertArrayNotHasKey('webserver', $parsed['services']);
-        self::assertSame(['ship-app-sync:/var/www/html'], $parsed['services']['app']['volumes']);
+        self::assertSame(['ship-app-sync:/var/www/html', 'ship-corepack:/opt/corepack'], $parsed['services']['app']['volumes']);
     }
 
     /**
@@ -81,6 +81,6 @@ final class ComposeFileBuilderMutagenTest extends TestCase
 
         $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Development));
 
-        self::assertSame(['.:/var/www/html'], $parsed['services']['app']['volumes']);
+        self::assertSame(['.:/var/www/html', 'ship-corepack:/opt/corepack'], $parsed['services']['app']['volumes']);
     }
 }

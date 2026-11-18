@@ -9,6 +9,7 @@ use Ship\Contracts\FrameworkAdapter;
 use Ship\Contracts\ShipEnvironment;
 use Ship\Frameworks\LaravelAdapter;
 use Ship\Frameworks\SymfonyAdapter;
+use Ship\Node\PackageManager;
 use Ship\Runtime\ProcessRunner;
 use Ship\Services\ServiceRegistry;
 use Ship\Support\StubRevision;
@@ -55,6 +56,16 @@ final class ProductionBuildRunner
             return null;
         }
 
+        // The asset build installs and builds with the project's own package manager, so a mixed
+        // project (lockfiles of two tools) can't be built reproducibly.
+        $packageManager = PackageManager::inspect($projectRoot);
+        $packageManagerProblem = $packageManager->problem();
+        if ($packageManagerProblem !== null) {
+            $output->writeln("<error>ship: {$packageManagerProblem}</error>");
+
+            return null;
+        }
+
         // Re-applied at build time, when `COPY . .` runs, in case .dockerignore was edited or
         // removed since `ship init`.
         DockerignoreGuard::ensure($projectRoot);
@@ -91,6 +102,7 @@ final class ProductionBuildRunner
         // the VITE_* settings reach an image, through the assets stage's VITE_ENV (see ViteBuildEnv).
         $buildEnv = EnvFile::parse($projectRoot . '/.env.production');
         $buildEnv[ViteBuildEnv::VARIABLE] = ViteBuildEnv::render($buildEnv);
+        $buildEnv[PackageManager::BUILD_VARIABLE] = (string) $packageManager->buildTool();
 
         $result = $this->runner->runInteractive(
             // No override file and the production compose file: see ComposeCommand::baseArgs().

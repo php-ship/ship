@@ -10,7 +10,7 @@ PHP — inspired by Laravel Sail, but usable outside Laravel and without
 requiring Windows users to put their project inside WSL.
 
 **Status: production-ready.** `init`/`up`/`down`/`exec`/`shell`/`logs`/
-`db`/`composer`/`npm`/`artisan`/`console` all work end-to-end, verified
+`db`/`composer`/`npm`/`yarn`/`pnpm`/`package-manager`/`artisan`/`console` all work end-to-end, verified
 against a real Docker daemon in both dev and production mode — including
 a real production HTTP request, a real database, and a real crashed-
 container recovery. CI passes on every push, across Ubuntu/macOS/Windows
@@ -195,6 +195,8 @@ release`.
 | `ship doctor` | Shows the installed and published versions and the state and health of every container in the development stack, with a recovery hint for anything that crashed or is unhealthy. Reads the compose file `ship up` generated; changes nothing. |
 | `ship composer <args...>` | Proxies to `composer` inside the `app` container. |
 | `ship npm <args...>` | Proxies to `npm` inside the `app` container (e.g. `ship npm run dev`, `ship npm install`). |
+| `ship yarn <args...>` / `ship pnpm <args...>` | Proxies to Yarn or pnpm inside the `app` container, at the version `package.json`'s `packageManager` names. `ship npm`, `ship yarn` and `ship pnpm` each refuse to run in a project that uses another package manager (see [JavaScript package managers](#javascript-package-managers)). |
+| `ship package-manager <npm\|yarn\|pnpm>[@version]` | Switches the project to that package manager, or updates the version it records: removes the other tools' lockfiles and `node_modules` (asking first), records the tool in `packageManager`, and reinstalls. Needs the app running (`ship up`). |
 | `ship artisan <args...>` | Proxies to `php artisan` inside `app` — only registered when Laravel's `artisan` is detected at the project root. |
 | `ship console <args...>` | Proxies to `php bin/console` inside `app` — only registered when Symfony's `bin/console` is detected at the project root. |
 
@@ -418,7 +420,49 @@ assets: stop the dev server (which removes `public/hot`) and
 
 | Service | Wired automatically | Still needed in the app |
 |---|---|---|
-| Node.js / npm | Installed unconditionally in the base image, at the version `ship init`'s "Node.js version" prompt sets (`ship.json`'s `node` field, default 24); `ship npm run dev` works regardless of whether this group is selected | See [Frontend dev server](#frontend-dev-server-vite-hmr) below for HMR |
+| Node.js, npm, Yarn, pnpm | Installed unconditionally in the base image, at the version `ship init`'s "Node.js version" prompt sets (`ship.json`'s `node` field, default 24), with Yarn and pnpm through Corepack; `ship npm run dev` works regardless of whether this group is selected | See [Frontend dev server](#frontend-dev-server-vite-hmr) below for HMR, and [JavaScript package managers](#javascript-package-managers) |
+
+#### JavaScript package managers
+
+A project uses one of npm, Yarn (1 or 2+) and pnpm. ship decides which in one
+place, the same way for every command and for the production build:
+
+1. `package.json`'s `packageManager` field, e.g. `"packageManager": "pnpm@12.21.0"`;
+2. otherwise the project's lockfile: `package-lock.json` (or
+   `npm-shrinkwrap.json`), `yarn.lock` or `pnpm-lock.yaml`;
+3. otherwise nothing is decided yet: any of them can make the first install,
+   and the production build uses npm.
+
+Yarn and pnpm run through [Corepack](https://github.com/nodejs/corepack)
+(installed in the image at a pinned version, since Node stopped bundling
+it), which runs exactly the version `packageManager` names and downloads it on
+first use. Downloaded versions are kept in a volume, so a rebuilt image
+doesn't download them again. npm is the one Node comes with.
+
+`ship init` asks which package manager the project uses, defaulting to the
+one it already uses, so pressing Enter changes nothing. For Yarn or pnpm it
+records the current version in `packageManager`; npm needs no record, since
+its lockfile decides.
+
+Mixing package managers breaks a project quietly: each reads only its own
+lockfile, and they lay out `node_modules` differently. So ship stops it
+early, and every message points at the one command that fixes it:
+
+- `ship yarn add …` in an npm project (or any other tool than the project's)
+  is refused, with the command to use instead;
+- `ship config:test`, `ship build` and `ship release` report lockfiles of
+  more than one tool, and `ship up` reminds you;
+- `ship package-manager <tool>` switches the project. It lists what it will
+  remove (the other tools' lockfiles, `node_modules`, Yarn's Plug'n'Play
+  files) and asks first, records the tool, and installs with it. Pick the
+  version with `ship package-manager pnpm@10` or `yarn@4`; without one, Yarn
+  gets the current stable release and pnpm the latest. Run with the tool the
+  project already uses, it only updates the recorded version
+  (`ship package-manager pnpm@latest`). Commit `package.json` and the new
+  lockfile afterwards.
+
+To run another tool on purpose anyway (a one-off `pnpm dlx …` in an npm
+project), `ship exec app pnpm dlx …` isn't checked.
 
 ## Configuration (`ship.json`)
 
@@ -642,7 +686,7 @@ need it:
 
 - `serviceNames` — maps a service's default compose name to a custom
   one. Every `ship` command that picks a service for you (`ship shell`
-  with no argument, `ship db`, `ship composer`/`ship npm`/`ship artisan`,
+  with no argument, `ship db`, `ship composer`/`ship npm`/`ship yarn`/`ship pnpm`/`ship artisan`,
   Mutagen sync) follows the rename automatically, as does the env var
   carrying that service's own hostname (`DB_HOST`, `REDIS_HOST`, ...) —
   only the hostname changes; a driver identifier that happens to
@@ -695,9 +739,15 @@ same one with a flag flipped:
   shouldn't depend on the host filesystem it happened to build on. Code
   gets `COPY`'d into the image at build time instead, via the `builder` →
   `assets` → `prod` stage chain in `ship/Dockerfile`.
-- **Frontend assets get built.** A `npm run build` step (guarded on
-  `package.json` existing) runs in the `assets` stage, so `public/build`
-  exists before `prod`/`prod-nginx` copy the tree out. There is no Vite
+- **Frontend assets get built.** `ship/build-assets.sh` (skipped without a
+  `package.json`) runs in the `assets` stage, so `public/build` exists before
+  `prod`/`prod-nginx` copy the tree out. It installs with the project's
+  [package manager](#javascript-package-managers), exactly as the lockfile
+  says (`npm ci`, `yarn install --immutable` or `--frozen-lockfile` for
+  Yarn 1, `pnpm install --frozen-lockfile`), so a lockfile that no longer
+  matches `package.json` fails the build. It then runs the `build` script with
+  the same tool and removes `node_modules`. A project with more than one
+  tool's lockfile isn't built at all. There is no Vite
   *dev* server in production — see [Frontend dev server](#frontend-dev-server-vite-hmr)
   below for that, which only applies in development.
 - **Each framework's own optimize command runs at container *boot*, not
@@ -801,7 +851,7 @@ clear error if `.env.production` doesn't exist — there's no silent
 values `.env.production` held when it was built: Reverb's or Centrifugo's
 public address (`VITE_REVERB_HOST`, `VITE_CENTRIFUGO_URL`), `VITE_APP_NAME`,
 and so on. `ship build`/`ship release` pass only the `VITE_*` settings to the
-production `npm run build` (they end up in public JavaScript anyway; nothing
+production asset build (they end up in public JavaScript anyway; nothing
 else from the file does), with `${OTHER}` references resolved the way Laravel
 resolves them. Changing one means building a new release, and a release must
 be served at the address it was built for — `release.json`'s `http[].urlSetting`
@@ -1070,7 +1120,7 @@ exactly that:
 `ship up` reads your UID/GID and builds the dev image with them; php-fpm's
 workers, the boot-time `composer install`, and an Octane server then run as
 you (php-fpm's master stays root — it has to, to drop its workers), and `ship
-exec`/`ship shell`/`ship composer`/`ship npm`/`ship artisan` pass `--user` for
+exec`/`ship shell`/`ship composer`/`ship npm`/`ship yarn`/`ship pnpm`/`ship artisan` pass `--user` for
 the app service, so `vendor/`, `public/build` and `storage/` come out owned by
 you. Development only, and only where there's a non-root POSIX user to match:
 on native Windows (no UIDs; Docker Desktop's bind mounts don't have this
@@ -1089,7 +1139,7 @@ ship exec app chown -R $(id -u):$(id -g) storage bootstrap/cache vendor public/b
 
 (`ship exec` takes the literal compose service name, so if you renamed `app`
 via `serviceNames`, use that name here instead — `ship exec admin-app chown …`.
-`ship shell`, `ship artisan`, `ship composer` and `ship npm` already follow
+`ship shell`, `ship artisan`, `ship composer`, `ship npm`, `ship yarn` and `ship pnpm` already follow
 the rename on their own.)
 
 Production is unaffected either way — those files are baked into the

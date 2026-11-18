@@ -476,7 +476,7 @@ final class ComposeFileBuilderTest extends TestCase
         $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Development, mutagenSync: true));
 
         self::assertSame(['ship-app-sync:/var/www/html'], $parsed['services']['reverb']['volumes']);
-        self::assertSame($parsed['services']['app']['volumes'], $parsed['services']['reverb']['volumes']);
+        self::assertSame($parsed['services']['app']['volumes'][0], $parsed['services']['reverb']['volumes'][0]);
     }
 
     public function test_reverb_keeps_the_bind_mount_when_mutagen_is_not_active(): void

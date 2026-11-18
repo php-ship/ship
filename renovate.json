@@ -20,6 +20,16 @@
             ],
             "depNameTemplate": "mutagen-io/mutagen",
             "datasourceTemplate": "github-releases"
+        },
+        {
+            "customType": "regex",
+            "description": "Corepack's pinned version in the published Dockerfiles, which runs Yarn and pnpm.",
+            "fileMatch": ["^stubs/docker/php/Dockerfile"],
+            "matchStrings": [
+                "ARG COREPACK_VERSION=(?<currentValue>\\d+\\.\\d+\\.\\d+)"
+            ],
+            "depNameTemplate": "corepack",
+            "datasourceTemplate": "npm"
         }
     ],
     "packageRules": [

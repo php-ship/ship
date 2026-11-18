@@ -9,6 +9,7 @@ use Ship\Contracts\ConfigAwareService;
 use Ship\Contracts\NeedsAppUrl;
 use Ship\Contracts\RequiresPhpExtensions;
 use Ship\Contracts\ShipEnvironment;
+use Ship\Node\PackageManager;
 use Ship\Services\ServiceRegistry;
 use Ship\Services\SupportsNamedInstances;
 use Ship\Support\PhpSecurityFloor;
@@ -763,10 +764,14 @@ final class ComposeFileBuilder
                         // the bundle. Read from the build's environment, not written into this file
                         // (see ViteBuildEnv and ProductionBuildRunner).
                         ...(!$environment->isDevelopment() ? ['VITE_ENV' => '${' . ViteBuildEnv::VARIABLE . ':-}'] : []),
+                        // The package manager the production asset build uses (see PackageManager).
+                        ...(!$environment->isDevelopment() ? ['PACKAGE_MANAGER' => '${' . PackageManager::BUILD_VARIABLE . ':-npm}'] : []),
                         ...($hostUser !== null ? ['HOST_UID' => (string) $hostUser['uid'], 'HOST_GID' => (string) $hostUser['gid']] : []),
                     ],
                 ],
-                'volumes' => $environment->isDevelopment() ? $devVolume : [],
+                // ship-corepack keeps the Yarn/pnpm versions Corepack downloads (COREPACK_HOME in the
+                // Dockerfile) across rebuilds.
+                'volumes' => $environment->isDevelopment() ? [...$devVolume, 'ship-corepack:/opt/corepack'] : [],
                 // Vite's dev server is a separate HTTP+WebSocket server, so it needs its own
                 // published port in dev. Both sides follow VITE_PORT, which "app" also loads
                 // from .env, so a vite.config.js reading it binds the published port.

@@ -49,18 +49,43 @@ final class DockerfileStubsTest extends TestCase
     }
 
     /**
-     * The VITE_* settings reach `npm run build` in both PHP images' assets stage.
+     * Both PHP images' assets stage builds with ship/build-assets.sh, given the VITE_* settings and
+     * the project's package manager, and both images carry the same pinned Corepack.
      */
-    public function test_both_assets_stages_load_the_vite_settings_before_building(): void
+    public function test_both_assets_stages_build_with_the_script_and_the_project_package_manager(): void
     {
+        $corepack = [];
+
         foreach (['Dockerfile', 'Dockerfile.frankenphp'] as $file) {
             $dockerfile = (string) file_get_contents(dirname(__DIR__, 2) . '/stubs/docker/php/' . $file);
             $assets = substr($dockerfile, (int) strpos($dockerfile, 'FROM builder AS assets'));
             $assets = substr($assets, 0, (int) strpos($assets, "\nFROM ") ?: strlen($assets));
 
             self::assertStringContainsString('ARG VITE_ENV=""', $assets, $file);
-            self::assertLessThan(strpos($assets, 'npm run build'), strpos($assets, 'eval "$VITE_ENV"'), $file);
+            self::assertStringContainsString('ARG PACKAGE_MANAGER=npm', $assets, $file);
+            self::assertStringContainsString('RUN sh /usr/local/bin/ship-build-assets "$PACKAGE_MANAGER"', $assets, $file);
+
+            self::assertSame(1, preg_match('/^ARG COREPACK_VERSION=(\S+)$/m', $dockerfile, $matches), $file);
+            $corepack[] = $matches[1];
+            self::assertStringContainsString('corepack enable yarn pnpm', $dockerfile, $file);
         }
+
+        self::assertCount(1, array_unique($corepack));
+    }
+
+    /**
+     * The script loads the VITE_* settings after installing and before building, and builds with the
+     * tool that installed (Yarn's Plug'n'Play has no node_modules for npm to use).
+     */
+    public function test_the_asset_build_script_installs_exactly_and_builds_with_the_same_tool(): void
+    {
+        $script = (string) file_get_contents(dirname(__DIR__, 2) . '/stubs/docker/php/build-assets.sh');
+
+        self::assertLessThan(strpos($script, '"$tool" run build'), strpos($script, 'eval "${VITE_ENV:-}"'));
+        self::assertStringContainsString('npm ci', $script);
+        self::assertStringContainsString('yarn install --frozen-lockfile', $script);
+        self::assertStringContainsString('yarn install --immutable', $script);
+        self::assertStringContainsString('pnpm install --frozen-lockfile', $script);
     }
 
     /**

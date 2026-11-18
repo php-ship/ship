@@ -35,7 +35,7 @@ final class OctaneRuntimeMergeTest extends TestCase
 
         // Preserved from baseServices() (not touched by the fragment).
         self::assertSame('ship/Dockerfile', $parsed['services']['app']['build']['dockerfile']);
-        self::assertSame(['.:/var/www/html'], $parsed['services']['app']['volumes']);
+        self::assertSame(['.:/var/www/html', 'ship-corepack:/opt/corepack'], $parsed['services']['app']['volumes']);
     }
 
     public function test_octane_runtime_removes_the_webserver_service(): void
