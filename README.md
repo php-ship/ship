@@ -52,51 +52,106 @@ verification against a real Docker daemon on every commit.
 
 ## Why not just use Sail?
 
-Sail's CLI is a bash script, so on Windows it only runs inside WSL or Git
-Bash, which is why Sail docs tell you to keep your project inside the WSL
-filesystem. `ship`'s CLI is a PHP executable instead (via Symfony Console +
-Process), so the exact same `ship up` / `ship exec` commands run natively on
-Windows, macOS, and Linux. Docker Desktop on Windows still uses WSL2 under
-the hood to run Linux containers — that part is unavoidable — but your
-*project files* don't have to live there.
+[Laravel Sail](https://laravel.com/docs/sail) is a good starting point for a
+Laravel app. ship covers the same ground and goes further, on every axis
+below. Every claim about Sail here comes from its own documentation or
+repository.
 
-`ship` also isn't Laravel-specific. The core package knows nothing about
-artisan, Blade, or Eloquent — it just builds and runs a Docker Compose
-stack from a `ServiceDefinition` list. Laravel and Symfony support (`ship
-artisan`, `ship console`) are each a
-[`FrameworkAdapter`](src/Contracts/FrameworkAdapter.php) implementation,
-built on the same public extension point any other framework could use —
-two built-in adapters, not one framework with everything else bolted on.
+**It runs anywhere PHP runs, for any framework.**
 
-A few other differences beyond the WSL requirement:
+- Sail is a bash script, so on Windows it's supported only through WSL2.
+  ship's CLI is PHP (Symfony Console + Process): `ship up` and every other
+  command run natively on Windows, macOS and Linux, and your project stays
+  wherever you keep it. Docker Desktop still uses WSL2 under the hood to run
+  Linux containers; only that part is unavoidable.
+- Sail is Laravel's (`php artisan sail:install`). ship knows nothing about
+  any framework in its core: Laravel and Symfony are two
+  [`FrameworkAdapter`](src/Contracts/FrameworkAdapter.php)s (`ship artisan`,
+  `ship console`), and any other framework can plug in the same way.
 
-- **A portable release artifact, not just a dev tool.** Sail is a dev tool;
-  going to production is left entirely up to you. `ship release --tag`
-  builds a real production image (no bind mount, assets built, framework
-  release/optimize commands run at boot) from the exact same `ship.json`
-  and packages it with the images, a final compose file, and `.env.production`
-  into `dist/ship/<tag>/` — see [Production releases](#production-releases).
-  The destination server needs nothing but Docker: `docker load` the
-  images, then `docker compose up -d`.
-- **A real database client shell, without a published port.** `ship db`
-  opens `psql`/`mysql`/`mariadb`/`mongosh`/`sqlcmd` inside whichever database container is selected,
-  reading its own credentials from its own environment — no port needs to
-  be exposed to the host at all, and nothing needs to know the password.
-- **Extend the stack without forking or hand-maintaining a Dockerfile.** A
-  `docker-compose.override.yml` in your project layers custom services or
-  Dockerfile overrides on top of what `ship` generates, using Compose's
-  own standard override-file convention — see
-  [Customizing the stack](#customizing-the-stack). New infrastructure
-  (databases, caches, storage backends) and new frameworks are each a
-  small class implementing one of two public interfaces, loadable from a
-  separate Composer package via `ship.json`'s `extensions` array — see
-  [Extending ship](#extending-ship) — not a fork of this one.
-- **Postgres, MySQL, MariaDB, MongoDB and SQL Server, RabbitMQ, Swoole and
-  RoadRunner and FrankenPHP, Meilisearch and Elasticsearch, object storage,
-  Reverb or Centrifugo, browser testing with Dusk, Playwright or Cypress** —
-  `ship init` picks one
-  option per group interactively; nothing needed is hardcoded to a single
-  choice the way Sail's own service list is.
+**Development runs the stack production runs.**
+
+- Sail serves the app with `php artisan serve`, PHP's built-in development
+  server. ship runs nginx + php-fpm, or the Octane server you pick (Swoole,
+  RoadRunner or FrankenPHP), in development and production alike, so you
+  find problems before production does.
+- `processes` (queue workers, Horizon, the scheduler), `deployCommands`
+  (migrations) and the framework's boot-time optimize step are part of the
+  same `ship.json`, not something you reassemble for production.
+
+**It takes you to production.** Sail is a development environment;
+deploying is left to you. `ship release --tag` builds production images (no
+bind mount, assets built) and writes one portable folder: the images, a
+final compose file with every third-party image pinned by digest, a deploy
+script and the exact deploy steps. A server needs nothing but Docker. The
+folder is a documented contract ([ship-release](docs/release-contract.md)),
+so deployment tools can read it: `release.json` names the services and
+their roles, which receive HTTP and their health paths, the data volumes and
+the settings, never their values. Releases are atomic, never overwrite a
+tag silently, and refuse to build without the credentials production needs.
+
+**It's secure by default.**
+
+- Sail publishes MySQL, Postgres and Redis on every network interface, so
+  anyone on your network can reach them with whatever password `.env`
+  holds. ship
+  publishes no database port at all (`ship db` opens the client shell
+  inside the container), and every development port it does publish binds
+  `127.0.0.1` only. In production nothing is published unless you ask.
+- Sail's MySQL root password is the app's `DB_PASSWORD`, and its MongoDB has
+  authentication off by default. ship's MySQL, MariaDB, MongoDB and SQL
+  Server keep a separate root secret the app never receives, the app's own
+  user only owns its database (MongoDB, SQL Server), and MongoDB, SQL Server
+  and Elasticsearch always require authentication.
+- Sail still offers PHP 8.0 and 8.1, which no longer get security fixes.
+  ship refuses end-of-life branches and any patch release below its PHP
+  security floor (currently the October 2026 RCE fixes), checked again
+  inside the image at build time.
+- Production credentials are required, not defaulted: a release can't
+  start with a password everyone's development setup shares.
+
+**More services, and more than one of each.** `ship init` picks one option
+per group, and `additionalServices` adds named second instances (a second
+database, a second Redis) with their own env var prefix:
+
+- Databases: Postgres, MySQL, MariaDB, MongoDB, SQL Server (Developer
+  Edition, development only).
+- Runtimes: php-fpm with nginx, or Octane with Swoole, RoadRunner or
+  FrankenPHP.
+- Object storage: Garage, SeaweedFS, RustFS, Silo.
+- Search: Meilisearch, Elasticsearch. Cache: Redis. Mail: Mailpit.
+- Real-time: Reverb, or Centrifugo for any framework (with an opt-in Redis
+  engine to run several servers as one). Queues: RabbitMQ.
+- Browser testing: Dusk, Playwright or Cypress, each in its own container,
+  given the app's internal address.
+
+Selecting a service also wires its PHP extensions into the image (MongoDB's
+`mongodb`, SQL Server's `pdo_sqlsrv` with Microsoft's ODBC driver), and every
+image tag is pinned and kept current by Renovate.
+
+**It tells you what's wrong.** `ship up` waits for every healthcheck and
+checks that every port really bound. `ship doctor` shows each container's
+state and health with a recovery hint, and `ship config:test` checks
+`ship.json`, both compose files and the production settings without
+starting anything.
+
+**It works on real machines and real teams.**
+
+- Several projects at once: every project has its own Compose name and
+  volumes, every port has an override, and `serviceNames` plus
+  `externalNetwork` let projects share a Docker network (or a reverse
+  proxy) without name clashes.
+- Files you own on Linux: `hostUser` runs the development container as your
+  own UID/GID, so nothing it writes ends up owned by root.
+- Fast file sync on Windows and macOS: `SHIP_MUTAGEN=1` replaces the slow
+  bind mount with a Mutagen sync.
+- Extend it without forking: a `docker-compose.override.yml` layers on top
+  of what ship generates, and a Composer package can add its own services
+  or framework adapter through `ship.json`'s `extensions`.
+
+Sail still has a few things ship doesn't: `sail share` (a public URL
+through Expose), a devcontainer setup, and Valkey, Memcached, Typesense and
+Mailtrap Local services.
 
 ## Requirements
 
