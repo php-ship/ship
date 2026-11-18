@@ -174,7 +174,7 @@ doesn't make for you.
 | Cypress | Cypress container (Electron, plus Chrome, Firefox and Edge on amd64) with the project mounted at `/e2e`, `CYPRESS_BASE_URL` set to the app's internal address, `CYPRESS_INSTALL_BINARY=0` on `app` so `npm install` there skips the binary | `npm install -D cypress`. Run with `ship exec cypress cypress run` (`--browser chrome` etc.). Test artifacts (screenshots, videos) are written as root on a Linux bind mount |
 | Node.js / npm | Installed unconditionally in the base image, at the version `ship init`'s "Node.js version" prompt sets (`ship.json`'s `node` field, default 24); `ship npm run dev` works regardless of whether this group is selected | See [Frontend dev server](#frontend-dev-server-vite-hmr) below for HMR |
 | Reverb | Its own `reverb` container + published port, `BROADCAST_CONNECTION=reverb`, server-side `REVERB_HOST=reverb`/`REVERB_PORT`/`REVERB_SCHEME` (Docker DNS — `app` talking to `reverb`), browser-side `VITE_REVERB_HOST=localhost`/`VITE_REVERB_PORT`/`VITE_REVERB_SCHEME` (what Echo in the browser actually connects to) | `composer require laravel/reverb`, then `php artisan install:broadcasting` inside the container once (generates `REVERB_APP_ID`/`KEY`/`SECRET` into `.env` — real per-app credentials, not something `ship` provisions). `ship init` warns at selection time if the package isn't installed yet, since the `reverb` container won't start without it. |
-| Centrifugo (`centrifugo`) | Its own `centrifugo` container (the framework-agnostic alternative to Reverb, no app code), published on `127.0.0.1:${CENTRIFUGO_PORT:-8001}` in development with its admin UI (password `${CENTRIFUGO_ADMIN_PASSWORD:-ship}`), server-side `CENTRIFUGO_URL`/`CENTRIFUGO_API_KEY`/`CENTRIFUGO_TOKEN_SECRET`, browser-side `VITE_CENTRIFUGO_URL` | A client: `composer require centrifugal/phpcent` to publish from PHP (its API is `CENTRIFUGO_URL` + `/api`), and `centrifuge` (npm) in the browser, with connection tokens signed using `CENTRIFUGO_TOKEN_SECRET`. On Laravel, a broadcasting driver package if you want `broadcast()`; `BROADCAST_CONNECTION` is left alone. In production `.env.production` must set `CENTRIFUGO_API_KEY`, `CENTRIFUGO_TOKEN_SECRET` and `CENTRIFUGO_ALLOWED_ORIGINS` (space-separated, e.g. `https://example.com`): with no allowed origins Centrifugo refuses every browser |
+| Centrifugo (`centrifugo`) | Its own `centrifugo` container (the framework-agnostic alternative to Reverb, no app code), published on `127.0.0.1:${CENTRIFUGO_PORT:-8001}` in development with its admin UI (password `${CENTRIFUGO_ADMIN_PASSWORD:-ship}`), server-side `CENTRIFUGO_URL`/`CENTRIFUGO_API_KEY`/`CENTRIFUGO_TOKEN_SECRET`, browser-side `VITE_CENTRIFUGO_URL` | A client: `composer require centrifugal/phpcent` to publish from PHP (its API is `CENTRIFUGO_URL` + `/api`), and `centrifuge` (npm) in the browser, with connection tokens signed using `CENTRIFUGO_TOKEN_SECRET`. On Laravel, a broadcasting driver package if you want `broadcast()`; `BROADCAST_CONNECTION` is left alone. Runs in memory; see [Centrifugo with Redis](#centrifugo-with-redis) for running more than one Centrifugo server. In production `.env.production` must set `CENTRIFUGO_API_KEY`, `CENTRIFUGO_TOKEN_SECRET` and `CENTRIFUGO_ALLOWED_ORIGINS` (space-separated, e.g. `https://example.com`): with no allowed origins Centrifugo refuses every browser |
 
 Everything in the right column is one-time setup per project, not a `ship`
 limitation — `ship`'s job stops at "the infrastructure is reachable with the
@@ -188,6 +188,90 @@ load assets from Vite's dev server (`ship npm run dev` writes
 `http://localhost:5173` into `public/hot`). Run browser tests against built
 assets: stop the dev server (which removes `public/hot`) and
 `ship npm run build` first.
+
+### Centrifugo with Redis
+
+By default Centrifugo keeps everything in memory, which is right for one
+Centrifugo server. Switch it to Redis when you run **more than one**
+Centrifugo server for the same app (several machines behind a load
+balancer, say). With Redis, the servers act as one: a message published to
+any of them reaches every client, whichever server it is connected to. Without
+it, each server only knows its own clients, so a browser connected to one
+server misses what's published to another.
+
+You don't need Redis for a single server. Clients reconnect and resubscribe
+on their own after a restart either way; the only things memory loses on a
+restart are presence information and message history, and only if you use
+those features.
+
+It's opt-in, with two settings. They are read when Compose starts the stack,
+so they go in `.env` for development and in `.env.production` for a release
+(not in `ship.json`), and changing them needs no rebuild:
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `CENTRIFUGO_ENGINE` | `memory` | Set to `redis` to turn the Redis engine on. |
+| `CENTRIFUGO_REDIS_ADDRESS` | `redis://redis:6379` when the project's `cache` is Redis (following a `serviceNames` rename); none otherwise | The Redis to use, as `redis://host:port`. A password goes in the URL: `redis://:password@host:6379`. |
+
+**Using the project's own Redis.** With Redis selected as the `cache`,
+turning it on is one line:
+
+```dotenv
+CENTRIFUGO_ENGINE=redis
+```
+
+Centrifugo's keys all start with `centrifugo`, so sharing the app's Redis
+doesn't collide with its cache, sessions or queues. When Redis is selected,
+`centrifugo` also starts after `redis` (whichever engine is used).
+
+**Using another Redis.** For a Redis outside the project, such as a shared
+one that every Centrifugo server can reach, name it as well:
+
+```dotenv
+CENTRIFUGO_ENGINE=redis
+CENTRIFUGO_REDIS_ADDRESS=redis://:the-password@redis.internal:6379
+```
+
+This is also how several servers share one Redis: deploy the same release on
+each, with the same `CENTRIFUGO_REDIS_ADDRESS` (and the same
+`CENTRIFUGO_API_KEY` and `CENTRIFUGO_TOKEN_SECRET`, so a token signed for one
+server works on all of them). Without a project Redis, `CENTRIFUGO_ENGINE=redis`
+needs `CENTRIFUGO_REDIS_ADDRESS`; there's nothing to default to.
+
+**Turning it on.** After changing the settings, `ship up` in development, or
+`docker compose up -d` from the release folder in production, recreates the
+`centrifugo` container with the new engine. Nothing has to be migrated: the
+memory engine had nothing to keep. Turning it off again is the same, with
+`CENTRIFUGO_ENGINE=memory` or the line removed.
+
+**Checking it works.** Centrifugo's `info` API lists every server it is
+connected to through Redis. From the release folder (or the project, with
+`ship exec` in place of `docker compose exec`):
+
+```sh
+docker compose exec centrifugo sh -c \
+  'wget -qO- --header "X-API-Key: $CENTRIFUGO_HTTP_API_KEY" --post-data "{}" http://127.0.0.1:8000/api/info' \
+  | grep -o '"uid"' | wc -l
+```
+
+It prints the number of Centrifugo servers acting as one: 1 with the memory
+engine, or with Redis and a single server; the number of servers once they
+share a Redis.
+
+**When it can't reach Redis**, Centrifugo exits at once and the container
+restarts in a loop. Its log (`docker compose logs centrifugo`) says why, in
+a line with `"level":"fatal"`:
+
+- `WRONGPASS invalid username-password pair`: the password in
+  `CENTRIFUGO_REDIS_ADDRESS` is wrong.
+- `dial tcp 127.0.0.1:6379: connect: connection refused`: no address was
+  given (`CENTRIFUGO_ENGINE=redis` without a project Redis and without
+  `CENTRIFUGO_REDIS_ADDRESS`), so it tried its own container.
+- Any other `dial tcp ...` error: the address is wrong, or that Redis isn't
+  reachable from Centrifugo's network.
+
+Both settings appear in a release's `release.json` under `env.referenced`, so
+a deployment tool knows it may supply them.
 
 ### Silo on older CPUs
 

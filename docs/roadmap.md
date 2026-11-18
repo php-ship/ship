@@ -34,8 +34,14 @@ and records the non-obvious reasons behind each decision.
   Swoole/RoadRunner/FrankenPHP, Meilisearch, Elasticsearch, Mailpit,
   Dusk/Selenium, Playwright, Cypress, Node, Reverb, Centrifugo, RabbitMQ.
 - Broadcasting: Reverb (Laravel only, runs from the app image) or
-  Centrifugo (any framework, its own image, no app code). Centrifugo is
-  stateless (in-memory engine), publishes on host port 8001 so it doesn't
+  Centrifugo (any framework, its own image, no app code). Centrifugo runs
+  in memory unless `CENTRIFUGO_ENGINE=redis` opts into the Redis engine,
+  which several Centrifugo servers need to act as one. That's a Compose
+  setting rather than a ship.json field, so it works in releases and can be
+  changed at deploy time; `CENTRIFUGO_REDIS_ADDRESS` defaults to the
+  project's Redis (renamed or not) when the cache group is Redis, which
+  `centrifugo` then starts after. It keeps no state, so it has no volume. It
+  publishes on host port 8001 so it doesn't
   collide with Octane's 8000, and has its admin UI in development only. Its
   API key, token secret and allowed origins are required in production: with
   no allowed origins it refuses every browser, same origin included. Its

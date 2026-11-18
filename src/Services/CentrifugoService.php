@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Ship\Services;
 
+use Ship\Config\ShipConfig;
+use Ship\Contracts\ConfigAwareService;
 use Ship\Contracts\ExposesHttp;
 use Ship\Contracts\ServiceDefinition;
 use Ship\Contracts\ShipEnvironment;
@@ -17,11 +19,31 @@ use Ship\Docker\RequiredEnv;
  * CENTRIFUGO_TOKEN_SECRET. Browsers connect to `/connection/websocket`.
  *
  * BROADCAST_CONNECTION is left alone: Laravel has no built-in Centrifugo driver, so setting it before
- * a driver package is installed would break every broadcast. Stateless (in-memory engine), so it
- * has no volume. One per project, like Reverb, so $instanceName is ignored.
+ * a driver package is installed would break every broadcast. One per project, like Reverb, so
+ * $instanceName is ignored.
+ *
+ * Its engine is in-memory unless CENTRIFUGO_ENGINE=redis (opt-in, read by Compose from `.env` or
+ * `.env.production`), which several Centrifugo servers need to share their clients' messages. The
+ * Redis is CENTRIFUGO_REDIS_ADDRESS, defaulting to the project's own when the cache group is Redis
+ * (see withConfig()). Either way it keeps no state of its own, so it has no volume.
  */
-final class CentrifugoService implements ServiceDefinition, ExposesHttp
+final class CentrifugoService implements ServiceDefinition, ExposesHttp, ConfigAwareService
 {
+    /**
+     * @param ?string $redisService the compose service name of the project's Redis (the cache
+     *        group's default instance), or null when it has none
+     */
+    public function __construct(private readonly ?string $redisService = null)
+    {
+    }
+
+    public function withConfig(ShipConfig $config): static
+    {
+        return new self(
+            ($config->services['cache'] ?? null) === 'redis' ? ($config->serviceNames['redis'] ?? 'redis') : null,
+        );
+    }
+
     public function key(): string
     {
         return 'centrifugo';
@@ -51,6 +73,12 @@ final class CentrifugoService implements ServiceDefinition, ExposesHttp
                     // included, so production requires a value; development allows any.
                     'CENTRIFUGO_CLIENT_ALLOWED_ORIGINS' => RequiredEnv::expr('CENTRIFUGO_ALLOWED_ORIGINS', '*', $environment),
                     'CENTRIFUGO_HEALTH_ENABLED' => 'true',
+                    // Opt-in Redis engine. With no project Redis there is no default address:
+                    // CENTRIFUGO_REDIS_ADDRESS has to name one.
+                    'CENTRIFUGO_ENGINE_TYPE' => '${CENTRIFUGO_ENGINE:-memory}',
+                    'CENTRIFUGO_ENGINE_REDIS_ADDRESS' => $this->redisService !== null
+                        ? "\${CENTRIFUGO_REDIS_ADDRESS:-redis://{$this->redisService}:6379}"
+                        : '${CENTRIFUGO_REDIS_ADDRESS:-}',
                     // The web admin UI, on the published port, in development only.
                     ...($environment->isDevelopment() ? [
                         'CENTRIFUGO_ADMIN_ENABLED' => 'true',
@@ -60,6 +88,9 @@ final class CentrifugoService implements ServiceDefinition, ExposesHttp
                 ],
                 // 8001 on the host, so it doesn't collide with an Octane app's 8000.
                 'ports' => [DevPortBinding::bind('${CENTRIFUGO_PORT:-8001}:8000', $environment)],
+                // Started after the project's Redis, in case the Redis engine is on. A plain
+                // ordering, not a health condition: with the memory engine Centrifugo doesn't need it.
+                ...($this->redisService !== null ? ['depends_on' => ['redis']] : []),
                 'healthcheck' => [
                     'test' => ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8000/health'],
                     'interval' => '5s',

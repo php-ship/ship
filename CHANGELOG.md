@@ -29,7 +29,8 @@
 - MariaDB, MongoDB, SQL Server (Developer Edition, development only),
   Elasticsearch, RabbitMQ, Playwright and Cypress services.
 - Centrifugo, a framework-agnostic alternative to Reverb in the
-  `broadcasting` group.
+  `broadcasting` group, with an opt-in Redis engine (`CENTRIFUGO_ENGINE=redis`)
+  for running several Centrifugo servers as one.
 - `zip` and `sockets` are in every PHP image.
 
 ### Fixed

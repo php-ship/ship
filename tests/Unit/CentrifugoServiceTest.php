@@ -5,8 +5,14 @@ declare(strict_types=1);
 namespace Ship\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
+use Ship\Config\ShipConfig;
 use Ship\Contracts\ShipEnvironment;
+use Ship\Docker\ComposeFileBuilder;
+use Ship\Docker\ReleaseManifest;
 use Ship\Services\CentrifugoService;
+use Ship\Services\RedisService;
+use Ship\Services\ServiceRegistry;
+use Symfony\Component\Yaml\Yaml;
 
 final class CentrifugoServiceTest extends TestCase
 {
@@ -75,5 +81,59 @@ final class CentrifugoServiceTest extends TestCase
             ['centrifugo' => ['port' => 8000, 'role' => 'websocket', 'health' => '/health']],
             (new CentrifugoService())->httpEntryPoints(),
         );
+    }
+
+    /**
+     * The Redis engine is opt-in: memory unless CENTRIFUGO_ENGINE says otherwise.
+     */
+    public function test_the_engine_is_memory_unless_centrifugo_engine_opts_in(): void
+    {
+        $env = (new CentrifugoService())->composeFragment(ShipEnvironment::Production)['centrifugo']['environment'];
+
+        self::assertSame('${CENTRIFUGO_ENGINE:-memory}', $env['CENTRIFUGO_ENGINE_TYPE']);
+    }
+
+    public function test_the_redis_address_defaults_to_the_projects_redis_and_starts_after_it(): void
+    {
+        $service = (new CentrifugoService())->withConfig(new ShipConfig(phpVersion: '8.4', services: ['cache' => 'redis', 'broadcasting' => 'centrifugo']));
+        $fragment = $service->composeFragment(ShipEnvironment::Production)['centrifugo'];
+
+        self::assertSame('${CENTRIFUGO_REDIS_ADDRESS:-redis://redis:6379}', $fragment['environment']['CENTRIFUGO_ENGINE_REDIS_ADDRESS']);
+        self::assertSame(['redis'], $fragment['depends_on']);
+    }
+
+    public function test_the_default_redis_address_follows_a_renamed_redis(): void
+    {
+        $config = new ShipConfig(phpVersion: '8.4', services: ['cache' => 'redis', 'broadcasting' => 'centrifugo'], serviceNames: ['redis' => 'client-cache']);
+        $parsed = Yaml::parse((new ComposeFileBuilder(new ServiceRegistry([new RedisService(), new CentrifugoService()])))->build($config, ShipEnvironment::Production));
+
+        self::assertSame('${CENTRIFUGO_REDIS_ADDRESS:-redis://client-cache:6379}', $parsed['services']['centrifugo']['environment']['CENTRIFUGO_ENGINE_REDIS_ADDRESS']);
+        self::assertSame(['client-cache'], $parsed['services']['centrifugo']['depends_on']);
+    }
+
+    /**
+     * Without a project Redis there's nothing to default to or wait for: opting in means naming one.
+     */
+    public function test_without_a_project_redis_the_address_has_no_default_and_nothing_is_waited_for(): void
+    {
+        $service = (new CentrifugoService())->withConfig(new ShipConfig(phpVersion: '8.4', services: ['broadcasting' => 'centrifugo']));
+        $fragment = $service->composeFragment(ShipEnvironment::Production)['centrifugo'];
+
+        self::assertSame('${CENTRIFUGO_REDIS_ADDRESS:-}', $fragment['environment']['CENTRIFUGO_ENGINE_REDIS_ADDRESS']);
+        self::assertArrayNotHasKey('depends_on', $fragment);
+    }
+
+    /**
+     * Opting in happens at deploy time, so release.json lists both settings for a deployer.
+     */
+    public function test_both_engine_settings_are_referenced_by_the_compose_file(): void
+    {
+        $config = new ShipConfig(phpVersion: '8.4', services: ['cache' => 'redis', 'broadcasting' => 'centrifugo']);
+        $yaml = (new ComposeFileBuilder(new ServiceRegistry([new RedisService(), new CentrifugoService()])))->build($config, ShipEnvironment::Production);
+
+        $referenced = ReleaseManifest::referencedVariables($yaml);
+
+        self::assertContains('CENTRIFUGO_ENGINE', $referenced);
+        self::assertContains('CENTRIFUGO_REDIS_ADDRESS', $referenced);
     }
 }
