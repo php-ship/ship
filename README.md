@@ -24,9 +24,7 @@ verification against a real Docker daemon on every commit.
 - [Quick start](#quick-start)
 - [Commands](#commands)
 - [Services](#services)
-  - [Browser tests and Vite](#browser-tests-and-vite)
-  - [Centrifugo with Redis](#centrifugo-with-redis)
-  - [Silo on older CPUs](#silo-on-older-cpus)
+  - [Databases](#databases-database) · [Cache](#cache-cache) · [Search](#search-search) · [Object storage](#object-storage-storage) · [Mail](#mail-mail) · [Message broker](#message-broker-broker) · [WebSockets](#websockets-broadcasting) · [Application runtime](#application-runtime-runtime) · [Browser testing](#browser-testing-testing) · [Frontend](#frontend-frontend)
 - [Configuration (`ship.json`)](#configuration-shipjson)
   - [Adding a service later](#adding-a-service-later)
   - [Multiple instances of a service](#multiple-instances-of-a-service)
@@ -119,14 +117,16 @@ database, a second Redis) with their own env var prefix:
 - Runtimes: php-fpm with nginx, or Octane with Swoole, RoadRunner or
   FrankenPHP.
 - Object storage: Garage, SeaweedFS, RustFS, Silo.
-- Search: Meilisearch, Elasticsearch. Cache: Redis. Mail: Mailpit.
+- Cache: Redis, Valkey, Memcached. Search: Meilisearch, Elasticsearch,
+  Typesense. Mail: Mailpit.
 - Real-time: Reverb, or Centrifugo for any framework (with an opt-in Redis
   engine to run several servers as one). Queues: RabbitMQ.
 - Browser testing: Dusk, Playwright or Cypress, each in its own container,
   given the app's internal address.
 
 Selecting a service also wires its PHP extensions into the image (MongoDB's
-`mongodb`, SQL Server's `pdo_sqlsrv` with Microsoft's ODBC driver), and every
+`mongodb`, Memcached's `memcached`, SQL Server's `pdo_sqlsrv` with
+Microsoft's ODBC driver), and every
 image tag is pinned and kept current by Renovate.
 
 **It tells you what's wrong.** `ship up` waits for every healthcheck and
@@ -150,8 +150,7 @@ starting anything.
   or framework adapter through `ship.json`'s `extensions`.
 
 Sail still has a few things ship doesn't: `sail share` (a public URL
-through Expose), a devcontainer setup, and Valkey, Memcached, Typesense and
-Mailtrap Local services.
+through Expose), a devcontainer setup, and a Mailtrap Local service.
 
 ## Requirements
 
@@ -205,15 +204,20 @@ need to know about every artisan or console subcommand.
 
 ## Services
 
-`ship init` groups services (database, cache, runtime, storage, search,
-mail, testing, frontend, broadcasting, broker) and lets you pick one per
-group.
-The table below shows what each built-in `ServiceDefinition` gets you
-automatically, and what's still on the consuming app to add. "Wired"
-means the container runs and the right env vars are set on `app`; it does
-*not* mean the PHP package or extension that reads those env vars is
-necessarily installed — that's a separate, app-level decision this tool
-doesn't make for you.
+`ship init` asks for one service per group, and `additionalServices` adds
+named second instances where that makes sense (see
+[Multiple instances of a service](#multiple-instances-of-a-service)). The
+tables below show, per group, what each built-in service wires up and what
+is still on the app to add. "Wired" means the container runs and the right
+env vars are set on `app`; it does *not* mean the Composer package that
+reads those env vars is installed — that's the app's decision. The group's
+key in `ship.json` is in each heading.
+
+Everything in the right-hand columns is one-time setup per project:
+`ship`'s job stops at "the infrastructure is reachable with the right env
+vars", not "every Composer package is pre-installed".
+
+### Databases (`database`)
 
 | Service | Wired automatically | Still needed in the app |
 |---|---|---|
@@ -222,34 +226,86 @@ doesn't make for you.
 | MariaDB | `DB_*` env vars (`DB_CONNECTION=mariadb`), `pdo_mysql` extension | Nothing on Laravel 11+, whose `mariadb` connection this uses |
 | MongoDB | `MONGODB_URI`/`MONGODB_DATABASE`, `mongodb` PHP extension (added to the image automatically) | `composer require mongodb/laravel-mongodb`, add its `mongodb` connection to `config/database.php` (reading those two variables), and set `DB_CONNECTION=mongodb` yourself if it should be the default. `MONGODB_PASSWORD` is embedded in the URI, so keep it free of characters that need percent-encoding (`@ : / ? # [ ] %`) |
 | SQL Server (`sqlserver`) | **Development only** — Developer Edition isn't licensed for production, so in production no container is started and the app uses the licensed server set in `.env.production`. `DB_*` env vars (`DB_CONNECTION=sqlsrv`) plus `DB_URL` with `trust_server_certificate=true` (the container's certificate is self-signed), the app database and a login owning it created on first boot, `pdo_sqlsrv` and Microsoft's ODBC driver (added to the image automatically, in production too) | Nothing on Laravel. Passwords must meet SQL Server's policy (8+ characters from three of upper/lowercase, digits, symbols) — the defaults do; `DB_PASSWORD` also goes into `DB_URL`, so keep it free of characters that need percent-encoding. `DB_USERNAME` can't be `sa`. Needs about 2 GB of RAM, and the image is amd64-only (emulated on Apple Silicon) |
-| Elasticsearch | Single node with security on, `ELASTICSEARCH_HOST`/`USERNAME`/`PASSWORD` (the `elastic` user), JVM heap capped at 1 GB in development | An Elasticsearch client package of your choice, configured from those variables (Laravel has no built-in driver, so `SCOUT_DRIVER` is left alone). On Linux, raise `vm.max_map_count` to 262144 for real workloads |
-| RabbitMQ | Its own `rabbitmq` container with the management UI on `127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}` (development only), `RABBITMQ_HOST`/`PORT`/`USER`/`PASSWORD`/`VHOST`, `sockets` PHP extension (always in the image) | `composer require vladimir-yuldashev/laravel-queue-rabbitmq`, then set `QUEUE_CONNECTION=rabbitmq` yourself |
+
+### Cache (`cache`)
+
+| Service | Wired automatically | Still needed in the app |
+|---|---|---|
 | Redis | `CACHE_STORE`/`SESSION_DRIVER`/`REDIS_*`, `redis` PHP extension | Nothing — works out of the box |
-| Mailpit | `MAIL_HOST`/`MAIL_PORT` | Nothing (fresh Laravel already defaults `MAIL_MAILER=smtp`) |
+| Valkey (`valkey`) | `CACHE_STORE`/`SESSION_DRIVER` (`redis`, the driver Valkey serves), `REDIS_*`, `redis` PHP extension; persisted like Redis | Nothing — works out of the box. Also serves Centrifugo's Redis engine |
+| Memcached (`memcached`) | `CACHE_STORE=memcached`, `MEMCACHED_HOST`/`MEMCACHED_PORT`, `memcached` PHP extension (added to the image automatically) | Nothing. It's cache only: nothing survives a restart, so sessions stay on the app's own driver (`SESSION_DRIVER` is left alone) |
+
+### Search (`search`)
+
+| Service | Wired automatically | Still needed in the app |
+|---|---|---|
 | Meilisearch | `SCOUT_DRIVER`/`MEILISEARCH_*` | `composer require laravel/scout meilisearch/meilisearch-php` |
+| Elasticsearch | Single node with security on, `ELASTICSEARCH_HOST`/`USERNAME`/`PASSWORD` (the `elastic` user), JVM heap capped at 1 GB in development | An Elasticsearch client package of your choice, configured from those variables (Laravel has no built-in driver, so `SCOUT_DRIVER` is left alone). On Linux, raise `vm.max_map_count` to 262144 for real workloads |
+| Typesense (`typesense`) | `SCOUT_DRIVER=typesense`, `TYPESENSE_HOST`/`PORT`/`PROTOCOL`/`API_KEY`; persisted | `composer require laravel/scout typesense/typesense-php`, and a collection schema per searchable model in `config/scout.php` (Scout's Typesense docs). In production `.env.production` must set `TYPESENSE_API_KEY` |
+
+### Object storage (`storage`)
+
+| Service | Wired automatically | Still needed in the app |
+|---|---|---|
 | Garage / SeaweedFS / RustFS / Silo | `AWS_*` env vars (S3-compatible) | `composer require league/flysystem-aws-s3-v3`, and set `FILESYSTEM_DISK=s3` yourself. Garage auto-provisions its own default bucket; RustFS/SeaweedFS/Silo don't — create it yourself once (Silo has a web console for this at `${SILO_CONSOLE_PORT:-9001}`; RustFS's own console doesn't currently work, see that class's own docblock). Silo has two image variants — see [Silo on older CPUs](#silo-on-older-cpus) |
-| Octane (Swoole/RoadRunner/FrankenPHP) | `swoole` PHP extension (Swoole only), `OCTANE_SERVER` | `composer require laravel/octane`, then `php artisan octane:install` inside the container once (downloads the RoadRunner binary if that's the one picked) |
-| Dusk | Selenium container, `DUSK_DRIVER_URL`, and `APP_URL` set to the app's internal address (`http://webserver`, or `http://app:8000` with Octane) | `composer require --dev laravel/dusk` |
-| Playwright | Browser server container (Chromium, Firefox, WebKit), `PW_TEST_CONNECT_WS_ENDPOINT` so the test runner in `app` launches every browser there, `PLAYWRIGHT_BASE_URL` set to the app's internal address | `npm install -D @playwright/test@1.65` (the same minor version as the server — Playwright refuses a mismatch), and `use: { baseURL: process.env.PLAYWRIGHT_BASE_URL }` in `playwright.config`. No `npx playwright install` needed. Run with `ship npm exec playwright test` |
-| Cypress | Cypress container (Electron, plus Chrome, Firefox and Edge on amd64) with the project mounted at `/e2e`, `CYPRESS_BASE_URL` set to the app's internal address, `CYPRESS_INSTALL_BINARY=0` on `app` so `npm install` there skips the binary | `npm install -D cypress`. Run with `ship exec cypress cypress run` (`--browser chrome` etc.). Test artifacts (screenshots, videos) are written as root on a Linux bind mount |
-| Node.js / npm | Installed unconditionally in the base image, at the version `ship init`'s "Node.js version" prompt sets (`ship.json`'s `node` field, default 24); `ship npm run dev` works regardless of whether this group is selected | See [Frontend dev server](#frontend-dev-server-vite-hmr) below for HMR |
+
+#### Silo on older CPUs
+
+Silo publishes two images of every release, and they don't run on the same
+set of machines:
+
+| `siloImage` | Image | What's in it |
+|---|---|---|
+| `standard` (default) | `pgsty/silo:<release>` | The server on a RHEL 9 base, with a shell and the usual tools. |
+| `distroless` | `pgsty/silo:<release>-distroless` | The server binary only. No shell, so `ship shell silo` can't open one. |
+
+RHEL 9 requires a CPU with the x86-64-v2 instruction set. On an older CPU —
+or a virtual machine configured with a generic CPU model, which hides those
+instructions from the guest — the standard image's container fails to
+start. The distroless image of the same release has no such requirement.
+
+`ship init` explains this and asks which image to use whenever Silo is
+selected, then records the answer in `ship.json`:
+
+```json
+"siloImage": "distroless"
+```
+
+`ship.json` is shared by everyone who runs the project, so pick `distroless`
+if *any* machine that will run this stack might be affected: yours, a
+teammate's, or the production server. To check a Linux machine:
+
+```sh
+/lib64/ld-linux-x86-64.so.2 --help | grep x86-64-v2
+```
+
+`x86-64-v2 (supported, searched)` means the standard image will run there.
+
+You can change your mind later: edit `siloImage` and run `ship up` again (or
+cut a new release). Both images are the same Silo release and mount the same
+data volume, so buckets and objects carry over. The setting applies to every
+Silo instance, including ones added through `additionalServices`.
+
+### Mail (`mail`)
+
+| Service | Wired automatically | Still needed in the app |
+|---|---|---|
+| Mailpit | `MAIL_HOST`/`MAIL_PORT` | Nothing (fresh Laravel already defaults `MAIL_MAILER=smtp`) |
+
+### Message broker (`broker`)
+
+| Service | Wired automatically | Still needed in the app |
+|---|---|---|
+| RabbitMQ | Its own `rabbitmq` container with the management UI on `127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}` (development only), `RABBITMQ_HOST`/`PORT`/`USER`/`PASSWORD`/`VHOST`, `sockets` PHP extension (always in the image) | `composer require vladimir-yuldashev/laravel-queue-rabbitmq`, then set `QUEUE_CONNECTION=rabbitmq` yourself |
+
+### WebSockets (`broadcasting`)
+
+| Service | Wired automatically | Still needed in the app |
+|---|---|---|
 | Reverb | Its own `reverb` container + published port, `BROADCAST_CONNECTION=reverb`, server-side `REVERB_HOST=reverb`/`REVERB_PORT`/`REVERB_SCHEME` (Docker DNS — `app` talking to `reverb`), browser-side `VITE_REVERB_HOST=localhost`/`VITE_REVERB_PORT`/`VITE_REVERB_SCHEME` (what Echo in the browser actually connects to) | `composer require laravel/reverb`, then `php artisan install:broadcasting` inside the container once (generates `REVERB_APP_ID`/`KEY`/`SECRET` into `.env` — real per-app credentials, not something `ship` provisions). `ship init` warns at selection time if the package isn't installed yet, since the `reverb` container won't start without it. |
 | Centrifugo (`centrifugo`) | Its own `centrifugo` container (the framework-agnostic alternative to Reverb, no app code), published on `127.0.0.1:${CENTRIFUGO_PORT:-8001}` in development with its admin UI (password `${CENTRIFUGO_ADMIN_PASSWORD:-ship}`), server-side `CENTRIFUGO_URL`/`CENTRIFUGO_API_KEY`/`CENTRIFUGO_TOKEN_SECRET`, browser-side `VITE_CENTRIFUGO_URL` | A client: `composer require centrifugal/phpcent` to publish from PHP (its API is `CENTRIFUGO_URL` + `/api`), and `centrifuge` (npm) in the browser, with connection tokens signed using `CENTRIFUGO_TOKEN_SECRET`. On Laravel, a broadcasting driver package if you want `broadcast()`; `BROADCAST_CONNECTION` is left alone. Runs in memory; see [Centrifugo with Redis](#centrifugo-with-redis) for running more than one Centrifugo server. In production `.env.production` must set `CENTRIFUGO_API_KEY`, `CENTRIFUGO_TOKEN_SECRET` and `CENTRIFUGO_ALLOWED_ORIGINS` (space-separated, e.g. `https://example.com`): with no allowed origins Centrifugo refuses every browser |
 
-Everything in the right column is one-time setup per project, not a `ship`
-limitation — `ship`'s job stops at "the infrastructure is reachable with the
-right env vars," not "every possible Composer package is pre-installed."
-
-### Browser tests and Vite
-
-Dusk's, Playwright's and Cypress's browsers run in their own containers
-and reach the app at its internal address, not `localhost`, so they can't
-load assets from Vite's dev server (`ship npm run dev` writes
-`http://localhost:5173` into `public/hot`). Run browser tests against built
-assets: stop the dev server (which removes `public/hot`) and
-`ship npm run build` first.
-
-### Centrifugo with Redis
+#### Centrifugo with Redis
 
 By default Centrifugo keeps everything in memory, which is right for one
 Centrifugo server. Switch it to Redis when you run **more than one**
@@ -271,18 +327,19 @@ so they go in `.env` for development and in `.env.production` for a release
 | Setting | Default | Meaning |
 |---|---|---|
 | `CENTRIFUGO_ENGINE` | `memory` | Set to `redis` to turn the Redis engine on. |
-| `CENTRIFUGO_REDIS_ADDRESS` | `redis://redis:6379` when the project's `cache` is Redis (following a `serviceNames` rename); none otherwise | The Redis to use, as `redis://host:port`. A password goes in the URL: `redis://:password@host:6379`. |
+| `CENTRIFUGO_REDIS_ADDRESS` | The project's own cache when it is Redis or Valkey (`redis://redis:6379`, `redis://valkey:6379`, following a `serviceNames` rename); none otherwise | The Redis to use, as `redis://host:port`. A password goes in the URL: `redis://:password@host:6379`. |
 
-**Using the project's own Redis.** With Redis selected as the `cache`,
-turning it on is one line:
+**Using the project's own Redis.** With Redis or Valkey (which speaks the
+same protocol) selected as the `cache`, turning it on is one line:
 
 ```dotenv
 CENTRIFUGO_ENGINE=redis
 ```
 
 Centrifugo's keys all start with `centrifugo`, so sharing the app's Redis
-doesn't collide with its cache, sessions or queues. When Redis is selected,
-`centrifugo` also starts after `redis` (whichever engine is used).
+doesn't collide with its cache, sessions or queues. When Redis or Valkey is
+selected, `centrifugo` also starts after it (whichever engine is used).
+Memcached can't serve as Centrifugo's engine.
 
 **Using another Redis.** For a Redis outside the project, such as a shared
 one that every Centrifugo server can reach, name it as well:
@@ -333,42 +390,35 @@ a line with `"level":"fatal"`:
 Both settings appear in a release's `release.json` under `env.referenced`, so
 a deployment tool knows it may supply them.
 
-### Silo on older CPUs
+### Application runtime (`runtime`)
 
-Silo publishes two images of every release, and they don't run on the same
-set of machines:
-
-| `siloImage` | Image | What's in it |
+| Service | Wired automatically | Still needed in the app |
 |---|---|---|
-| `standard` (default) | `pgsty/silo:<release>` | The server on a RHEL 9 base, with a shell and the usual tools. |
-| `distroless` | `pgsty/silo:<release>-distroless` | The server binary only. No shell, so `ship shell silo` can't open one. |
+| php-fpm + nginx (default, no runtime selected) | `app` runs php-fpm behind a `webserver` nginx container, which also serves the built static assets | Nothing |
+| Octane (Swoole/RoadRunner/FrankenPHP) | `swoole` PHP extension (Swoole only), `OCTANE_SERVER` | `composer require laravel/octane`, then `php artisan octane:install` inside the container once (downloads the RoadRunner binary if that's the one picked) |
 
-RHEL 9 requires a CPU with the x86-64-v2 instruction set. On an older CPU —
-or a virtual machine configured with a generic CPU model, which hides those
-instructions from the guest — the standard image's container fails to
-start. The distroless image of the same release has no such requirement.
+### Browser testing (`testing`)
 
-`ship init` explains this and asks which image to use whenever Silo is
-selected, then records the answer in `ship.json`:
+| Service | Wired automatically | Still needed in the app |
+|---|---|---|
+| Dusk | Selenium container, `DUSK_DRIVER_URL`, and `APP_URL` set to the app's internal address (`http://webserver`, or `http://app:8000` with Octane) | `composer require --dev laravel/dusk` |
+| Playwright | Browser server container (Chromium, Firefox, WebKit), `PW_TEST_CONNECT_WS_ENDPOINT` so the test runner in `app` launches every browser there, `PLAYWRIGHT_BASE_URL` set to the app's internal address | `npm install -D @playwright/test@1.65` (the same minor version as the server — Playwright refuses a mismatch), and `use: { baseURL: process.env.PLAYWRIGHT_BASE_URL }` in `playwright.config`. No `npx playwright install` needed. Run with `ship npm exec playwright test` |
+| Cypress | Cypress container (Electron, plus Chrome, Firefox and Edge on amd64) with the project mounted at `/e2e`, `CYPRESS_BASE_URL` set to the app's internal address, `CYPRESS_INSTALL_BINARY=0` on `app` so `npm install` there skips the binary | `npm install -D cypress`. Run with `ship exec cypress cypress run` (`--browser chrome` etc.). Test artifacts (screenshots, videos) are written as root on a Linux bind mount |
 
-```json
-"siloImage": "distroless"
-```
+#### Browser tests and Vite
 
-`ship.json` is shared by everyone who runs the project, so pick `distroless`
-if *any* machine that will run this stack might be affected: yours, a
-teammate's, or the production server. To check a Linux machine:
+Dusk's, Playwright's and Cypress's browsers run in their own containers
+and reach the app at its internal address, not `localhost`, so they can't
+load assets from Vite's dev server (`ship npm run dev` writes
+`http://localhost:5173` into `public/hot`). Run browser tests against built
+assets: stop the dev server (which removes `public/hot`) and
+`ship npm run build` first.
 
-```sh
-/lib64/ld-linux-x86-64.so.2 --help | grep x86-64-v2
-```
+### Frontend (`frontend`)
 
-`x86-64-v2 (supported, searched)` means the standard image will run there.
-
-You can change your mind later: edit `siloImage` and run `ship up` again (or
-cut a new release). Both images are the same Silo release and mount the same
-data volume, so buckets and objects carry over. The setting applies to every
-Silo instance, including ones added through `additionalServices`.
+| Service | Wired automatically | Still needed in the app |
+|---|---|---|
+| Node.js / npm | Installed unconditionally in the base image, at the version `ship init`'s "Node.js version" prompt sets (`ship.json`'s `node` field, default 24); `ship npm run dev` works regardless of whether this group is selected | See [Frontend dev server](#frontend-dev-server-vite-hmr) below for HMR |
 
 ## Configuration (`ship.json`)
 
@@ -425,7 +475,8 @@ plain, readable JSON document:
   every project already gets (`pdo_pgsql`, `pdo_mysql`, `intl`,
   `mbstring`, `opcache`, `pcntl`, `redis`, `zip`, `sockets`), and beyond
   what a selected service adds on its own (`mongodb` for MongoDB,
-  `pdo_sqlsrv` for SQL Server). Omitted here since most
+  `memcached` for Memcached, `pdo_sqlsrv` for SQL Server). Omitted here
+  since most
   projects don't need any — hand-edit it in when a Composer package's
   own platform requirement isn't already covered, e.g.:
   ```json
@@ -871,8 +922,9 @@ public internet.
 
 Every stateful service (`ship-postgres-data`, `ship-mysql-data`,
 `ship-mariadb-data`, `ship-mongodb-data`, `ship-sqlserver-data`,
-`ship-elasticsearch-data`, `ship-rabbitmq-data`,
-`ship-redis-data`, `ship-seaweedfs-data`, `ship-meilisearch-data`, ...)
+`ship-elasticsearch-data`, `ship-typesense-data`, `ship-rabbitmq-data`,
+`ship-redis-data`, `ship-valkey-data`, `ship-seaweedfs-data`,
+`ship-meilisearch-data`, ...)
 persists to a named Docker volume, not a bind mount — `docker volume ls`
 lists them, prefixed with the Compose project name (`ship.json`'s `name`,
 or the project directory's name when it's unset). `ship` doesn't

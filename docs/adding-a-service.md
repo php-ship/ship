@@ -61,8 +61,8 @@ a runtime — is a class implementing `Ship\Contracts\ServiceDefinition`.
   Dockerfile's fixed set, implement `Ship\Contracts\RequiresPhpExtensions`
   rather than telling users to edit `phpExtensions` — `ComposeFileBuilder`
   merges the list into the app image's `PHP_EXTENSIONS` build arg.
-  `MongoDbService` (`mongodb`) and `SqlServerService` (`pdo_sqlsrv`) are
-  the examples. Keep it for extensions that are heavy or rarely needed;
+  `MongoDbService` (`mongodb`), `MemcachedService` (`memcached`) and
+  `SqlServerService` (`pdo_sqlsrv`) are the examples. Keep it for extensions that are heavy or rarely needed;
   a cheap, widely used one belongs in the Dockerfiles' fixed set instead
   (as `zip` and `sockets` are). The extensions are built
   into both images even when the service itself is development-only, as
@@ -105,8 +105,9 @@ separate from the default cache/session store. `ship.json`'s
 "Multiple instances of a service"); on your side, supporting it means
 using the `Ship\Services\SupportsNamedInstances` trait, already used by
 `PostgresService`/`MySqlService`/`MariaDbService`/`MongoDbService`/
-`SqlServerService`/`RedisService`/`SeaweedFsService`/`GarageService`/
-`MeilisearchService`/`ElasticsearchService`/`MailpitService` — any of those is
+`SqlServerService`/`RedisService`/`ValkeyService`/`MemcachedService`/
+`SeaweedFsService`/`GarageService`/`MeilisearchService`/
+`ElasticsearchService`/`TypesenseService`/`MailpitService` — any of those is
 a reference to copy from. The trait gives you two methods:
 
 - `composeServiceName(?string $instanceName)` — `key()` itself for the
@@ -121,8 +122,8 @@ a reference to copy from. The trait gives you two methods:
 
 One judgment call `environmentVariables()` has to make itself: not
 every variable a service sets is connection-specific. `CACHE_STORE`
-(Redis) and `SCOUT_DRIVER` (Meilisearch) pick the *app-wide default*
-store/driver — a named instance adds a second reachable service, it
+(Redis, Valkey, Memcached) and `SCOUT_DRIVER` (Meilisearch, Typesense) pick
+the *app-wide default* store/driver — a named instance adds a second reachable service, it
 doesn't change what the app uses by default, so those variables should
 only be returned for the default (`null`) instance. `RedisService` and
 `MeilisearchService` are the two examples of that split to copy from.

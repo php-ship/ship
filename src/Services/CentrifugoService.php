@@ -24,24 +24,37 @@ use Ship\Docker\RequiredEnv;
  *
  * Its engine is in-memory unless CENTRIFUGO_ENGINE=redis (opt-in, read by Compose from `.env` or
  * `.env.production`), which several Centrifugo servers need to share their clients' messages. The
- * Redis is CENTRIFUGO_REDIS_ADDRESS, defaulting to the project's own when the cache group is Redis
- * (see withConfig()). Either way it keeps no state of its own, so it has no volume.
+ * Redis is CENTRIFUGO_REDIS_ADDRESS, defaulting to the project's own when the cache group is Redis or
+ * Valkey, which serves the same protocol (see withConfig()). Either way it keeps no state of its
+ * own, so it has no volume.
  */
 final class CentrifugoService implements ServiceDefinition, ExposesHttp, ConfigAwareService
 {
     /**
-     * @param ?string $redisService the compose service name of the project's Redis (the cache
-     *        group's default instance), or null when it has none
+     * Cache services that speak the Redis protocol Centrifugo's engine needs.
      */
-    public function __construct(private readonly ?string $redisService = null)
-    {
+    private const REDIS_COMPATIBLE = ['redis', 'valkey'];
+
+    /**
+     * @param ?string $redisKey the key of the project's Redis-compatible cache (its default compose
+     *        name), or null when it has none
+     * @param ?string $redisService that cache's compose service name, after serviceNames
+     */
+    public function __construct(
+        private readonly ?string $redisKey = null,
+        private readonly ?string $redisService = null,
+    ) {
     }
 
     public function withConfig(ShipConfig $config): static
     {
-        return new self(
-            ($config->services['cache'] ?? null) === 'redis' ? ($config->serviceNames['redis'] ?? 'redis') : null,
-        );
+        $cache = $config->services['cache'] ?? null;
+
+        if (!in_array($cache, self::REDIS_COMPATIBLE, true)) {
+            return new self();
+        }
+
+        return new self($cache, $config->serviceNames[$cache] ?? $cache);
     }
 
     public function key(): string
@@ -90,7 +103,8 @@ final class CentrifugoService implements ServiceDefinition, ExposesHttp, ConfigA
                 'ports' => [DevPortBinding::bind('${CENTRIFUGO_PORT:-8001}:8000', $environment)],
                 // Started after the project's Redis, in case the Redis engine is on. A plain
                 // ordering, not a health condition: with the memory engine Centrifugo doesn't need it.
-                ...($this->redisService !== null ? ['depends_on' => ['redis']] : []),
+                // The default name: ComposeFileBuilder follows a serviceNames rename itself.
+                ...($this->redisKey !== null ? ['depends_on' => [$this->redisKey]] : []),
                 'healthcheck' => [
                     'test' => ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8000/health'],
                     'interval' => '5s',

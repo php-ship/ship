@@ -14,6 +14,7 @@ use Ship\Services\GarageService;
 use Ship\Services\MailpitService;
 use Ship\Services\MariaDbService;
 use Ship\Services\MeilisearchService;
+use Ship\Services\MemcachedService;
 use Ship\Services\MongoDbService;
 use Ship\Services\MySqlService;
 use Ship\Services\NodeService;
@@ -30,6 +31,8 @@ use Ship\Services\SeaweedFsService;
 use Ship\Services\ServiceRegistry;
 use Ship\Services\SiloService;
 use Ship\Services\SqlServerService;
+use Ship\Services\TypesenseService;
+use Ship\Services\ValkeyService;
 
 final class ServiceRegistryTest extends TestCase
 {
@@ -98,6 +101,8 @@ final class ServiceRegistryTest extends TestCase
         yield 'MongoDbService' => [MongoDbService::class];
         yield 'SqlServerService' => [SqlServerService::class];
         yield 'RedisService' => [RedisService::class];
+        yield 'ValkeyService' => [ValkeyService::class];
+        yield 'MemcachedService' => [MemcachedService::class];
         yield 'SeaweedFsService' => [SeaweedFsService::class];
         yield 'GarageService' => [GarageService::class];
         yield 'RustFsService' => [RustFsService::class];
@@ -107,6 +112,7 @@ final class ServiceRegistryTest extends TestCase
         yield 'OctaneFrankenPhpService' => [OctaneFrankenPhpService::class];
         yield 'MeilisearchService' => [MeilisearchService::class];
         yield 'ElasticsearchService' => [ElasticsearchService::class];
+        yield 'TypesenseService' => [TypesenseService::class];
         yield 'MailpitService' => [MailpitService::class];
         yield 'DuskService' => [DuskService::class];
         yield 'PlaywrightService' => [PlaywrightService::class];
@@ -132,6 +138,6 @@ final class ServiceRegistryTest extends TestCase
     {
         // The per-class check proves nothing is missing; the count also catches an extra or
         // duplicate registration.
-        self::assertCount(23, ServiceRegistry::defaults());
+        self::assertCount(26, ServiceRegistry::defaults());
     }
 }

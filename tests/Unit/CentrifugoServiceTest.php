@@ -12,6 +12,7 @@ use Ship\Docker\ReleaseManifest;
 use Ship\Services\CentrifugoService;
 use Ship\Services\RedisService;
 use Ship\Services\ServiceRegistry;
+use Ship\Services\ValkeyService;
 use Symfony\Component\Yaml\Yaml;
 
 final class CentrifugoServiceTest extends TestCase
@@ -100,6 +101,30 @@ final class CentrifugoServiceTest extends TestCase
 
         self::assertSame('${CENTRIFUGO_REDIS_ADDRESS:-redis://redis:6379}', $fragment['environment']['CENTRIFUGO_ENGINE_REDIS_ADDRESS']);
         self::assertSame(['redis'], $fragment['depends_on']);
+    }
+
+    /**
+     * Valkey serves the Redis protocol, so it is the default address too, and a rename is followed.
+     */
+    public function test_a_valkey_cache_is_the_default_redis_address_too(): void
+    {
+        $config = new ShipConfig(phpVersion: '8.4', services: ['cache' => 'valkey', 'broadcasting' => 'centrifugo'], serviceNames: ['valkey' => 'client-cache']);
+        $parsed = Yaml::parse((new ComposeFileBuilder(new ServiceRegistry([new ValkeyService(), new CentrifugoService()])))->build($config, ShipEnvironment::Production));
+
+        self::assertSame('${CENTRIFUGO_REDIS_ADDRESS:-redis://client-cache:6379}', $parsed['services']['centrifugo']['environment']['CENTRIFUGO_ENGINE_REDIS_ADDRESS']);
+        self::assertSame(['client-cache'], $parsed['services']['centrifugo']['depends_on']);
+    }
+
+    /**
+     * Memcached isn't Redis: there's nothing for the Redis engine to default to.
+     */
+    public function test_a_memcached_cache_gives_no_default_redis_address(): void
+    {
+        $service = (new CentrifugoService())->withConfig(new ShipConfig(phpVersion: '8.4', services: ['cache' => 'memcached', 'broadcasting' => 'centrifugo']));
+        $fragment = $service->composeFragment(ShipEnvironment::Production)['centrifugo'];
+
+        self::assertSame('${CENTRIFUGO_REDIS_ADDRESS:-}', $fragment['environment']['CENTRIFUGO_ENGINE_REDIS_ADDRESS']);
+        self::assertArrayNotHasKey('depends_on', $fragment);
     }
 
     public function test_the_default_redis_address_follows_a_renamed_redis(): void
