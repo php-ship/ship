@@ -294,8 +294,8 @@ plain, readable JSON document:
   selected — see [Silo on older CPUs](#silo-on-older-cpus).
 - `publishPorts` — defaults to `false`, so production publishes nothing to
   the host. A reverse proxy (Caddy, Traefik, ...) can reach the HTTP service
-  when joined to the project's `ship` Docker network. `externalNetwork`
-  attaches only the app service, so it does not expose `webserver` to the proxy.
+  when joined to the project's `ship` Docker network, or through
+  `externalNetwork`, which every HTTP-serving service joins.
   Set `publishPorts` to
   `true` only when you intend to expose the generated host ports; they may
   bypass host firewalls and a proxy's TLS and headers. Production only —
@@ -457,11 +457,14 @@ need it:
   warns if it ever falls out of sync with a hand-edited `serviceNames`.
 - `externalNetwork` — the name of a Docker network created outside
   `ship` (by another compose project, e.g. one running your shared
-  MySQL/Redis/etc.), attached to the app service in addition to `ship`'s
-  own internal network. This is what actually lets the app reach that
-  shared infrastructure — point your own `.env` (`DB_HOST`, `REDIS_HOST`,
-  ...) at whatever hostname that other project's containers are reachable
-  as, the same way you would without `ship` involved at all.
+  MySQL/Redis/etc., or a reverse proxy), attached in addition to `ship`'s
+  own internal network to the app service and to every service that
+  receives HTTP: `webserver` (or the app itself under Octane) and Reverb.
+  This is what lets the app reach that shared infrastructure — point your
+  own `.env` (`DB_HOST`, `REDIS_HOST`, ...) at whatever hostname that other
+  project's containers are reachable as — and what lets a proxy on that
+  network route to the site. Databases and other infrastructure stay off
+  it.
 
 A project that doesn't select any of `ship`'s own database/cache/storage
 services (an empty, or mostly empty, `services` object) is exactly the

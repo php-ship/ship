@@ -38,8 +38,8 @@ final class ShipConfig
      * @param array<string, string> $serviceNames a compose service's default name ("app",
      *        "webserver", "mysql", ...) mapped to a custom one, for projects sharing a Docker
      *        network where the default aliases would collide. Doesn't apply to additionalServices.
-     * @param ?string $externalNetwork a pre-existing Docker network to attach the app service to,
-     *        in addition to the internal "ship" one.
+     * @param ?string $externalNetwork a pre-existing Docker network to attach the app service and
+     *        every HTTP entry point (see HttpEntryPoints) to, in addition to the internal "ship" one.
      * @param list<string> $phpExtensions extra PHP extensions to install beyond the fixed set (see
      *        stubs/docker/php/Dockerfile), passed to mlocati/docker-php-extension-installer.
      * @param bool $publishPorts true publishes production HTTP ports to the host. The default keeps

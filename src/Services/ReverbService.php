@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ship\Services;
 
+use Ship\Contracts\ExposesHttp;
 use Ship\Contracts\ServiceDefinition;
 use Ship\Contracts\ShipEnvironment;
 use Ship\Docker\DevPortBinding;
@@ -13,7 +14,7 @@ use Ship\Docker\DevPortBinding;
  * compose service built from the same dev/prod targets as "app". REVERB_APP_ID/KEY/SECRET are
  * per-app credentials from `install:broadcasting` and aren't set here.
  */
-final class ReverbService implements ServiceDefinition
+final class ReverbService implements ServiceDefinition, ExposesHttp
 {
     public function key(): string
     {
@@ -73,5 +74,13 @@ final class ReverbService implements ServiceDefinition
     public function removes(): array
     {
         return [];
+    }
+
+    /**
+     * Browsers connect to Reverb directly, so a reverse proxy has to route to it too.
+     */
+    public function httpEntryPoints(): array
+    {
+        return ['reverb' => ['port' => 8080, 'role' => 'websocket']];
     }
 }

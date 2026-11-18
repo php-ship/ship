@@ -154,9 +154,12 @@ and records the non-obvious reasons behind each decision.
   network aliases don't depend on which directory the file is in.
 - `serviceNames` renames services as their fragments are built and fixes
   `depends_on` references. A service's hostname env var follows the rename
-  (keys ending in `_HOST` or `_ENDPOINT` only), while driver identifiers
-  such as `DB_CONNECTION=mysql` are left alone. `externalNetwork` attaches
-  the app to a pre-existing network.
+  (keys ending in `_HOST`, `_ENDPOINT`, `_URI` or `_URL` only), while
+  driver identifiers such as `DB_CONNECTION=mysql` are left alone.
+  `externalNetwork` attaches a pre-existing network to the app and to every
+  HTTP entry point (`HttpEntryPoints`: `webserver` or Octane's `app`, plus
+  services implementing `ExposesHttp`, such as Reverb), so a reverse proxy
+  on it can route to them.
 - `build()` rejects renames that collide, duplicate `additionalServices`
   names, an additional instance of a service that doesn't support one, and
   invalid or colliding `processes` names.

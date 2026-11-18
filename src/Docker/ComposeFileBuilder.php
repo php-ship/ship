@@ -148,7 +148,8 @@ final class ComposeFileBuilder
         }
 
         // Attaches the app to a pre-existing network (see ShipConfig::$externalNetwork), in
-        // addition to "ship", which "webserver" and Reverb still reach it over.
+        // addition to "ship". Before the process services are added, so they copy it; the HTTP
+        // entry points are attached further down.
         if ($config->externalNetwork !== null) {
             $compose['networks']['external'] = ['name' => $config->externalNetwork, 'external' => true];
             $compose['services'][$appServiceName]['networks'][] = 'external';
@@ -168,6 +169,18 @@ final class ComposeFileBuilder
             $mutagenSync,
             $hostUser,
         );
+
+        // A reverse proxy on the external network has to reach every service that receives HTTP,
+        // which is "webserver" rather than "app" with nginx, plus Reverb (see HttpEntryPoints).
+        if ($config->externalNetwork !== null) {
+            foreach (HttpEntryPoints::resolve($compose['services'], $config, $this->registry, $environment) as $entry) {
+                $networks = $compose['services'][$entry['service']]['networks'] ?? [];
+
+                if (!in_array('external', $networks, true)) {
+                    $compose['services'][$entry['service']]['networks'] = [...$networks, 'external'];
+                }
+            }
+        }
 
         // Tells the `docker compose exec` commands (see ComposeCommand::execPrefix()) what this
         // file was generated with, which ship.json alone can't say.

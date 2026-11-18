@@ -208,7 +208,11 @@ final class ComposeFileBuilderServiceNamingTest extends TestCase
         self::assertSame('client-cache', $parsed['services']['app']['environment']['REDIS_HOST']);
     }
 
-    public function test_an_external_network_is_declared_and_attached_to_the_app_service_only(): void
+    /**
+     * A reverse proxy on the external network reaches the site through "webserver" (nginx), so it
+     * is attached too; "app" stays attached as before. Infrastructure stays private.
+     */
+    public function test_an_external_network_is_attached_to_the_app_and_the_http_entry_points(): void
     {
         $builder = new ComposeFileBuilder($this->registry());
         $config = new ShipConfig(
@@ -217,11 +221,29 @@ final class ComposeFileBuilderServiceNamingTest extends TestCase
             externalNetwork: 'shared_infra',
         );
 
-        $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Development));
+        foreach ([ShipEnvironment::Development, ShipEnvironment::Production] as $environment) {
+            $parsed = Yaml::parse($builder->build($config, $environment));
 
-        self::assertSame(['name' => 'shared_infra', 'external' => true], $parsed['networks']['external']);
-        self::assertContains('external', $parsed['services']['app']['networks']);
-        self::assertNotContains('external', $parsed['services']['webserver']['networks']);
+            self::assertSame(['name' => 'shared_infra', 'external' => true], $parsed['networks']['external']);
+            self::assertSame(['ship', 'external'], $parsed['services']['app']['networks']);
+            self::assertSame(['ship', 'external'], $parsed['services']['webserver']['networks']);
+            self::assertSame(['ship'], $parsed['services']['pgsql']['networks']);
+        }
+    }
+
+    public function test_a_renamed_webserver_is_the_one_attached_to_the_external_network(): void
+    {
+        $builder = new ComposeFileBuilder($this->registry());
+        $config = new ShipConfig(
+            phpVersion: '8.4',
+            services: [],
+            serviceNames: ['webserver' => 'client-web'],
+            externalNetwork: 'shared_infra',
+        );
+
+        $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Production));
+
+        self::assertContains('external', $parsed['services']['client-web']['networks']);
     }
 
     public function test_no_external_network_is_declared_by_default(): void
