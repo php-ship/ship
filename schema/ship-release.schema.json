@@ -5,7 +5,7 @@
   "title": "release.json",
   "description": "Describes one release folder written by a Ship producer (`ship release --tag <tag>`).",
   "type": "object",
-  "required": ["format", "app", "tag", "createdAt", "builder", "source", "platform", "compose", "images", "pulledImages", "http", "services", "framework", "runtime", "env", "deploy", "requires"],
+  "required": ["format", "app", "tag", "createdAt", "builder", "source", "platform", "compose", "images", "pulledImages", "http", "services", "framework", "runtime", "env", "deploy", "requires", "console"],
   "properties": {
     "format": {"const": "ship-release", "description": "Always \"ship-release\"."},
     "app": {"$ref": "#/$defs/name", "description": "The Compose project name: the release Compose file's top-level `name:`. The same for every release of the project."},
@@ -109,6 +109,22 @@
           "type": "array",
           "minItems": 1,
           "items": {"type": "array", "minItems": 1, "items": {"type": "string"}, "description": "An argv."}
+        }
+      }
+    },
+    "console": {
+      "type": "object",
+      "description": "How to run commands in the running app: the service, the user to run them as, its shell, and the framework's console commands.",
+      "required": ["service", "user", "shell", "commands"],
+      "properties": {
+        "service": {"$ref": "#/$defs/name", "description": "The service to run commands in."},
+        "user": {"type": "string", "minLength": 1, "description": "The user to run every command and shell as, so files they create stay writable by the app."},
+        "shell": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}, "description": "An interactive shell's argv."},
+        "commands": {
+          "type": "object",
+          "description": "The framework's console commands, by name: argv prefixes the arguments are appended to. Empty when unknown.",
+          "propertyNames": {"pattern": "^[a-z][a-z0-9:_-]*$"},
+          "additionalProperties": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
         }
       }
     },

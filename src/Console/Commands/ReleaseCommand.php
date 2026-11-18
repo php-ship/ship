@@ -198,6 +198,7 @@ final class ReleaseCommand extends Command
                 images: $result['images'],
                 source: $source,
                 framework: $framework,
+                consoleCommands: $this->consoleCommands($frameworkAdapters),
                 force: $force,
                 withEnv: $withEnv,
                 output: $output,
@@ -216,6 +217,26 @@ final class ReleaseCommand extends Command
         $output->writeln("<info>ship: release ready at dist/ship/{$tag}</info>");
 
         return Command::SUCCESS;
+    }
+
+    /**
+     * The console commands of every framework adapter that matches the project, as `ship artisan`
+     * and friends register them (see Application), for release.json's `console`.
+     *
+     * @param list<FrameworkAdapter> $extensionAdapters
+     * @return array<string, string>
+     */
+    private function consoleCommands(array $extensionAdapters): array
+    {
+        $commands = [];
+
+        foreach ([new LaravelAdapter(), new SymfonyAdapter(), ...$extensionAdapters] as $adapter) {
+            if ($adapter->detect($this->projectRoot)) {
+                $commands = [...$commands, ...$adapter->consoleCommands()];
+            }
+        }
+
+        return $commands;
     }
 
     /**

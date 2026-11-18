@@ -24,6 +24,13 @@ use Symfony\Component\Yaml\Yaml;
  */
 final class ReleaseWriter
 {
+    /**
+     * The user every production process of the app runs as (php-fpm's workers, Octane, Reverb and
+     * `processes` drop to it). Commands run in the app as anyone else, root included, would leave
+     * files under storage/ the app can no longer write.
+     */
+    public const CONSOLE_USER = 'www-data';
+
     private readonly Filesystem $filesystem;
 
     public function __construct(
@@ -58,6 +65,8 @@ final class ReleaseWriter
      *        project-owned images ProductionBuildRunner built
      * @param array{gitCommit: ?string, dirty: ?bool} $source captured before the build, which
      *        writes generated files into the project
+     * @param array<string, string> $consoleCommands name => command line, from the matching
+     *        framework adapters (FrameworkAdapter::consoleCommands())
      * @throws ReleaseFailed
      */
     public function write(
@@ -69,6 +78,7 @@ final class ReleaseWriter
         array $images,
         array $source,
         ?DescribesRelease $framework,
+        array $consoleCommands,
         bool $force,
         bool $withEnv,
         OutputInterface $output,
@@ -133,6 +143,16 @@ final class ReleaseWriter
                 envRequired: [...RequiredEnv::requiredIn($releaseComposeYaml), ...($framework?->requiredEnv($projectRoot) ?? [])],
                 deploy: $deploy,
                 networks: $config->externalNetwork === null ? [] : [$config->externalNetwork],
+                console: [
+                    'service' => $config->serviceNames['app'] ?? 'app',
+                    'user' => self::CONSOLE_USER,
+                    'shell' => ['sh'],
+                    'commands' => array_map(
+                        // FrameworkAdapter::consoleCommands() gives a command line such as "php artisan".
+                        static fn (string $command): array => explode(' ', (string) preg_replace('/\s+/', ' ', trim($command))),
+                        $consoleCommands,
+                    ),
+                ],
             );
 
             if ($deploy !== null) {

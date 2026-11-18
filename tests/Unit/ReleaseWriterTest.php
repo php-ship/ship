@@ -123,6 +123,7 @@ final class ReleaseWriterTest extends TestCase
             images: $built['images'],
             source: ['gitCommit' => str_repeat('a', 40), 'dirty' => false],
             framework: new LaravelAdapter(),
+            consoleCommands: (new LaravelAdapter())->consoleCommands(),
             force: $force,
             withEnv: $withEnv,
             output: new NullOutput(),
@@ -501,6 +502,28 @@ final class ReleaseWriterTest extends TestCase
             $readme,
         );
         self::assertStringContainsString('production secrets', $readme);
+    }
+
+    /**
+     * A deployment tool runs commands in a release's app without ship; release.json says where,
+     * as whom and how.
+     */
+    public function test_console_names_the_app_service_its_user_shell_and_framework_commands(): void
+    {
+        self::assertSame([
+            'service' => 'app',
+            'user' => 'www-data',
+            'shell' => ['sh'],
+            'commands' => ['artisan' => ['php', 'artisan']],
+        ], $this->release()['manifest']['console']);
+    }
+
+    public function test_console_follows_a_renamed_app_service(): void
+    {
+        $manifest = $this->release($this->config(['serviceNames' => ['app' => 'client-app']]))['manifest'];
+
+        self::assertSame('client-app', $manifest['console']['service']);
+        self::assertArrayHasKey('client-app', $manifest['services']);
     }
 
     public function test_requires_lists_the_external_network(): void

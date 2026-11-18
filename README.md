@@ -839,8 +839,14 @@ every file and every `release.json` field, next to the JSON Schema, example
 releases and a checker any tool can run. `release.json` names the app, its images (with IDs and
 archive checksums), the services and their roles, which ones receive HTTP
 (and the framework's health path), the data volumes, the settings by name
-only, and the deploy commands. The contract is a draft until it has been
-tested end to end with a deployment tool.
+only, the deploy commands, and how to run commands in the running app (its
+service, the user to run them as, its shell, and the framework's console
+commands such as `artisan`). The `ship` commands themselves (`ship shell`,
+`ship artisan`, ...) are for development: a server has nothing but Docker, so
+a deployment tool runs those through Compose with what `release.json` says,
+e.g. `docker compose exec -u www-data app php artisan migrate:status`. The
+contract is a draft until it has been tested end to end with a deployment
+tool.
 
 A few rules keep a release trustworthy:
 

@@ -70,6 +70,7 @@ final class ReleaseManifestTest extends TestCase
             envRequired: [],
             deploy: null,
             networks: [],
+            console: ['service' => 'app', 'user' => 'www-data', 'shell' => ['sh'], 'commands' => ['zeta' => ['z'], 'artisan' => ['php', 'artisan']]],
         );
 
         self::assertSame('2026-11-17T10:00:00Z', $manifest['createdAt']);
@@ -77,5 +78,6 @@ final class ReleaseManifestTest extends TestCase
         self::assertSame(['package' => 'php-ship/ship', 'version' => '1.0.0'], $manifest['builder']);
         self::assertNull($manifest['deploy']);
         self::assertSame(['networks' => []], $manifest['requires']);
+        self::assertSame(['artisan', 'zeta'], array_keys($manifest['console']['commands']));
     }
 }

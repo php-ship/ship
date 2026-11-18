@@ -33,6 +33,7 @@ final class ReleaseManifest
      * @param list<string> $envRequired
      * @param ?array{service: string, needs: list<string>, commands: list<list<string>>} $deploy
      * @param list<string> $networks
+     * @param array{service: string, user: string, shell: list<string>, commands: array<string, list<string>>} $console
      * @return array<string, mixed>
      */
     public static function build(
@@ -55,6 +56,7 @@ final class ReleaseManifest
         array $envRequired,
         ?array $deploy,
         array $networks,
+        array $console,
     ): array {
         return [
             'format' => self::FORMAT,
@@ -85,6 +87,7 @@ final class ReleaseManifest
             ],
             'deploy' => $deploy === null ? null : [...$deploy, 'needs' => self::sorted($deploy['needs'])],
             'requires' => ['networks' => self::sorted($networks)],
+            'console' => [...$console, 'commands' => self::sortedByKey($console['commands'])],
         ];
     }
 
@@ -151,6 +154,18 @@ final class ReleaseManifest
         ksort($services, SORT_STRING);
 
         return $services;
+    }
+
+    /**
+     * @template T
+     * @param array<string, T> $map
+     * @return array<string, T>
+     */
+    private static function sortedByKey(array $map): array
+    {
+        ksort($map, SORT_STRING);
+
+        return $map;
     }
 
     /**
