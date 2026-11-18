@@ -76,7 +76,7 @@ jobs:
       - name: The image has OPcache and every fixed extension
         run: |
           docker run --rm --entrypoint php ci-base-image -d opcache.enable_cli=1 -r '
-            foreach (["pdo_pgsql", "pdo_mysql", "intl", "mbstring", "pcntl", "redis", "xdebug"] as $ext) {
+            foreach (["pdo_pgsql", "pdo_mysql", "intl", "mbstring", "pcntl", "zip", "sockets", "redis", "xdebug"] as $ext) {
                 if (!extension_loaded($ext)) { fwrite(STDERR, "missing: $ext\n"); exit(1); }
             }
             if (opcache_get_status() === false) { fwrite(STDERR, "OPcache is not active\n"); exit(1); }
@@ -107,7 +107,7 @@ jobs:
       - name: ship init (MySQL + Redis)
         working-directory: /tmp/ci-fixture
         run: |
-          printf 'MySQL\nRedis\nNone\nNone\nNone\nNone\nNone\nNone\nNone\n8.4\n' \
+          printf 'MySQL\nRedis\nNone\nNone\nNone\nNone\nNone\nNone\nNone\nNone\n8.4\n' \
             | php "$GITHUB_WORKSPACE/bin/ship" init
 
       - name: Point .env at the ship-provisioned services
@@ -258,7 +258,7 @@ jobs:
       - name: ship init (MySQL + Redis + Octane/Swoole)
         working-directory: /tmp/ci-fixture-swoole
         run: |
-          printf 'MySQL\nRedis\n1\nNone\nNone\nNone\nNone\nNone\nNone\n8.4\n' \
+          printf 'MySQL\nRedis\n1\nNone\nNone\nNone\nNone\nNone\nNone\nNone\n8.4\n' \
             | php "$GITHUB_WORKSPACE/bin/ship" init
 
       - name: Point .env at the ship-provisioned services (Swoole fixture)
@@ -333,7 +333,7 @@ jobs:
       - name: ship init (MySQL + Redis, default runtime)
         working-directory: /tmp/ci-fixture-mutagen
         run: |
-          printf 'MySQL\nRedis\nNone\nNone\nNone\nNone\nNone\nNone\nNone\n8.4\n' \
+          printf 'MySQL\nRedis\nNone\nNone\nNone\nNone\nNone\nNone\nNone\nNone\n8.4\n' \
             | php "$GITHUB_WORKSPACE/bin/ship" init
 
       - name: Point .env at the ship-provisioned services (Mutagen fixture)
