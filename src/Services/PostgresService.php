@@ -15,7 +15,7 @@ final class PostgresService implements ServiceDefinition, ProvidesDatabaseShell
 
     public function key(): string
     {
-        return 'pgsql';
+        return 'postgres';
     }
 
     public function label(): string

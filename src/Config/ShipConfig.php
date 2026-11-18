@@ -21,15 +21,8 @@ final class ShipConfig
     public const SCHEMA_URL = 'https://raw.githubusercontent.com/ship-ecosystem/python-ship/main/schema/ship.schema.json';
 
     /**
-     * Spellings ship.json accepts for a service key => the key ServiceRegistry knows it by. Both
-     * Ship packages write PostgreSQL as "postgres" and accept "pgsql"; internally PHP Ship keeps
-     * "pgsql", so existing projects keep their compose service ("pgsql") and volumes.
-     */
-    public const SERVICE_ALIASES = ['postgres' => 'pgsql'];
-
-    /**
      * @param array<string, string> $services group => selected service key, e.g.
-     *        ['database' => 'pgsql'] -- the default instance of that group.
+     *        ['database' => 'postgres'] -- the default instance of that group.
      * @param list<string> $extensions fully-qualified class names of extra
      *        ServiceDefinition/FrameworkAdapter implementations.
      * @param list<array{group: string, service: string, name: string}> $additionalServices extra
@@ -117,11 +110,11 @@ final class ShipConfig
          */
         return new self(
             phpVersion: $data['php'] ?? '8.4',
-            services: self::internalServices($data['services'] ?? []),
+            services: $data['services'] ?? [],
             extensions: $data['extensions'] ?? [],
             nodeVersion: $data['node'] ?? '24',
-            additionalServices: self::internalAdditionalServices($data['additionalServices'] ?? []),
-            serviceNames: self::internalServiceNames($data['serviceNames'] ?? []),
+            additionalServices: $data['additionalServices'] ?? [],
+            serviceNames: $data['serviceNames'] ?? [],
             externalNetwork: $data['externalNetwork'] ?? null,
             phpExtensions: $data['phpExtensions'] ?? [],
             publishPorts: $data['publishPorts'] ?? false,
@@ -159,10 +152,10 @@ final class ShipConfig
 
         return new self(
             phpVersion: '8.4',
-            services: self::internalServices(self::filterStringMap($data['services'] ?? null)),
+            services: self::filterStringMap($data['services'] ?? null),
             extensions: self::filterStringList($data['extensions'] ?? null),
-            additionalServices: self::internalAdditionalServices(self::filterAdditionalServices($data['additionalServices'] ?? null)),
-            serviceNames: self::internalServiceNames(self::filterStringMap($data['serviceNames'] ?? null)),
+            additionalServices: self::filterAdditionalServices($data['additionalServices'] ?? null),
+            serviceNames: self::filterStringMap($data['serviceNames'] ?? null),
             externalNetwork: is_string($data['externalNetwork'] ?? null) ? $data['externalNetwork'] : null,
             phpExtensions: self::filterStringList($data['phpExtensions'] ?? null),
             publishPorts: is_bool($data['publishPorts'] ?? null) ? $data['publishPorts'] : false,
@@ -172,62 +165,6 @@ final class ShipConfig
             name: is_string($data['name'] ?? null) ? $data['name'] : null,
             siloImage: is_string($data['siloImage'] ?? null) ? $data['siloImage'] : self::SILO_IMAGE_STANDARD,
         );
-    }
-
-    /**
-     * The registry key for a ship.json spelling, e.g. "postgres" => "pgsql".
-     */
-    public static function internalKey(string $key): string
-    {
-        return self::SERVICE_ALIASES[$key] ?? $key;
-    }
-
-    /**
-     * The spelling written to ship.json for a registry key, e.g. "pgsql" => "postgres".
-     */
-    public static function externalKey(string $key): string
-    {
-        $external = array_search($key, self::SERVICE_ALIASES, true);
-
-        return is_string($external) ? $external : $key;
-    }
-
-    /**
-     * @param array<string, string> $services
-     * @return array<string, string>
-     */
-    private static function internalServices(array $services): array
-    {
-        return array_map(self::internalKey(...), $services);
-    }
-
-    /**
-     * @param list<array{group: string, service: string, name: string}> $additional
-     * @return list<array{group: string, service: string, name: string}>
-     */
-    private static function internalAdditionalServices(array $additional): array
-    {
-        return array_map(
-            static fn (array $entry): array => ['group' => $entry['group'], 'service' => self::internalKey($entry['service']), 'name' => $entry['name']],
-            $additional,
-        );
-    }
-
-    /**
-     * serviceNames is keyed by default compose names, which for PostgreSQL is "pgsql".
-     *
-     * @param array<string, string> $serviceNames
-     * @return array<string, string>
-     */
-    private static function internalServiceNames(array $serviceNames): array
-    {
-        $internal = [];
-
-        foreach ($serviceNames as $default => $custom) {
-            $internal[self::internalKey($default)] = $custom;
-        }
-
-        return $internal;
     }
 
     /**
@@ -397,11 +334,8 @@ final class ShipConfig
             '$schema' => self::SCHEMA_URL,
             'php' => $this->phpVersion,
             'node' => $this->nodeVersion,
-            'services' => array_map(self::externalKey(...), $this->services),
-            'additionalServices' => array_map(
-                static fn (array $entry): array => ['group' => $entry['group'], 'service' => self::externalKey($entry['service']), 'name' => $entry['name']],
-                $this->additionalServices,
-            ),
+            'services' => $this->services,
+            'additionalServices' => $this->additionalServices,
             'extensions' => $this->extensions,
         ];
 

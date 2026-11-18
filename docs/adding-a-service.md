@@ -52,11 +52,10 @@ a runtime — is a class implementing `Ship\Contracts\ServiceDefinition`.
   correctly left alone.
 
 - **Pin image tags.** Every built-in service pins a specific, verified
-  version rather than `:latest` — floating tags make builds
-  non-reproducible and, per the MinIO situation this project exists partly
-  in reaction to, an upstream project going sideways can silently break
-  everyone using `:latest` overnight. Check the registry for a current tag
-  before adding a new service.
+  version rather than `:latest`: a floating tag makes builds
+  non-reproducible, and an upstream change can break every project using it
+  overnight. Check the registry for a current tag before adding a new
+  service; `renovate.json` keeps the pinned tags current afterwards.
 
 - **If your service's PHP client needs an extension** outside the
   Dockerfile's fixed set, implement `Ship\Contracts\RequiresPhpExtensions`
@@ -82,11 +81,19 @@ a runtime — is a class implementing `Ship\Contracts\ServiceDefinition`.
   `CypressService`: `CYPRESS_BASE_URL` on its own container), and
   `ComposeFileBuilder` fills in the right URL.
 
-- **Other cross-service coordination is a known architectural gap**, not
-  something to work around per-service. If your service needs to know
-  about *other* selected services in some other way, don't hardcode a
-  guess — document the limitation, and see `docs/roadmap.md` for the
-  direction a real fix should take.
+- **If your service receives HTTP traffic of its own** (a WebSocket server
+  the browser connects to, say), implement `Ship\Contracts\ExposesHttp`
+  with its container port, role and, if it has one, a health path. The
+  service then joins `externalNetwork` alongside the site, and `ship
+  release` lists it in `release.json`'s `http`. `ReverbService` and
+  `CentrifugoService` are the examples.
+
+- **If your service depends on `ship.json`** — a setting, or which other
+  services are selected — implement `Ship\Contracts\ConfigAwareService`:
+  `ComposeFileBuilder` hands it the config through `withConfig()` before
+  asking for its fragment. `SiloService` reads its image variant that way,
+  and `CentrifugoService` finds the project's Redis. Don't guess at another
+  service's name: read it from the config, `serviceNames` included.
 
 ## Supporting multiple named instances
 
@@ -108,10 +115,9 @@ a reference to copy from. The trait gives you two methods:
   named volume names (`"ship-{$name}-data"`, not a hardcoded
   `"ship-redis-data"`), so two instances never collide.
 - `envPrefix(?string $instanceName)` — empty for the default instance
-  (so its variable names stay exactly what they've always been, zero
-  migration for existing single-instance projects), or the uppercased
-  instance name plus `_` otherwise (e.g. `"ANALYTICS_"`). Prefix every
-  *connection-specific* variable your service returns with it.
+  (so it uses the plain names a framework expects, `DB_HOST` and so on),
+  or the uppercased instance name plus `_` otherwise (e.g. `"ANALYTICS_"`).
+  Prefix every *connection-specific* variable your service returns with it.
 
 One judgment call `environmentVariables()` has to make itself: not
 every variable a service sets is connection-specific. `CACHE_STORE`
@@ -185,6 +191,13 @@ from for a new framework. Three methods:
   command(s) — Laravel's is `php artisan optimize`, Symfony's is `php
   bin/console cache:clear`. Return `[]` if your framework has nothing
   equivalent to run.
+
+An adapter can also implement `Ship\Contracts\DescribesRelease` for `ship
+release`: the framework's name, the health path the project defines (read
+from the project, not assumed), and the settings it can't run without,
+which then block a release when `.env.production` lacks them. Laravel's
+adapter returns `laravel`, the `health:` path from `bootstrap/app.php`, and
+`APP_KEY`.
 
 Like `ServiceDefinition`, a third-party adapter doesn't need to fork this
 package — list its FQCN in `ship.json`'s `extensions` array the same way,

@@ -6,9 +6,8 @@ namespace Ship\Contracts;
 
 /**
  * Optional add-on for a FrameworkAdapter: what `ship release` can only learn from the framework,
- * for release.json (see docs/release-contract.md). Optional so existing third-party adapters keep
- * working; without it, release.json's `framework` and the site's `health` are null and no
- * framework setting is required.
+ * for release.json (see docs/release-contract.md). Without it, release.json's `framework` and the
+ * site's `health` are null and no framework setting is required.
  */
 interface DescribesRelease
 {

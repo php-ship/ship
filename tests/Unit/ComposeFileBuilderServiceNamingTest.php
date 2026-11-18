@@ -42,7 +42,7 @@ final class ComposeFileBuilderServiceNamingTest extends TestCase
     public function test_default_names_leave_the_compose_output_unchanged(): void
     {
         $builder = new ComposeFileBuilder($this->registry());
-        $config = new ShipConfig(phpVersion: '8.4', services: ['database' => 'pgsql']);
+        $config = new ShipConfig(phpVersion: '8.4', services: ['database' => 'postgres']);
 
         $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Development));
 
@@ -58,7 +58,7 @@ final class ComposeFileBuilderServiceNamingTest extends TestCase
         // follows the rename.
         $config = new ShipConfig(
             phpVersion: '8.4',
-            services: ['database' => 'pgsql', 'testing' => 'dusk'],
+            services: ['database' => 'postgres', 'testing' => 'dusk'],
             serviceNames: ['app' => 'client-app'],
         );
 
@@ -75,7 +75,7 @@ final class ComposeFileBuilderServiceNamingTest extends TestCase
         $builder = new ComposeFileBuilder($this->registry());
         $config = new ShipConfig(
             phpVersion: '8.4',
-            services: ['database' => 'pgsql', 'testing' => 'dusk'],
+            services: ['database' => 'postgres', 'testing' => 'dusk'],
             serviceNames: ['webserver' => 'client-web'],
         );
 
@@ -96,7 +96,7 @@ final class ComposeFileBuilderServiceNamingTest extends TestCase
         $builder = new ComposeFileBuilder($this->registry());
         $config = new ShipConfig(
             phpVersion: '8.4',
-            services: ['database' => 'pgsql', 'runtime' => 'octane-swoole', 'testing' => 'dusk'],
+            services: ['database' => 'postgres', 'runtime' => 'octane-swoole', 'testing' => 'dusk'],
             serviceNames: ['app' => 'client-app', 'webserver' => 'client-web'],
         );
 
@@ -217,7 +217,7 @@ final class ComposeFileBuilderServiceNamingTest extends TestCase
         $builder = new ComposeFileBuilder($this->registry());
         $config = new ShipConfig(
             phpVersion: '8.4',
-            services: ['database' => 'pgsql'],
+            services: ['database' => 'postgres'],
             externalNetwork: 'shared_infra',
         );
 
@@ -227,7 +227,7 @@ final class ComposeFileBuilderServiceNamingTest extends TestCase
             self::assertSame(['name' => 'shared_infra', 'external' => true], $parsed['networks']['external']);
             self::assertSame(['ship', 'external'], $parsed['services']['app']['networks']);
             self::assertSame(['ship', 'external'], $parsed['services']['webserver']['networks']);
-            self::assertSame(['ship'], $parsed['services']['pgsql']['networks']);
+            self::assertSame(['ship'], $parsed['services']['postgres']['networks']);
         }
     }
 
@@ -249,7 +249,7 @@ final class ComposeFileBuilderServiceNamingTest extends TestCase
     public function test_no_external_network_is_declared_by_default(): void
     {
         $builder = new ComposeFileBuilder($this->registry());
-        $config = new ShipConfig(phpVersion: '8.4', services: ['database' => 'pgsql']);
+        $config = new ShipConfig(phpVersion: '8.4', services: ['database' => 'postgres']);
 
         $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Development));
 

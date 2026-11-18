@@ -11,7 +11,7 @@ namespace Ship\Contracts;
 interface ServiceDefinition
 {
     /**
-     * Unique key used in ship.json, e.g. "pgsql", "redis", "octane-swoole".
+     * Unique key used in ship.json, e.g. "postgres", "redis", "octane-swoole".
      */
     public function key(): string;
 

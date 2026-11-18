@@ -439,9 +439,8 @@ final class ComposeFileBuilder
     }
 
     /**
-     * Only a service using SupportsNamedInstances varies its fragment and env vars by instance
-     * name; any other would collide with its own default instance. Checked via class_uses()
-     * rather than a new interface method, which would break third-party ServiceDefinitions.
+     * Only a service using the SupportsNamedInstances trait varies its compose service name and env
+     * vars by instance name; any other would collide with its own default instance.
      *
      * @param list<array{group: string, service: string, name: string}> $additionalServices
      */
@@ -581,7 +580,7 @@ final class ComposeFileBuilder
     }
 
     /**
-     * Collects the named volumes (e.g. "ship-pgsql-data:/data", as opposed to a bind mount) that
+     * Collects the named volumes (e.g. "ship-postgres-data:/data", as opposed to a bind mount) that
      * need a matching entry under the top-level `volumes:` key.
      *
      * A renamed service keeps its original volume name; the mount string is built before any

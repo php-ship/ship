@@ -30,7 +30,7 @@ final class MySqlUsernameGuardTest extends TestCase
 
     public function test_it_is_silent_when_mysql_is_not_even_selected(): void
     {
-        $config = new ShipConfig(phpVersion: '8.4', services: ['database' => 'pgsql']);
+        $config = new ShipConfig(phpVersion: '8.4', services: ['database' => 'postgres']);
 
         self::assertSame([], MySqlUsernameGuard::problems($config, ['DB_USERNAME' => 'root']));
     }
@@ -39,7 +39,7 @@ final class MySqlUsernameGuardTest extends TestCase
     {
         $config = new ShipConfig(
             phpVersion: '8.4',
-            services: ['database' => 'pgsql'],
+            services: ['database' => 'postgres'],
             additionalServices: [['group' => 'database', 'service' => 'mysql', 'name' => 'analytics']],
         );
 

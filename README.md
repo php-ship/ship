@@ -14,10 +14,8 @@ requiring Windows users to put their project inside WSL.
 against a real Docker daemon in both dev and production mode — including
 a real production HTTP request, a real database, and a real crashed-
 container recovery. CI passes on every push, across Ubuntu/macOS/Windows
-x PHP 8.2/8.3/8.4 plus a separate job that runs the same dev/production
-verification against a real Docker daemon on every commit. See
-[`docs/roadmap.md`](docs/roadmap.md) for what's built and what isn't
-started yet.
+x PHP 8.2 to 8.5, plus a separate job that runs the same dev/production
+verification against a real Docker daemon on every commit.
 
 ## Contents
 
@@ -26,6 +24,8 @@ started yet.
 - [Quick start](#quick-start)
 - [Commands](#commands)
 - [Services](#services)
+  - [Browser tests and Vite](#browser-tests-and-vite)
+  - [Centrifugo with Redis](#centrifugo-with-redis)
   - [Silo on older CPUs](#silo-on-older-cpus)
 - [Configuration (`ship.json`)](#configuration-shipjson)
   - [Adding a service later](#adding-a-service-later)
@@ -33,6 +33,9 @@ started yet.
   - [Custom service names and an external network](#custom-service-names-and-an-external-network)
 - [Production releases](#production-releases)
   - [PHP security floor](#php-security-floor)
+  - [`.env.production`](#envproduction)
+  - [What `ship release --tag` produces](#what-ship-release---tag-produces)
+  - [CI/CD](#cicd)
 - [HTTPS / TLS](#https--tls)
 - [Backing up data volumes](#backing-up-data-volumes)
 - [Frontend dev server (Vite HMR)](#frontend-dev-server-vite-hmr)
@@ -41,6 +44,7 @@ started yet.
 - [Faster file sync on Windows/macOS (Mutagen)](#faster-file-sync-on-windowsmacos-mutagen)
 - [Running more than one project at once](#running-more-than-one-project-at-once)
 - [Customizing the stack](#customizing-the-stack)
+  - [Running a command on every container boot](#running-a-command-on-every-container-boot)
 - [Extending ship](#extending-ship)
 - [Architecture](#architecture)
 - [Contributing](#contributing)
@@ -147,7 +151,8 @@ need to know about every artisan or console subcommand.
 ## Services
 
 `ship init` groups services (database, cache, runtime, storage, search,
-mail, testing, frontend, broadcasting) and lets you pick one per group.
+mail, testing, frontend, broadcasting, broker) and lets you pick one per
+group.
 The table below shows what each built-in `ServiceDefinition` gets you
 automatically, and what's still on the consuming app to add. "Wired"
 means the container runs and the right env vars are set on `app`; it does
@@ -157,7 +162,7 @@ doesn't make for you.
 
 | Service | Wired automatically | Still needed in the app |
 |---|---|---|
-| Postgres (`postgres`, or `pgsql`) | `DB_*` env vars, `pdo_pgsql` extension | Nothing — works out of the box |
+| Postgres (`postgres`) | `DB_*` env vars, `pdo_pgsql` extension | Nothing — works out of the box |
 | MySQL | `DB_*` env vars, `pdo_mysql` extension | Nothing — works out of the box |
 | MariaDB | `DB_*` env vars (`DB_CONNECTION=mariadb`), `pdo_mysql` extension | Nothing on Laravel 11+, whose `mariadb` connection this uses |
 | MongoDB | `MONGODB_URI`/`MONGODB_DATABASE`, `mongodb` PHP extension (added to the image automatically) | `composer require mongodb/laravel-mongodb`, add its `mongodb` connection to `config/database.php` (reading those two variables), and set `DB_CONNECTION=mongodb` yourself if it should be the default. `MONGODB_PASSWORD` is embedded in the URI, so keep it free of characters that need percent-encoding (`@ : / ? # [ ] %`) |
@@ -346,10 +351,9 @@ plain, readable JSON document:
   service is selected — Node installs unconditionally either way (see
   the [Services](#services) table above).
 - `services` — one selected service key per group; a group with no entry
-  means "none selected". PostgreSQL is written `postgres`, and `pgsql` (its
-  original name) is still accepted, here and in `additionalServices` and
-  `serviceNames`. Either way its compose service is `pgsql` and its volume
-  `ship-pgsql-data`, so existing projects keep their data.
+  means "none selected". A service's key is also its compose service name
+  and names its data volume: `postgres` runs as the `postgres` service with
+  the `ship-postgres-data` volume.
 - `additionalServices` — extra, named instances beyond the one in
   `services` (a second database, a second Redis, ...). See
   [Multiple instances of a service](#multiple-instances-of-a-service)
@@ -495,14 +499,14 @@ a letter (`analytics`, `queue_2` — not `Analytics`, `my analytics`, or
 Not every group supports this — only ones where a second instance
 actually means something: `database`, `cache`, `storage`, `search`, and
 `mail`. A second application runtime, frontend toolchain, testing
-driver, or broadcasting server isn't a coherent idea, so those stay
-single-select only.
+driver, broadcasting server or message broker isn't a coherent idea, so
+those stay single-select only.
 
 ### Custom service names and an external network
 
 By default every compose service uses a fixed name — the PHP container
 is `app`, its nginx container is `webserver`, a selected database is its
-engine's own key (`mysql`, `pgsql`, ...), and so on. Fine for one project
+engine's own key (`mysql`, `postgres`, ...), and so on. Fine for one project
 on its own, but not once several `ship`-managed projects need to sit on
 the same Docker network: Compose gives every container a network alias
 matching its service name, so two projects each running, say, an `app`
@@ -598,7 +602,7 @@ same one with a flag flipped:
   handler would run as root — so the generated entrypoint runs its
   root-only steps (`artisan optimize`, fixing ownership of `storage/` and
   friends) and then drops to `www-data` before starting the server.
-- **nginx can now actually serve static assets.** `webserver` builds from
+- **nginx serves static assets itself.** `webserver` builds from
   the same `ship/Dockerfile` as `app` (a `prod-nginx` target that copies
   from the `assets` stage), so it has access to `public/`'s built CSS/JS
   instead of only being able to proxy PHP requests to `app`.
@@ -642,10 +646,10 @@ which PHP's advisory recommends keeping off even on patched releases when
 nothing uses it. The production overlay sets `fatal_error_backtraces=Off`,
 which only exists on PHP 8.5 and is ignored on older branches.
 
-The Dockerfile check only exists in stubs published by this version, so
-after upgrading ship, run `ship init` again (`ship up` warns until you do).
-The floor lives in `Ship\Support\PhpSecurityFloor`, raised whenever
-php.net ships a security release.
+The Dockerfile check is part of the published `ship/Dockerfile`, which only
+`ship init` writes; `ship up` warns when the published stubs are older than
+the installed ship. The floor lives in `Ship\Support\PhpSecurityFloor`,
+raised whenever php.net ships a security release.
 
 ### `.env.production`
 
@@ -735,8 +739,7 @@ and `.npmrc` — without that, a second release built in the same project
 would bake every *earlier* release's own `.env`/images straight into the
 next image via the builder stage's `COPY . .`. `ship init` writes this
 guard, and `ship build`/`ship release` re-apply it too, in case
-`.dockerignore` was hand-edited, reverted, or never existed because
-`init` ran before the guard did. Project-owned
+`.dockerignore` was edited or removed since. Project-owned
 services that build from an identical Dockerfile/target/args (most
 commonly `app` and every `ship.json` `processes` entry, which build from
 the exact same config) share one image and one `.tar`, listed once in
@@ -811,19 +814,20 @@ public internet.
 
 ## Backing up data volumes
 
-Every stateful service (`ship-pgsql-data`, `ship-mysql-data`,
+Every stateful service (`ship-postgres-data`, `ship-mysql-data`,
 `ship-mariadb-data`, `ship-mongodb-data`, `ship-sqlserver-data`,
 `ship-elasticsearch-data`, `ship-rabbitmq-data`,
 `ship-redis-data`, `ship-seaweedfs-data`, `ship-meilisearch-data`, ...)
 persists to a named Docker volume, not a bind mount — `docker volume ls`
-lists them, prefixed with the project's directory name. `ship` doesn't
+lists them, prefixed with the Compose project name (`ship.json`'s `name`,
+or the project directory's name when it's unset). `ship` doesn't
 back these up or rotate them; that's left to whatever backup tooling
 your deploy target already uses. A one-off manual backup of a single
 volume looks like:
 
 ```sh
-docker run --rm -v <project>_ship-pgsql-data:/data -v "$PWD":/backup \
-    alpine tar czf /backup/pgsql-data.tar.gz -C /data .
+docker run --rm -v <project>_ship-postgres-data:/data -v "$PWD":/backup \
+    alpine tar czf /backup/postgres-data.tar.gz -C /data .
 ```
 
 and restoring is the same in reverse (`tar xzf` into a fresh volume
@@ -999,20 +1003,17 @@ a copy installed on Windows/macOS into the Linux container would hand it
 binaries built for the wrong platform outright. The container bootstraps
 its own `vendor/` the same way it already does without Mutagen (the dev
 image runs `composer install` on boot if `vendor/autoload.php` is
-missing); `node_modules/` needs a `ship npm install` the same way a fresh
-bind-mounted project would too if you hadn't run one yet — no regression
-either way, since bind-mount mode doesn't auto-install it now either.
+missing); `node_modules/` needs a `ship npm install`, exactly as it does
+with the bind mount.
 
 ## Running more than one project at once
 
 Every generated compose file carries a top-level `name:` (`ship.json`'s own
 `name`, or the project directory's basename if it's unset) — every named
-volume and the default network alias are keyed off it, so two differently-
-pathed checkouts that happen to share a directory basename don't share
-either. Set `name` explicitly in `ship.json` for anything that depends on
-it staying the same regardless of where the project is checked out — most
-notably a release built from `dist/ship/<tag>/`, where each tag is its own
-directory and would otherwise get its own, different implicit name.
+volume and the default network alias are keyed off it. Set `name` in
+`ship.json` whenever it has to stay the same wherever the project is
+checked out; `ship release` requires it, since it names the release and
+the volumes on the server.
 
 Every published port has an env var override, read at `ship up` time from
 your shell or a `.env` file in the project root:
@@ -1031,7 +1032,7 @@ If a default is already taken — by another `ship` project, or an unrelated
 container — override it for one invocation:
 
 ```bash
-APP_PORT=8081 VITE_PORT=5174 REVERB_PORT=8081 vendor/bin/ship up
+APP_PORT=8081 VITE_PORT=5174 REVERB_PORT=8082 vendor/bin/ship up
 ```
 
 Every one of these binds to `127.0.0.1` in development, not every
@@ -1123,14 +1124,24 @@ your project) and implement one of the two extension points:
 
 - [`Ship\Contracts\ServiceDefinition`](src/Contracts/ServiceDefinition.php) —
   an optional infrastructure piece (database, cache, runtime, ...). A
-  database service can also implement
-  [`Ship\Contracts\ProvidesDatabaseShell`](src/Contracts/ProvidesDatabaseShell.php)
-  to support `ship db`, and any service can implement
-  [`Ship\Contracts\ConfigAwareService`](src/Contracts/ConfigAwareService.php)
-  to read `ship.json` before building its fragment.
+  service can also implement any of these:
+  - [`ProvidesDatabaseShell`](src/Contracts/ProvidesDatabaseShell.php) —
+    a database's client shell, for `ship db`.
+  - [`ConfigAwareService`](src/Contracts/ConfigAwareService.php) — read
+    `ship.json` (a setting, or the other selected services) before
+    building its fragment.
+  - [`RequiresPhpExtensions`](src/Contracts/RequiresPhpExtensions.php) —
+    PHP extensions its client library needs, added to the app image.
+  - [`ExposesHttp`](src/Contracts/ExposesHttp.php) — its own HTTP entry
+    point (a WebSocket server), joined to `externalNetwork` and listed in
+    `release.json`.
+  - [`NeedsAppUrl`](src/Contracts/NeedsAppUrl.php) — the app's internal
+    URL, for a browser testing driver.
 - [`Ship\Contracts\FrameworkAdapter`](src/Contracts/FrameworkAdapter.php) —
   framework-specific console commands (like `ship artisan`) and
-  production boot-time release commands.
+  production boot-time release commands. An adapter can also implement
+  [`DescribesRelease`](src/Contracts/DescribesRelease.php) — the framework's
+  name, health path and required settings, for `ship release`.
 
 See [`docs/adding-a-service.md`](docs/adding-a-service.md) for a worked
 example.
@@ -1151,6 +1162,12 @@ example.
 - [`src/Docker/EntrypointScriptBuilder.php`](src/Docker/EntrypointScriptBuilder.php) —
   renders the production container's boot-time entrypoint script from the
   matched `FrameworkAdapter`'s `releaseCommands()`.
+- [`src/Docker/ReleaseWriter.php`](src/Docker/ReleaseWriter.php) and
+  [`ReleaseManifest.php`](src/Docker/ReleaseManifest.php) — write a
+  release folder and its `release.json`, the
+  [ship-release contract](docs/release-contract.md).
+  [`HttpEntryPoints.php`](src/Docker/HttpEntryPoints.php) decides which
+  services receive HTTP, for both the external network and `release.json`.
 - [`src/Extensions/ExtensionLoader.php`](src/Extensions/ExtensionLoader.php) —
   resolves `ship.json`'s `extensions` array into registered
   services/adapters, so third-party packages don't require forking this
@@ -1163,8 +1180,7 @@ example.
 ## Contributing
 
 See [`docs/adding-a-service.md`](docs/adding-a-service.md) for how to add
-a new `ServiceDefinition` or `FrameworkAdapter`, and
-[`docs/roadmap.md`](docs/roadmap.md) for what's built and what's planned.
+a new `ServiceDefinition` or `FrameworkAdapter`.
 
 ```bash
 composer install

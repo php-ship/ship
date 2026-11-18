@@ -17,7 +17,7 @@
     },
     "services": {
       "type": "object",
-      "description": "One selected service key per group (database, cache, storage, search, mail, testing, frontend, ...). A group without an entry means none. PostgreSQL is \"postgres\"; \"pgsql\" is accepted as an alias by both packages.",
+      "description": "One selected service key per group (database, cache, storage, search, mail, testing, frontend, ...). A group without an entry means none. PostgreSQL is \"postgres\".",
       "additionalProperties": {"type": "string", "minLength": 1},
       "examples": [{"database": "postgres", "cache": "redis"}]
     },

@@ -76,7 +76,7 @@ JSON Schema is `schema/ship-release.schema.json`.
     }
   ],
   "pulledImages": [
-    { "ref": "postgres:18-alpine@sha256:…", "services": ["pgsql"] }
+    { "ref": "postgres:18-alpine@sha256:…", "services": ["postgres"] }
   ],
   "http": [
     { "service": "webserver", "port": 80, "role": "site", "health": "/up" },
@@ -85,7 +85,7 @@ JSON Schema is `schema/ship-release.schema.json`.
   "services": {
     "app":       { "role": "app", "image": "client-app:1.5.0", "healthcheck": false, "volumes": [] },
     "horizon":   { "role": "process", "image": "client-app:1.5.0", "healthcheck": false, "volumes": [] },
-    "pgsql":     { "role": "infrastructure", "image": "postgres:18-alpine@sha256:…", "healthcheck": true, "volumes": ["ship-pgsql-data"] },
+    "postgres":  { "role": "infrastructure", "image": "postgres:18-alpine@sha256:…", "healthcheck": true, "volumes": ["ship-postgres-data"] },
     "reverb":    { "role": "process", "image": "client-app:1.5.0", "healthcheck": false, "volumes": [] },
     "webserver": { "role": "web", "image": "client-webserver:1.5.0", "healthcheck": false, "volumes": [] }
   },
@@ -99,7 +99,7 @@ JSON Schema is `schema/ship-release.schema.json`.
   },
   "deploy": {
     "service": "app",
-    "needs": ["pgsql"],
+    "needs": ["postgres"],
     "commands": [["sh", "-c", "php artisan migrate --force"]]
   },
   "requires": { "networks": ["proxy"] }

@@ -27,7 +27,7 @@ final class ComposeFileBuilderMutagenTest extends TestCase
     public function test_mutagen_mode_swaps_apps_bind_mount_for_a_named_volume(): void
     {
         $builder = new ComposeFileBuilder($this->registry());
-        $config = new ShipConfig(phpVersion: '8.4', services: ['database' => 'pgsql']);
+        $config = new ShipConfig(phpVersion: '8.4', services: ['database' => 'postgres']);
 
         $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Development, mutagenSync: true));
 
@@ -41,7 +41,7 @@ final class ComposeFileBuilderMutagenTest extends TestCase
     public function test_mutagen_mode_shares_the_same_named_volume_with_webserver(): void
     {
         $builder = new ComposeFileBuilder($this->registry());
-        $config = new ShipConfig(phpVersion: '8.4', services: ['database' => 'pgsql']);
+        $config = new ShipConfig(phpVersion: '8.4', services: ['database' => 'postgres']);
 
         $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Development, mutagenSync: true));
 
@@ -52,7 +52,7 @@ final class ComposeFileBuilderMutagenTest extends TestCase
     public function test_mutagen_mode_is_ignored_when_no_webserver_exists(): void
     {
         $builder = new ComposeFileBuilder($this->registry());
-        $config = new ShipConfig(phpVersion: '8.4', services: ['database' => 'pgsql', 'runtime' => 'octane-swoole']);
+        $config = new ShipConfig(phpVersion: '8.4', services: ['database' => 'postgres', 'runtime' => 'octane-swoole']);
 
         $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Development, mutagenSync: true));
 
@@ -66,7 +66,7 @@ final class ComposeFileBuilderMutagenTest extends TestCase
     public function test_mutagen_mode_never_applies_in_production(): void
     {
         $builder = new ComposeFileBuilder($this->registry());
-        $config = new ShipConfig(phpVersion: '8.4', services: ['database' => 'pgsql']);
+        $config = new ShipConfig(phpVersion: '8.4', services: ['database' => 'postgres']);
 
         $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Production, mutagenSync: true));
 
@@ -77,7 +77,7 @@ final class ComposeFileBuilderMutagenTest extends TestCase
     public function test_mutagen_mode_defaults_to_off(): void
     {
         $builder = new ComposeFileBuilder($this->registry());
-        $config = new ShipConfig(phpVersion: '8.4', services: ['database' => 'pgsql']);
+        $config = new ShipConfig(phpVersion: '8.4', services: ['database' => 'postgres']);
 
         $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Development));
 

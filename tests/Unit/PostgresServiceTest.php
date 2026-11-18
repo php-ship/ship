@@ -9,19 +9,19 @@ use Ship\Contracts\ShipEnvironment;
 use Ship\Services\PostgresService;
 
 /**
- * Cross-checks what the "pgsql" container is provisioned with against what "app" connects with.
+ * Cross-checks what the "postgres" container is provisioned with against what "app" connects with.
  */
 final class PostgresServiceTest extends TestCase
 {
-    public function test_app_credentials_match_what_the_pgsql_container_is_provisioned_with(): void
+    public function test_app_credentials_match_what_the_postgres_container_is_provisioned_with(): void
     {
         $service = new PostgresService();
-        $pgsqlEnv = $service->composeFragment(ShipEnvironment::Development)['pgsql']['environment'];
+        $postgresEnv = $service->composeFragment(ShipEnvironment::Development)['postgres']['environment'];
         $appEnv = $service->environmentVariables();
 
-        self::assertSame($pgsqlEnv['POSTGRES_DB'], $appEnv['DB_DATABASE']);
-        self::assertSame($pgsqlEnv['POSTGRES_USER'], $appEnv['DB_USERNAME']);
-        self::assertSame($pgsqlEnv['POSTGRES_PASSWORD'], $appEnv['DB_PASSWORD']);
+        self::assertSame($postgresEnv['POSTGRES_DB'], $appEnv['DB_DATABASE']);
+        self::assertSame($postgresEnv['POSTGRES_USER'], $appEnv['DB_USERNAME']);
+        self::assertSame($postgresEnv['POSTGRES_PASSWORD'], $appEnv['DB_PASSWORD']);
     }
 
     /**
@@ -31,14 +31,14 @@ final class PostgresServiceTest extends TestCase
     {
         $fragment = (new PostgresService())->composeFragment(ShipEnvironment::Production);
 
-        self::assertSame('${DB_PASSWORD:?set a real value in .env.production}', $fragment['pgsql']['environment']['POSTGRES_PASSWORD']);
+        self::assertSame('${DB_PASSWORD:?set a real value in .env.production}', $fragment['postgres']['environment']['POSTGRES_PASSWORD']);
     }
 
-    public function test_db_shell_command_targets_the_pgsql_service(): void
+    public function test_db_shell_command_targets_the_postgres_service(): void
     {
         $shell = (new PostgresService())->databaseShellCommand();
 
-        self::assertSame('pgsql', $shell['service']);
+        self::assertSame('postgres', $shell['service']);
         self::assertStringContainsString('psql', implode(' ', $shell['command']));
     }
 }

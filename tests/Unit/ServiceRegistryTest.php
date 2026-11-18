@@ -38,23 +38,23 @@ final class ServiceRegistryTest extends TestCase
         $registry = new ServiceRegistry();
 
         $this->expectException(\OutOfBoundsException::class);
-        $this->expectExceptionMessage('No registered service with key "pgsql"');
+        $this->expectExceptionMessage('No registered service with key "postgres"');
 
-        $registry->get('pgsql');
+        $registry->get('postgres');
     }
 
     public function test_get_returns_a_registered_service_by_its_key(): void
     {
         $registry = new ServiceRegistry([new PostgresService()]);
 
-        self::assertInstanceOf(PostgresService::class, $registry->get('pgsql'));
+        self::assertInstanceOf(PostgresService::class, $registry->get('postgres'));
     }
 
     public function test_has_tells_a_registered_key_from_an_unregistered_one(): void
     {
         $registry = new ServiceRegistry([new PostgresService()]);
 
-        self::assertTrue($registry->has('pgsql'));
+        self::assertTrue($registry->has('postgres'));
         self::assertFalse($registry->has('not-a-real-service'));
     }
 
@@ -64,7 +64,7 @@ final class ServiceRegistryTest extends TestCase
         $replacement = new PostgresService();
         $registry->register($replacement);
 
-        self::assertSame($replacement, $registry->get('pgsql'));
+        self::assertSame($replacement, $registry->get('postgres'));
         self::assertCount(1, $registry->all());
     }
 
@@ -75,7 +75,7 @@ final class ServiceRegistryTest extends TestCase
         $database = $registry->inGroup('database');
 
         self::assertCount(2, $database);
-        self::assertSame(['pgsql', 'mysql'], array_map(static fn ($s) => $s->key(), $database));
+        self::assertSame(['postgres', 'mysql'], array_map(static fn ($s) => $s->key(), $database));
     }
 
     public function test_in_group_returns_an_empty_list_for_a_group_with_nothing_registered(): void

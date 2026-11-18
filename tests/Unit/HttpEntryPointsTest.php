@@ -38,7 +38,7 @@ final class HttpEntryPointsTest extends TestCase
 
     public function test_nginx_is_the_site_on_port_80(): void
     {
-        $entries = $this->resolve(new ShipConfig(phpVersion: '8.4', services: ['database' => 'pgsql']))['entries'];
+        $entries = $this->resolve(new ShipConfig(phpVersion: '8.4', services: ['database' => 'postgres']))['entries'];
 
         self::assertSame([['service' => 'webserver', 'port' => 80, 'role' => 'site', 'health' => null]], $entries);
     }

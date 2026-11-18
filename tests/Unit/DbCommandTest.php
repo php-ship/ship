@@ -58,7 +58,7 @@ final class DbCommandTest extends TestCase
     {
         (new ShipConfig(
             phpVersion: '8.4',
-            services: ['database' => 'pgsql'],
+            services: ['database' => 'postgres'],
             additionalServices: [['group' => 'database', 'service' => 'mysql', 'name' => 'analytics']],
         ))->toFile($this->projectRoot . '/ship.json');
 

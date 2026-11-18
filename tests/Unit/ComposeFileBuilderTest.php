@@ -59,12 +59,12 @@ final class ComposeFileBuilderTest extends TestCase
     {
         $builder = new ComposeFileBuilder($this->registry());
 
-        $config = new ShipConfig(phpVersion: '8.4', services: ['database' => 'pgsql']);
+        $config = new ShipConfig(phpVersion: '8.4', services: ['database' => 'postgres']);
 
         $yaml = $builder->build($config, ShipEnvironment::Development);
         $parsed = Yaml::parse($yaml);
 
-        self::assertArrayHasKey('pgsql', $parsed['services']);
+        self::assertArrayHasKey('postgres', $parsed['services']);
         self::assertSame('pgsql', $parsed['services']['app']['environment']['DB_CONNECTION']);
     }
 
@@ -74,7 +74,7 @@ final class ComposeFileBuilderTest extends TestCase
 
         $config = new ShipConfig(
             phpVersion: '8.4',
-            services: ['database' => 'pgsql', 'cache' => 'redis'],
+            services: ['database' => 'postgres', 'cache' => 'redis'],
         );
 
         $yaml = $builder->build($config, ShipEnvironment::Development);
@@ -107,13 +107,13 @@ final class ComposeFileBuilderTest extends TestCase
     {
         $builder = new ComposeFileBuilder($this->registry());
 
-        $config = new ShipConfig(phpVersion: '8.4', services: ['database' => 'pgsql']);
+        $config = new ShipConfig(phpVersion: '8.4', services: ['database' => 'postgres']);
 
         $yaml = $builder->build($config, ShipEnvironment::Production);
         $parsed = Yaml::parse($yaml);
 
-        self::assertSame(['ship-pgsql-data:/var/lib/postgresql'], $parsed['services']['pgsql']['volumes']);
-        self::assertArrayHasKey('ship-pgsql-data', $parsed['volumes']);
+        self::assertSame(['ship-postgres-data:/var/lib/postgresql'], $parsed['services']['postgres']['volumes']);
+        self::assertArrayHasKey('ship-postgres-data', $parsed['volumes']);
     }
 
     public function test_top_level_volumes_reflect_every_selected_services_named_volumes(): void
@@ -122,13 +122,13 @@ final class ComposeFileBuilderTest extends TestCase
 
         $config = new ShipConfig(
             phpVersion: '8.4',
-            services: ['database' => 'pgsql', 'cache' => 'redis'],
+            services: ['database' => 'postgres', 'cache' => 'redis'],
         );
 
         $yaml = $builder->build($config, ShipEnvironment::Development);
         $parsed = Yaml::parse($yaml);
 
-        self::assertArrayHasKey('ship-pgsql-data', $parsed['volumes']);
+        self::assertArrayHasKey('ship-postgres-data', $parsed['volumes']);
         self::assertArrayHasKey('ship-redis-data', $parsed['volumes']);
     }
 
@@ -266,7 +266,7 @@ final class ComposeFileBuilderTest extends TestCase
         $builder = new ComposeFileBuilder($this->registry());
         $config = new ShipConfig(
             phpVersion: '8.4',
-            services: ['database' => 'pgsql'],
+            services: ['database' => 'postgres'],
             externalNetwork: 'shared_infra',
             processes: ['horizon' => 'php artisan horizon', 'scheduler' => 'php artisan schedule:work'],
         );
@@ -278,7 +278,7 @@ final class ComposeFileBuilderTest extends TestCase
         self::assertSame($prod['services']['app']['build'], $prod['services']['horizon']['build']);
         self::assertSame($prod['services']['app']['networks'], $prod['services']['horizon']['networks']);
         self::assertContains('external', $prod['services']['horizon']['networks']);
-        self::assertSame('pgsql', $prod['services']['horizon']['environment']['DB_HOST']);
+        self::assertSame('postgres', $prod['services']['horizon']['environment']['DB_HOST']);
         self::assertSame('unless-stopped', $prod['services']['horizon']['restart']);
         self::assertArrayNotHasKey('ports', $prod['services']['horizon']);
     }
@@ -669,7 +669,7 @@ final class ComposeFileBuilderTest extends TestCase
         $builder = new ComposeFileBuilder($this->registry());
         $config = new ShipConfig(
             phpVersion: '8.4',
-            services: ['database' => 'pgsql', 'cache' => 'redis'],
+            services: ['database' => 'postgres', 'cache' => 'redis'],
         );
 
         $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Production));
@@ -708,15 +708,15 @@ final class ComposeFileBuilderTest extends TestCase
         $builder = new ComposeFileBuilder($registry);
         $config = new ShipConfig(
             phpVersion: '8.4',
-            services: ['database' => 'pgsql'],
+            services: ['database' => 'postgres'],
             additionalServices: [['group' => 'database', 'service' => 'mysql', 'name' => 'analytics']],
         );
 
         $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Development));
 
         // The default instance keeps its compose service name and unprefixed env vars.
-        self::assertArrayHasKey('pgsql', $parsed['services']);
-        self::assertSame('pgsql', $parsed['services']['app']['environment']['DB_HOST']);
+        self::assertArrayHasKey('postgres', $parsed['services']);
+        self::assertSame('postgres', $parsed['services']['app']['environment']['DB_HOST']);
         self::assertSame('pgsql', $parsed['services']['app']['environment']['DB_CONNECTION']);
 
         // The additional instance gets its own compose service and prefixed env vars.
@@ -788,7 +788,7 @@ final class ComposeFileBuilderTest extends TestCase
             services: [],
             additionalServices: [
                 ['group' => 'database', 'service' => 'mysql', 'name' => 'dup'],
-                ['group' => 'database', 'service' => 'pgsql', 'name' => 'dup'],
+                ['group' => 'database', 'service' => 'postgres', 'name' => 'dup'],
             ],
         );
 
@@ -881,14 +881,14 @@ final class ComposeFileBuilderTest extends TestCase
     public function test_production_builds_always_pull_a_fresh_base_image(): void
     {
         $builder = new ComposeFileBuilder($this->registry());
-        $config = new ShipConfig(phpVersion: '8.4', services: ['database' => 'pgsql']);
+        $config = new ShipConfig(phpVersion: '8.4', services: ['database' => 'postgres']);
 
         $parsed = Yaml::parse($builder->build($config, ShipEnvironment::Production));
 
         self::assertTrue($parsed['services']['app']['build']['pull']);
         self::assertTrue($parsed['services']['webserver']['build']['pull']);
         // An image-only service has nothing to build.
-        self::assertArrayNotHasKey('build', $parsed['services']['pgsql']);
+        self::assertArrayNotHasKey('build', $parsed['services']['postgres']);
     }
 
     /**

@@ -74,7 +74,7 @@ final class ReleaseWriterTest extends TestCase
     {
         $arguments = [
             'phpVersion' => '8.4',
-            'services' => ['database' => 'pgsql', 'cache' => 'redis', 'broadcasting' => 'reverb'],
+            'services' => ['database' => 'postgres', 'cache' => 'redis', 'broadcasting' => 'reverb'],
             'name' => 'client',
             'processes' => ['horizon' => 'php artisan horizon'],
             'deployCommands' => ['php artisan migrate --force', "echo 'it''s \$HOME' && printf '%s\\n' \"a b\""],
@@ -235,7 +235,7 @@ final class ReleaseWriterTest extends TestCase
      */
     public function test_centrifugo_is_a_websocket_entry_with_its_own_health_path(): void
     {
-        $manifest = $this->release($this->config(['services' => ['database' => 'pgsql', 'broadcasting' => 'centrifugo']]))['manifest'];
+        $manifest = $this->release($this->config(['services' => ['database' => 'postgres', 'broadcasting' => 'centrifugo']]))['manifest'];
 
         self::assertSame(['service' => 'centrifugo', 'port' => 8000, 'role' => 'websocket', 'health' => '/health'], $manifest['http'][1]);
         self::assertSame('infrastructure', $manifest['services']['centrifugo']['role']);
@@ -247,7 +247,7 @@ final class ReleaseWriterTest extends TestCase
 
     public function test_http_lists_app_on_octanes_port(): void
     {
-        $config = $this->config(['services' => ['database' => 'pgsql', 'runtime' => 'octane-swoole']]);
+        $config = $this->config(['services' => ['database' => 'postgres', 'runtime' => 'octane-swoole']]);
 
         $manifest = $this->release($config)['manifest'];
 
@@ -267,14 +267,14 @@ final class ReleaseWriterTest extends TestCase
         $manifest = $this->release()['manifest'];
         $services = $manifest['services'];
 
-        self::assertSame(['app', 'horizon', 'pgsql', 'redis', 'reverb', 'webserver'], array_keys($services));
+        self::assertSame(['app', 'horizon', 'postgres', 'redis', 'reverb', 'webserver'], array_keys($services));
         self::assertSame('app', $services['app']['role']);
         self::assertSame('web', $services['webserver']['role']);
         self::assertSame('process', $services['horizon']['role']);
         self::assertSame('process', $services['reverb']['role']);
-        self::assertSame('infrastructure', $services['pgsql']['role']);
-        self::assertSame(['ship-pgsql-data'], $services['pgsql']['volumes']);
-        self::assertTrue($services['pgsql']['healthcheck']);
+        self::assertSame('infrastructure', $services['postgres']['role']);
+        self::assertSame(['ship-postgres-data'], $services['postgres']['volumes']);
+        self::assertTrue($services['postgres']['healthcheck']);
         self::assertSame([], $services['webserver']['volumes']);
 
         $refs = [...array_column($manifest['images'], 'ref'), ...array_column($manifest['pulledImages'], 'ref')];
@@ -301,10 +301,10 @@ final class ReleaseWriterTest extends TestCase
         $compose = Yaml::parseFile($release['destination'] . '/docker-compose.yml');
 
         self::assertSame([
-            ['ref' => 'postgres:18-alpine@sha256:' . FakeReleaseDocker::digestFor('postgres:18-alpine'), 'services' => ['pgsql']],
+            ['ref' => 'postgres:18-alpine@sha256:' . FakeReleaseDocker::digestFor('postgres:18-alpine'), 'services' => ['postgres']],
             ['ref' => 'redis:8-alpine@sha256:' . FakeReleaseDocker::digestFor('redis:8-alpine'), 'services' => ['redis']],
         ], $release['manifest']['pulledImages']);
-        self::assertSame($release['manifest']['pulledImages'][0]['ref'], $compose['services']['pgsql']['image']);
+        self::assertSame($release['manifest']['pulledImages'][0]['ref'], $compose['services']['postgres']['image']);
         self::assertArrayNotHasKey('build', $compose['services']['app']);
     }
 
@@ -435,7 +435,7 @@ final class ReleaseWriterTest extends TestCase
     {
         self::assertSame([
             'service' => 'app',
-            'needs' => ['pgsql', 'redis'],
+            'needs' => ['postgres', 'redis'],
             'commands' => [
                 ['sh', '-c', 'php artisan migrate --force'],
                 ['sh', '-c', "echo 'it''s \$HOME' && printf '%s\\n' \"a b\""],

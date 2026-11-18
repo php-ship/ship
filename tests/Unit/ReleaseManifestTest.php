@@ -35,7 +35,7 @@ final class ReleaseManifestTest extends TestCase
     public function test_named_volumes_exclude_bind_mounts_and_read_the_long_syntax(): void
     {
         $service = ['volumes' => [
-            'ship-pgsql-data:/var/lib/postgresql',
+            'ship-postgres-data:/var/lib/postgresql',
             './storage:/var/www/html/storage',
             '/etc/hosts:/etc/hosts:ro',
             '~/cache:/cache',
@@ -44,7 +44,7 @@ final class ReleaseManifestTest extends TestCase
             '/anonymous',
         ]];
 
-        self::assertSame(['ship-cache', 'ship-pgsql-data'], ReleaseManifest::namedVolumes($service));
+        self::assertSame(['ship-cache', 'ship-postgres-data'], ReleaseManifest::namedVolumes($service));
         self::assertSame([], ReleaseManifest::namedVolumes([]));
     }
 
