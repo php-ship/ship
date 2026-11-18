@@ -196,8 +196,26 @@ final class ReleaseCommandTest extends TestCase
     /** @var list<string> */
     private array $cleanup = [];
 
+    /**
+     * git writes its object files read-only, and Windows refuses to delete a read-only file, so
+     * every file is made writable first (chmod() clears Windows' read-only attribute).
+     */
     protected function tearDown(): void
     {
+        foreach ($this->cleanup as $directory) {
+            if (!is_dir($directory)) {
+                continue;
+            }
+
+            $files = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($directory, \FilesystemIterator::SKIP_DOTS));
+
+            foreach ($files as $file) {
+                if ($file instanceof \SplFileInfo && $file->isFile()) {
+                    @chmod($file->getPathname(), 0o666);
+                }
+            }
+        }
+
         (new Filesystem())->remove($this->cleanup);
     }
 
