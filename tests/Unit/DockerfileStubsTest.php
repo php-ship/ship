@@ -62,4 +62,23 @@ final class DockerfileStubsTest extends TestCase
             self::assertLessThan(strpos($assets, 'npm run build'), strpos($assets, 'eval "$VITE_ENV"'), $file);
         }
     }
+
+    /**
+     * The production healthchecks ask php-fpm for its ping: directly with cgi-fcgi ("app"), and
+     * through nginx ("webserver").
+     */
+    public function test_the_published_files_provide_the_fpm_ping_the_healthchecks_ask_for(): void
+    {
+        $root = dirname(__DIR__, 2) . '/stubs/docker';
+        $dockerfile = (string) file_get_contents($root . '/php/Dockerfile');
+        $fpm = (string) file_get_contents($root . '/php/php-fpm.conf');
+        $nginx = (string) file_get_contents($root . '/nginx/default.conf');
+
+        self::assertMatchesRegularExpression('/apk add --no-cache [^\\n]*\\bfcgi\\b/', $dockerfile);
+        self::assertStringContainsString('COPY ship/php-fpm.conf /usr/local/etc/php-fpm.d/zz-ship.conf', $dockerfile);
+        self::assertStringContainsString('ping.path = /ship-fpm-ping', $fpm);
+        self::assertStringContainsString('ping.response = pong', $fpm);
+        self::assertStringContainsString('location = /ship-fpm-ping {', $nginx);
+        self::assertStringContainsString('allow 127.0.0.1;', $nginx);
+    }
 }

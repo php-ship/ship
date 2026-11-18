@@ -568,6 +568,13 @@ it warns instead, comparing the version recorded at the last `ship
 init` against what's currently installed, and telling you to re-run
 `ship init` if they differ.
 
+`ship build`, `ship release` and `ship config:test` go further when it
+matters: the published files carry a revision (`ship/.stub-revision`), and
+when the compose files this version generates depend on something newer
+than the published files have (the healthchecks' php-fpm ping, say), they
+refuse to build until `ship init` republishes them, instead of producing a
+release whose images don't match its compose file.
+
 ### Multiple instances of a service
 
 `ship.json`'s `services` object holds exactly one selection per group —
@@ -713,6 +720,22 @@ same one with a flag flipped:
   the same `ship/Dockerfile` as `app` (a `prod-nginx` target that copies
   from the `assets` stage), so it has access to `public/`'s built CSS/JS
   instead of only being able to proxy PHP requests to `app`.
+- **Every service has a healthcheck**, so `docker compose up --wait` (and
+  `deploy-commands.sh`, and any deployment tool) waits until the whole
+  release really serves, not just until its containers started:
+
+  | Service | Healthy when |
+  |---|---|
+  | `app` (php-fpm) | php-fpm answers its ping over FastCGI |
+  | `webserver` (nginx) | nginx passes that ping through to php-fpm |
+  | `app` (Octane), Reverb | their HTTP server answers a request (any status) |
+  | `processes` workers | the worker has stayed up for 10 seconds, which a worker that crashes on boot and restarts in a loop never does |
+  | databases, caches, search, storage, ... | their own checks, as in development |
+
+  These check that the server serves, not that the app works: a deployment
+  tool requests `release.json`'s `http[].health` (Laravel's `/up`) for that.
+  Development has no app healthchecks, since the first boot runs `composer
+  install`, which can take minutes.
 
 ### PHP security floor
 

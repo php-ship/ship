@@ -7,6 +7,7 @@ namespace Ship\Tests\Unit;
 use PHPUnit\Framework\TestCase;
 use Ship\Config\ShipConfig;
 use Ship\Console\Commands\ConfigTestCommand;
+use Ship\Support\StubRevision;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandTester;
 use Symfony\Component\Filesystem\Filesystem;
@@ -23,7 +24,9 @@ final class ConfigTestCommandTest extends TestCase
     protected function setUp(): void
     {
         $this->projectRoot = sys_get_temp_dir() . '/ship-config-test-command-' . bin2hex(random_bytes(8));
-        mkdir($this->projectRoot, recursive: true);
+        // A project `ship init` has published the current stubs into.
+        mkdir($this->projectRoot . '/ship', recursive: true);
+        file_put_contents($this->projectRoot . '/ship/.stub-revision', StubRevision::REQUIRED . "\n");
     }
 
     protected function tearDown(): void
@@ -201,5 +204,21 @@ final class ConfigTestCommandTest extends TestCase
         $this->tester = new CommandTester(new ConfigTestCommand($this->projectRoot));
 
         return $this->tester->execute([]);
+    }
+
+    /**
+     * Images built from stubs older than the generated compose file expects wouldn't match it.
+     */
+    public function test_it_reports_stubs_published_by_an_older_ship(): void
+    {
+        unlink($this->projectRoot . '/ship/.stub-revision');
+        (new ShipConfig(phpVersion: '8.4', services: []))->toFile($this->projectRoot . '/ship.json');
+
+        $tester = new CommandTester(new ConfigTestCommand($this->projectRoot));
+        $exitCode = $tester->execute([]);
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString('published by an older ship (revision 1; this one needs ' . StubRevision::REQUIRED . ')', $tester->getDisplay());
+        self::assertStringContainsString('Run `ship init`', $tester->getDisplay());
     }
 }

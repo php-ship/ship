@@ -68,6 +68,13 @@ a runtime — is a class implementing `Ship\Contracts\ServiceDefinition`.
   into both images even when the service itself is development-only, as
   SQL Server's is.
 
+- **If generated compose output starts depending on a change to a published
+  stub** (the Dockerfiles, nginx or php-fpm config), bump
+  `Ship\Support\StubRevision::REQUIRED` and `stubs/docker/php/.stub-revision`
+  together. Projects whose published files predate it then get "run `ship
+  init`" from `ship build`/`ship release` instead of a release whose images
+  don't match its compose file.
+
 - **If your service needs a config file** (like Garage's `garage.toml`),
   add it under `stubs/docker/<service>/` and publish it conditionally from
   `InitCommand::publishStubs()` — see the existing Garage branch there for

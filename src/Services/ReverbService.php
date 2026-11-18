@@ -8,6 +8,7 @@ use Ship\Contracts\ExposesHttp;
 use Ship\Contracts\ServiceDefinition;
 use Ship\Contracts\ShipEnvironment;
 use Ship\Docker\DevPortBinding;
+use Ship\Docker\Healthchecks;
 
 /**
  * Reverb is a long-running WebSocket server with its own published port, so it's a separate
@@ -50,6 +51,7 @@ final class ReverbService implements ServiceDefinition, ExposesHttp
                 'networks' => ['ship'],
                 // The same optional .env as "app" (see ComposeFileBuilder::OPTIONAL_ENV_FILE).
                 'env_file' => [['path' => '.env', 'required' => false]],
+                ...(!$environment->isDevelopment() ? ['healthcheck' => Healthchecks::httpServer(8080)] : []),
             ],
         ];
     }

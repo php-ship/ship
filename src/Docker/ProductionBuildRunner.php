@@ -11,6 +11,7 @@ use Ship\Frameworks\LaravelAdapter;
 use Ship\Frameworks\SymfonyAdapter;
 use Ship\Runtime\ProcessRunner;
 use Ship\Services\ServiceRegistry;
+use Ship\Support\StubRevision;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Yaml\Yaml;
@@ -45,6 +46,15 @@ final class ProductionBuildRunner
         string $tagSuffix,
         OutputInterface $output,
     ): ?array {
+        // The generated compose file relies on the published stubs (see StubRevision); building
+        // against older ones would ship images it doesn't match.
+        $stubProblem = StubRevision::problem($projectRoot);
+        if ($stubProblem !== null) {
+            $output->writeln("<error>ship: {$stubProblem}</error>");
+
+            return null;
+        }
+
         // Re-applied at build time, when `COPY . .` runs, in case .dockerignore was edited or
         // removed since `ship init`.
         DockerignoreGuard::ensure($projectRoot);

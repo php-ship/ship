@@ -539,6 +539,8 @@ final class ComposeFileBuilder
                 'networks' => $app['networks'],
                 'restart' => 'unless-stopped',
                 'stop_grace_period' => '60s',
+                // No port to ask: the check is that the worker stays up rather than crash-looping.
+                'healthcheck' => Healthchecks::stayedUp(),
             ];
         }
 
@@ -776,6 +778,8 @@ final class ComposeFileBuilder
                 // Lets Xdebug (dev image only) reach the IDE on the host; "host-gateway" resolves
                 // to the host on Docker Desktop and native Linux alike.
                 'extra_hosts' => $environment->isDevelopment() ? ['host.docker.internal:host-gateway'] : [],
+                // php-fpm answers its ping. An Octane runtime replaces this with its own check.
+                ...(!$environment->isDevelopment() ? ['healthcheck' => Healthchecks::phpFpm()] : []),
             ],
         ];
 
@@ -792,6 +796,7 @@ final class ComposeFileBuilder
                 'volumes' => $environment->isDevelopment() ? $devVolume : [],
                 'ports' => [DevPortBinding::bind('${APP_PORT:-80}:80', $environment)],
                 'depends_on' => ['app'],
+                ...(!$environment->isDevelopment() ? ['healthcheck' => Healthchecks::nginx()] : []),
                 'networks' => ['ship'],
             ];
         }

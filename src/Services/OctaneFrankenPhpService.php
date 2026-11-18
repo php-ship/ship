@@ -7,6 +7,7 @@ namespace Ship\Services;
 use Ship\Contracts\ServiceDefinition;
 use Ship\Contracts\ShipEnvironment;
 use Ship\Docker\DevPortBinding;
+use Ship\Docker\Healthchecks;
 
 /**
  * FrankenPHP is the server itself, built on Caddy, and needs `dunglas/frankenphp` as its base
@@ -39,6 +40,8 @@ final class OctaneFrankenPhpService implements ServiceDefinition
                 // Shallow-merged into "app"'s build, so context/target/args are kept.
                 'build' => ['dockerfile' => 'ship/Dockerfile.frankenphp'],
                 'command' => $this->command($environment),
+                // Octane serves HTTP itself: it answers at all (see Healthchecks::httpServer()).
+                ...(!$environment->isDevelopment() ? ['healthcheck' => Healthchecks::httpServer(8000)] : []),
                 'ports' => [
                     DevPortBinding::bind('${APP_PORT:-8000}:8000', $environment),
                     DevPortBinding::bind('${APP_HTTPS_PORT:-8443}:8443', $environment),

@@ -15,6 +15,8 @@ ARG PHP_SECURITY_FLOOR=""
 COPY ship/check-php-security-floor.php /usr/local/share/ship/check-php-security-floor.php
 RUN SHIP_BASE_IMAGE="php:${PHP_VERSION}-fpm-alpine" php /usr/local/share/ship/check-php-security-floor.php
 
+# fcgi provides cgi-fcgi, which the production healthcheck uses to ping php-fpm.
+#
 # pdo_pgsql/pdo_mysql/pcntl/zip/sockets are installed regardless of which database or runtime is
 # selected: cheap, and it avoids a build arg per extension. pcntl is needed by Octane and Reverb for
 # signal handling, zip by laravel/dusk and the common spreadsheet/archive libraries, sockets by
@@ -24,13 +26,17 @@ RUN SHIP_BASE_IMAGE="php:${PHP_VERSION}-fpm-alpine" php /usr/local/share/ship/ch
 # OPcache is only built when PHP doesn't already have it. The official images ship it enabled on
 # PHP < 8.5, and from 8.5 it is compiled into PHP itself, so there is no shared module to build:
 # `docker-php-ext-install opcache` fails there with "cp: can't stat 'modules/*'".
-RUN apk add --no-cache libpq-dev icu-dev oniguruma-dev libzip-dev \
+RUN apk add --no-cache libpq-dev icu-dev oniguruma-dev libzip-dev fcgi \
     && apk add --no-cache --virtual .build-deps-headers linux-headers \
     && docker-php-ext-install pdo_pgsql pdo_mysql intl mbstring pcntl zip sockets \
     && if ! php -r 'exit(extension_loaded("Zend OPcache") ? 0 : 1);'; then \
         docker-php-ext-install opcache; \
     fi \
     && apk del .build-deps-headers
+
+# php-fpm's ping endpoint, which the production healthchecks use (cgi-fcgi, from the fcgi package
+# above, asks it over FastCGI).
+COPY ship/php-fpm.conf /usr/local/etc/php-fpm.d/zz-ship.conf
 
 # Extra extensions from ship.json's phpExtensions, installed with
 # mlocati/docker-php-extension-installer, which knows each extension's build dependencies. Skipped
@@ -123,8 +129,15 @@ FROM builder AS assets
 # .env.production's VITE_* settings as `export` lines (see Ship\Docker\ViteBuildEnv), which Vite
 # bakes into the bundle. The .env files themselves are kept out of the build context.
 ARG VITE_ENV=""
+#
+# Node gives each address of a dual-stack host 250 ms by default ("happy eyeballs"), which a slow
+# link from inside a build container regularly misses, failing a build step that downloads
+# (npm itself, or Vite plugins such as Laravel's font loader). Raised where this Node supports it.
 RUN if [ -f package.json ]; then \
-        if [ -f package-lock.json ]; then npm ci; else npm install; fi \
+        if node --network-family-autoselection-attempt-timeout=2500 -e 0 2>/dev/null; then \
+            export NODE_OPTIONS="--network-family-autoselection-attempt-timeout=2500 ${NODE_OPTIONS:-}"; \
+        fi \
+        && if [ -f package-lock.json ]; then npm ci; else npm install; fi \
         && eval "$VITE_ENV" \
         && npm run build \
         && rm -rf node_modules; \

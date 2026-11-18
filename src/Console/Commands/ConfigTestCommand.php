@@ -14,6 +14,7 @@ use Ship\Docker\ProjectName;
 use Ship\Docker\RequiredEnv;
 use Ship\Extensions\ExtensionLoader;
 use Ship\Services\ServiceRegistry;
+use Ship\Support\StubRevision;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -83,6 +84,12 @@ final class ConfigTestCommand extends Command
         $nginxWarning = NginxUpstreamMismatch::warning($this->projectRoot, $config);
         if ($nginxWarning !== null) {
             $output->writeln($nginxWarning);
+        }
+
+        $stubProblem = StubRevision::problem($this->projectRoot);
+        if ($stubProblem !== null) {
+            $this->problems++;
+            $output->writeln("<error>ship: {$stubProblem}</error>");
         }
 
         $this->checkMySqlUsername($config, $this->projectRoot . '/.env', 'development', $output);
