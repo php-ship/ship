@@ -127,7 +127,7 @@ release`.
 | `ship init` | Interactive picker for services (database, cache, runtime, ...); writes `ship.json` and publishes the `ship/` directory. Re-run it after upgrading `ship` to pick up stub changes — see [Adding a service later](#adding-a-service-later). |
 | `ship up` | Regenerates `ship/docker-compose.generated.yml` from `ship.json` and runs `docker compose up --build -d`. Development only — see `ship build`/`ship release` below for production. |
 | `ship build` | Builds every project-owned production image, tagged locally. Needs a real `.env.production` the moment any selected service has a required credential — see that section below. See [Production releases](#production-releases). |
-| `ship release --tag <tag>` | Builds the same images (re-tagged) and assembles the portable release artifact under `dist/ship/<tag>/`. See [Production releases](#production-releases). |
+| `ship release --tag <tag> [--force] [--no-env]` | Builds the same images (re-tagged) and assembles the portable release under `dist/ship/<tag>/`, described by `release.json` ([the ship-release contract](docs/release-contract.md)). `--force` replaces an existing release of that tag; `--no-env` leaves `.env.production` out. Needs `name` in `ship.json`. See [Production releases](#production-releases). |
 | `ship down [--volumes]` | `docker compose down`. `--volumes` also deletes named volumes (database/storage data — use with care). |
 | `ship exec <service> <cmd...>` | Runs an arbitrary command inside a running service container. The generic escape hatch every shortcut below wraps. |
 | `ship shell [service]` | Opens an interactive shell (`sh`) in a service; defaults to `app`. |
@@ -572,8 +572,8 @@ previously committed, remove it from history and rotate its secrets.
 `docker compose build` (for a hand-edited `ship/Dockerfile`'s own build
 args, via Compose's own `${VAR}` substitution — nothing is baked into an
 image layer just because it's in this file), and `ship release` copies the
-whole file to the release's own `.env`, read by the containers at boot the
-same way a dev project's `.env` already is. `ship release` fails with a
+whole file to the release's own `.env` (unless `--no-env`), read by the
+containers at boot the same way a dev project's `.env` already is. `ship release` fails with a
 clear error if `.env.production` doesn't exist — there's no silent
 "production ran with no config" failure mode.
 
@@ -592,14 +592,50 @@ always does.
 
 ```text
 dist/ship/1.2.0/
-├── docker-compose.yml   # final image: tags, no build:, no source needed
-├── .env                 # copied from .env.production
+├── release.json          # describes the release (the ship-release contract) — no secrets
+├── docker-compose.yml    # final image tags, no build:, pulled images pinned by digest
 ├── images/
-│   ├── app.tar          # docker save -- one per *unique* image, not per service
+│   ├── app.tar           # docker save -- one per *unique* image, not per service
 │   └── webserver.tar
-├── release.json          # tag, git commit, ship version, images — no secrets
-└── deploy-commands.sh    # only when ship.json's deployCommands is set
+├── .env                  # copied from .env.production (not with --no-env)
+├── deploy-commands.sh    # only when ship.json's deployCommands is set
+└── README.md             # the exact deploy steps for this release
 ```
+
+The folder is a public contract, **ship-release**, so deployment tools can
+read it: [docs/release-contract.md](docs/release-contract.md) describes every
+file and every `release.json` field, and `schema/ship-release.schema.json` is
+its JSON Schema. `release.json` names the app, its images (with IDs and
+archive checksums), the services and their roles, which ones receive HTTP
+(and the framework's health path), the data volumes, the settings by name
+only, and the deploy commands. The contract is a draft until it has been
+tested end to end with a deployment tool.
+
+A few rules keep a release trustworthy:
+
+- **`ship.json` needs a `name`.** It is the release's `app` and the
+  Compose project name on the server, which prefixes the data volumes, so
+  it can't depend on the folder the release happens to be built in. `ship
+  release` stops and suggests the name the project resolves to today; keep
+  that one if the project is already deployed, or the server gets new,
+  empty volumes.
+- **A tag is never overwritten silently.** An existing
+  `dist/ship/<tag>` is refused; `--force` replaces it, and only once the
+  new release is complete. A symlink there is always refused.
+- **A release is complete or absent.** It's written under a temporary name
+  and renamed into place at the end, `release.json` last; a failure (say,
+  an image that fails to export) leaves nothing behind.
+- **Images ship doesn't build are pinned.** `ship release` pulls each one
+  (Postgres, Redis, ...) and writes `name:tag@sha256:...` into both the
+  compose file and `release.json`, so the server runs exactly what was
+  released, not whatever the tag points to later.
+- **Settings the framework can't run without are required.** Laravel's
+  `APP_KEY` has to be in `.env.production`, alongside every credential
+  the selected services need.
+- **`--no-env`** leaves `.env.production` out of the release, for platforms
+  that keep settings themselves. It's still required and checked, and
+  `release.json` still lists the settings by name; whoever deploys provides
+  them (see the contract's "Settings").
 
 `dist/ship/` is git-ignored (`ship init` adds it to `.gitignore` for you) —
 a release is generated output, and often genuinely sensitive (it carries
@@ -618,8 +654,8 @@ guard, and `ship build`/`ship release` re-apply it too, in case
 `init` ran before the guard did. Project-owned
 services that build from an identical Dockerfile/target/args (most
 commonly `app` and every `ship.json` `processes` entry, which build from
-the exact same config) share one image and one `.tar` — the `tag`/`-t`
-your release.json wrote.
+the exact same config) share one image and one `.tar`, listed once in
+`release.json`'s `images` with every service that runs it.
 
 This is deliberately **one artifact**, not three different formats for a
 DevOps handoff, a developer's own manual deploy, and CI/CD. A deploy, once
@@ -629,14 +665,18 @@ the folder is on the target machine with nothing but Docker installed
 ```sh
 docker load -i images/app.tar
 docker load -i images/webserver.tar
-./deploy-commands.sh   # only present when ship.json's deployCommands is set
+sh deploy-commands.sh   # only present when ship.json's deployCommands is set
 docker compose up -d
 ```
 
+The release's own `README.md` lists these steps for that exact release.
+
 With the default `publishPorts: false`, this starts the services without a
-public HTTP endpoint. Attach a TLS reverse proxy to the project's `ship` Docker
-network, or set `publishPorts: true` in `ship.json` before creating the release
-if your deployment intentionally uses host ports.
+public HTTP endpoint. Put a TLS reverse proxy on a network named by
+`externalNetwork` (every HTTP-serving service joins it; `release.json`'s
+`http` says which, and on which port), or set `publishPorts: true` in
+`ship.json` before creating the release if your deployment intentionally
+uses host ports.
 
 `ship` deliberately stops there — there's no `ship deploy` that SSHes
 anywhere or runs any of this remotely for you. Getting the folder onto the

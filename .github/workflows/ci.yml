@@ -178,11 +178,12 @@ jobs:
         run: |
           ! php "$GITHUB_WORKSPACE/bin/ship" release
 
-      - name: Add deployCommands and a .env.production for the release
+      - name: Add a name, deployCommands and a .env.production for the release
         working-directory: /tmp/ci-fixture
         run: |
           php -r '
           $config = json_decode(file_get_contents("ship.json"), true);
+          $config["name"] = "ci-fixture";
           $config["deployCommands"] = ["php artisan migrate --force"];
           $config["publishPorts"] = true;
           file_put_contents("ship.json", json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
@@ -197,37 +198,41 @@ jobs:
         working-directory: /tmp/ci-fixture
         run: php "$GITHUB_WORKSPACE/bin/ship" release --tag ci-test
 
-      # Structural checks on the artifact, which is the contract a deploy consumes.
-      - name: The release artifact has the right shape and no build context left in it
+      # The artifact is the ship-release contract a deploy consumes (docs/release-contract.md).
+      - name: The release folder follows the ship-release contract
         working-directory: /tmp/ci-fixture
         run: |
-          test -f dist/ship/ci-test/docker-compose.yml
-          test -f dist/ship/ci-test/.env
-          test -f dist/ship/ci-test/release.json
+          test -f dist/ship/ci-test/README.md
           test -f dist/ship/ci-test/images/app.tar
           test -f dist/ship/ci-test/images/webserver.tar
-          test -f dist/ship/ci-test/deploy-commands.sh
-          ! grep -q 'build:' dist/ship/ci-test/docker-compose.yml
+          php "$GITHUB_WORKSPACE/tests/Integration/verify-release.php" dist/ship/ci-test
           php -r '
-          $images = json_decode(file_get_contents("dist/ship/ci-test/release.json"), true)["images"];
-          exit(count($images) === 2 ? 0 : 1);
+          $m = json_decode(file_get_contents("dist/ship/ci-test/release.json"), true);
+          exit($m["app"] === "ci-fixture" && count($m["images"]) === 2 && $m["http"][0]["health"] === "/up" ? 0 : 1);
           '
 
+      - name: An existing release tag is refused without --force
+        working-directory: /tmp/ci-fixture
+        run: |
+          ! php "$GITHUB_WORKSPACE/bin/ship" release --tag ci-test
+
       # Load and boot it with nothing but Docker: no source, no Dockerfile, no build context.
+      # verify-release.php --load removes the built images first, so they come from the archives,
+      # and compares each loaded image's ID with release.json.
       - name: Load the release images and boot the stack from the artifact alone
         working-directory: /tmp/ci-fixture/dist/ship/ci-test
         run: |
-          docker load -i images/app.tar
-          docker load -i images/webserver.tar
-          docker compose --project-directory . up -d --wait mysql redis
-          ./deploy-commands.sh
-          docker compose --project-directory . up -d
-          for i in $(seq 1 10); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:80/ || true)
-            [ "$code" = "200" ] && break
-            sleep 3
+          php "$GITHUB_WORKSPACE/tests/Integration/verify-release.php" . --load
+          sh deploy-commands.sh
+          docker compose --project-directory . up -d --wait
+          for path in / /up; do
+            for i in $(seq 1 10); do
+              code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:80$path" || true)
+              [ "$code" = "200" ] && break
+              sleep 3
+            done
+            test "$code" = "200"
           done
-          test "$code" = "200"
 
       - name: Dump release stack state on failure
         if: failure()

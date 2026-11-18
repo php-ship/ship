@@ -56,31 +56,6 @@ final class ReleaseCommandTest extends TestCase
     }
 
     /**
-     * exportImages() must fail when `docker save` does; a nonexistent tag makes it fail
-     * predictably. Skipped without Docker, where the assertion would hold for the wrong reason.
-     */
-    public function test_export_images_fails_when_docker_save_fails(): void
-    {
-        if ((new ProcessRunner())->runQuiet(['docker', '--version']) === '') {
-            self::markTestSkipped('Docker is not available -- this test needs a real `docker save` failure to verify against.');
-        }
-
-        $releaseDir = sys_get_temp_dir() . '/ship-export-images-test-' . bin2hex(random_bytes(8));
-        mkdir($releaseDir . '/images', recursive: true);
-
-        $command = new ReleaseCommand(sys_get_temp_dir(), new ProcessRunner());
-        $images = [['tag' => 'ship-test-image-that-does-not-exist:none', 'canonicalService' => 'app', 'members' => ['app']]];
-
-        $method = new \ReflectionMethod($command, 'exportImages');
-        $succeeded = $method->invoke($command, $images, $releaseDir, new BufferedOutput());
-
-        self::assertFalse($succeeded);
-        self::assertFileDoesNotExist($releaseDir . '/images/app.tar');
-
-        (new \Symfony\Component\Filesystem\Filesystem())->remove($releaseDir);
-    }
-
-    /**
      * chmod() is a no-op on Windows, so deploy-commands.sh built there isn't executable on the
      * server; the warning says so.
      */
@@ -97,29 +72,6 @@ final class ReleaseCommandTest extends TestCase
         self::assertNull($method->invoke($command, $withCommands, 'Linux'));
     }
 
-    public function test_copied_production_environment_is_private_on_posix(): void
-    {
-        if (PHP_OS_FAMILY === 'Windows') {
-            self::markTestSkipped('Windows file access is controlled by ACLs rather than POSIX modes.');
-        }
-
-        $releaseDir = sys_get_temp_dir() . '/ship-release-permissions-' . bin2hex(random_bytes(8));
-        mkdir($releaseDir, 0o700);
-        $source = $releaseDir . '/source.env';
-        file_put_contents($source, "APP_KEY=secret\n");
-        chmod($source, 0o644);
-
-        try {
-            $command = new ReleaseCommand(sys_get_temp_dir(), new ProcessRunner());
-            (new \ReflectionMethod($command, 'copyProductionEnv'))->invoke($command, $source, $releaseDir);
-
-            self::assertSame(file_get_contents($source), file_get_contents($releaseDir . '/.env'));
-            self::assertSame(0o600, fileperms($releaseDir . '/.env') & 0o777);
-        } finally {
-            (new Filesystem())->remove($releaseDir);
-        }
-    }
-
     /**
      * A required production variable missing from .env.production fails before
      * ProductionBuildRunner, and so Docker, is reached.
@@ -128,7 +80,7 @@ final class ReleaseCommandTest extends TestCase
     {
         $projectRoot = sys_get_temp_dir() . '/ship-release-env-check-' . bin2hex(random_bytes(8));
         mkdir($projectRoot, recursive: true);
-        (new ShipConfig(phpVersion: '8.4', services: ['database' => 'mysql']))->toFile($projectRoot . '/ship.json');
+        (new ShipConfig(phpVersion: '8.4', services: ['database' => 'mysql'], name: 'client'))->toFile($projectRoot . '/ship.json');
         file_put_contents($projectRoot . '/.env.production', "APP_KEY=base64:something\n");
 
         $command = new ReleaseCommand($projectRoot, new ProcessRunner(), new ServiceRegistry([new MySqlService()]), []);
@@ -141,6 +93,112 @@ final class ReleaseCommandTest extends TestCase
         self::assertDirectoryDoesNotExist($projectRoot . '/dist/ship/1.0.0');
 
         (new Filesystem())->remove($projectRoot);
+    }
+
+    /**
+     * release.json's `app` and the server's Compose project name must not depend on the folder the
+     * release is built in. The message suggests the name the project resolves to today, which keeps
+     * an existing deployment's volumes.
+     */
+    public function test_a_release_requires_a_name_in_ship_json_and_suggests_the_current_one(): void
+    {
+        $projectRoot = $this->project(new ShipConfig(phpVersion: '8.4', services: []), "APP_KEY=x\n", folder: 'Client App');
+
+        $tester = new CommandTester(new ReleaseCommand($projectRoot, new ProcessRunner(), new ServiceRegistry([]), []));
+
+        self::assertSame(1, $tester->execute(['--tag' => '1.0.0']));
+        self::assertStringContainsString('"name": "client-app"', $tester->getDisplay());
+        self::assertStringContainsString('new, empty data volumes', $tester->getDisplay());
+    }
+
+    /**
+     * Refused before the build, which takes minutes.
+     */
+    public function test_an_existing_tag_is_refused_before_anything_is_built(): void
+    {
+        $projectRoot = $this->project(new ShipConfig(phpVersion: '8.4', services: [], name: 'client'), "APP_KEY=x\n");
+        mkdir($projectRoot . '/dist/ship/1.0.0', recursive: true);
+
+        $tester = new CommandTester(new ReleaseCommand($projectRoot, new ProcessRunner(), new ServiceRegistry([]), []));
+
+        self::assertSame(1, $tester->execute(['--tag' => '1.0.0']));
+        self::assertStringContainsString('already exists', $tester->getDisplay());
+        self::assertStringContainsString('--force', $tester->getDisplay());
+        self::assertFileDoesNotExist($projectRoot . '/ship/docker-compose.production.yml');
+    }
+
+    /**
+     * The Laravel adapter requires APP_KEY (see DescribesRelease::requiredEnv()), so a release
+     * without it fails like one without a database password.
+     */
+    public function test_a_setting_the_framework_requires_must_be_set_too(): void
+    {
+        $projectRoot = $this->project(new ShipConfig(phpVersion: '8.4', services: [], name: 'client'), "APP_URL=https://x.test\n");
+        file_put_contents($projectRoot . '/artisan', "<?php\n");
+        file_put_contents($projectRoot . '/composer.json', "{}\n");
+
+        $tester = new CommandTester(new ReleaseCommand($projectRoot, new ProcessRunner(), new ServiceRegistry([]), []));
+
+        self::assertSame(1, $tester->execute(['--tag' => '1.0.0']));
+        self::assertStringContainsString('APP_KEY is required but not set in .env.production', $tester->getDisplay());
+    }
+
+    /**
+     * ship's own generated build files don't make a release dirty; a changed source file does.
+     */
+    public function test_source_ignores_ships_generated_files_but_not_source_changes(): void
+    {
+        if ((new ProcessRunner())->runQuiet(['git', '--version']) === '') {
+            self::markTestSkipped('git is not available.');
+        }
+
+        $projectRoot = $this->project(new ShipConfig(phpVersion: '8.4', services: [], name: 'client'), "APP_KEY=x\n");
+        file_put_contents($projectRoot . '/app.php', "<?php\n");
+        $git = static fn (string ...$args): string => (new ProcessRunner())->runQuiet(['git', '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...$args], $projectRoot);
+        $git('init', '-q');
+        $git('add', '-A');
+        $git('commit', '-qm', 'Initial');
+
+        mkdir($projectRoot . '/ship/prod', recursive: true);
+        foreach (['ship/docker-compose.generated.yml', 'ship/docker-compose.production.yml', 'ship/prod/entrypoint.sh'] as $generated) {
+            file_put_contents($projectRoot . '/' . $generated, "generated\n");
+        }
+
+        $command = new ReleaseCommand($projectRoot, new ProcessRunner());
+        $source = new \ReflectionMethod($command, 'source');
+
+        self::assertSame(['gitCommit' => $git('rev-parse', 'HEAD'), 'dirty' => false], $source->invoke($command));
+
+        file_put_contents($projectRoot . '/app.php', "<?php // changed\n");
+
+        self::assertTrue($source->invoke($command)['dirty']);
+    }
+
+    public function test_source_is_null_outside_a_git_repository(): void
+    {
+        $projectRoot = $this->project(new ShipConfig(phpVersion: '8.4', services: [], name: 'client'), "APP_KEY=x\n");
+        $command = new ReleaseCommand($projectRoot, new ProcessRunner());
+
+        self::assertSame(['gitCommit' => null, 'dirty' => null], (new \ReflectionMethod($command, 'source'))->invoke($command));
+    }
+
+    private function project(ShipConfig $config, string $envProduction, string $folder = 'project'): string
+    {
+        $projectRoot = sys_get_temp_dir() . '/ship-release-command-' . bin2hex(random_bytes(8)) . '/' . $folder;
+        mkdir($projectRoot, recursive: true);
+        $config->toFile($projectRoot . '/ship.json');
+        file_put_contents($projectRoot . '/.env.production', $envProduction);
+        $this->cleanup[] = dirname($projectRoot);
+
+        return $projectRoot;
+    }
+
+    /** @var list<string> */
+    private array $cleanup = [];
+
+    protected function tearDown(): void
+    {
+        (new Filesystem())->remove($this->cleanup);
     }
 
     /**

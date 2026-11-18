@@ -269,10 +269,23 @@ and records the non-obvious reasons behind each decision.
 
 - `ship build` builds every project-owned image under a local tag.
   `ship release --tag` runs the same build (`ProductionBuildRunner`) with
-  the real tag and assembles `dist/ship/<tag>/`: a compose file with
-  `build:` stripped, `.env` copied from `.env.production`, one `docker save`
-  tar per unique image, `release.json`, and `deploy-commands.sh` when
-  `deployCommands` is set.
+  the real tag, then `ReleaseWriter` assembles `dist/ship/<tag>/`, the
+  ship-release contract (`docs/release-contract.md`, status: draft): a
+  compose file with `build:` stripped and pulled images pinned by digest,
+  `.env` (not with `--no-env`), one `docker save` tar per unique image,
+  `deploy-commands.sh` when `deployCommands` is set, a README, and
+  `release.json` (`ReleaseManifest`, pure; Docker calls go through
+  `ReleaseDocker`, which tests replace).
+- The folder is written under `dist/ship/.release-<random>` and renamed
+  into place at the end, `release.json` last; any failure removes it. An
+  existing tag needs `--force`, and is moved aside and deleted only once
+  the new release is in place. A symlinked destination is always refused.
+- `ship release` requires `ship.json`'s `name`: it is `app` and the
+  server's Compose project name, which prefixes the data volumes, so it
+  can't come from the build folder's name. Framework adapters may add
+  `DescribesRelease` (framework name, health path read from the project,
+  required settings such as Laravel's `APP_KEY`, which then block a release
+  like a missing credential).
 - Both write `ship/docker-compose.production.yml`, never the dev compose
   file, and both fail before invoking Docker when a required production
   variable is missing from `.env.production`.

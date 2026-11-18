@@ -18,10 +18,12 @@
         "symfony/filesystem": "^7.0 || ^8.0"
     },
     "require-dev": {
-        "phpunit/phpunit": "^11.0",
         "friendsofphp/php-cs-fixer": "^3.75",
+        "opis/json-schema": "^2.6",
         "phpstan/phpstan": "^2.0",
-        "phpstan/phpstan-strict-rules": "^2.0"
+        "phpstan/phpstan-strict-rules": "^2.0",
+        "phpunit/phpunit": "^11.0",
+        "symfony/polyfill-iconv": "^1.43"
     },
     "suggest": {
         "laravel/prompts": "Enables arrow-key selection in `ship init`. Not required -- falls back to a numbered prompt without it. Already present via laravel/framework in any Laravel >=11 project, so this is 'free' for the common case; deliberately not a hard require since laravel/prompts conflicts with laravel/framework 10.17-10.24."

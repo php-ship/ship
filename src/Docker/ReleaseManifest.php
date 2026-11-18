@@ -4,44 +4,163 @@ declare(strict_types=1);
 
 namespace Ship\Docker;
 
-use Ship\Runtime\ProcessRunner;
-use Ship\Support\ShipVersion;
-
 /**
- * release.json's content. Metadata only; no `.env.production` value passes through this class.
+ * release.json, the "ship-release" contract (docs/release-contract.md, schema/ship-release.schema.json).
+ * Pure: ReleaseWriter collects the facts, this shapes them. No `.env.production` value is passed
+ * in, so none can end up in the file.
  */
 final class ReleaseManifest
 {
+    public const FORMAT = 'ship-release';
+    public const BUILDER_PACKAGE = 'php-ship/ship';
+    public const COMPOSE_FILE = 'docker-compose.yml';
+
+    public const ROLE_APP = 'app';
+    public const ROLE_WEB = 'web';
+    public const ROLE_PROCESS = 'process';
+    public const ROLE_INFRASTRUCTURE = 'infrastructure';
+
     /**
-     * @param list<array{tag: string, canonicalService: string, members: list<string>}> $images
+     * @param array{gitCommit: ?string, dirty: ?bool} $source
+     * @param list<array{ref: string, id: string, file: string, sha256: string, services: list<string>}> $images
+     * @param list<array{ref: string, services: list<string>}> $pulledImages
+     * @param array<string, array<string, mixed>> $releaseServices the release compose file's services
+     * @param array<string, string> $roles service name => role
+     * @param list<array{service: string, port: int, role: string, health: ?string}> $http
+     * @param list<string> $envKeys
+     * @param list<string> $envReferenced
+     * @param list<string> $envRequired
+     * @param ?array{service: string, needs: list<string>, commands: list<list<string>>} $deploy
+     * @param list<string> $networks
      * @return array<string, mixed>
      */
-    public static function build(string $tag, string $projectRoot, ProcessRunner $runner, array $images): array
-    {
+    public static function build(
+        string $app,
+        string $tag,
+        \DateTimeImmutable $createdAt,
+        string $builderVersion,
+        array $source,
+        string $platform,
+        array $images,
+        array $pulledImages,
+        array $releaseServices,
+        array $roles,
+        array $http,
+        ?string $framework,
+        string $runtime,
+        ?string $envFile,
+        array $envKeys,
+        array $envReferenced,
+        array $envRequired,
+        ?array $deploy,
+        array $networks,
+    ): array {
         return [
+            'format' => self::FORMAT,
+            'app' => $app,
             'tag' => $tag,
-            'gitCommit' => self::gitCommit($projectRoot, $runner),
-            'shipVersion' => ShipVersion::current(),
-            'createdAt' => (new \DateTimeImmutable())->format(DATE_ATOM),
+            'createdAt' => $createdAt->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d\TH:i:s\Z'),
+            'builder' => ['package' => self::BUILDER_PACKAGE, 'version' => $builderVersion],
+            'source' => $source,
+            'platform' => $platform,
+            'compose' => self::COMPOSE_FILE,
             'images' => array_map(
-                static fn (array $image): array => [
-                    'tag' => $image['tag'],
-                    'services' => $image['members'],
-                    'file' => "images/{$image['canonicalService']}.tar",
-                ],
+                static fn (array $image): array => [...$image, 'services' => self::sorted($image['services'])],
                 $images,
             ),
+            'pulledImages' => array_map(
+                static fn (array $image): array => [...$image, 'services' => self::sorted($image['services'])],
+                $pulledImages,
+            ),
+            'http' => $http,
+            'services' => self::services($releaseServices, $roles),
+            'framework' => $framework,
+            'runtime' => $runtime,
+            'env' => [
+                'file' => $envFile,
+                'keys' => self::sorted($envKeys),
+                'referenced' => self::sorted($envReferenced),
+                'required' => self::sorted($envRequired),
+            ],
+            'deploy' => $deploy === null ? null : [...$deploy, 'needs' => self::sorted($deploy['needs'])],
+            'requires' => ['networks' => self::sorted($networks)],
         ];
     }
 
     /**
-     * Null when the project isn't a git repository or `git` isn't on PATH; this is metadata, not
-     * a requirement.
+     * Every variable Compose interpolates in $composeYaml, in `$VAR` or `${VAR...}` form. `$$` is
+     * an escaped literal `$` (a `processes` command's own shell variable), not a variable.
+     *
+     * @return list<string>
      */
-    private static function gitCommit(string $projectRoot, ProcessRunner $runner): ?string
+    public static function referencedVariables(string $composeYaml): array
     {
-        $sha = $runner->runQuiet(['git', 'rev-parse', 'HEAD'], $projectRoot);
+        $unescaped = str_replace('$$', '', $composeYaml);
 
-        return $sha === '' ? null : $sha;
+        if (preg_match_all('/\$\{?([A-Za-z_][A-Za-z0-9_]*)/', $unescaped, $matches) === 0) {
+            return [];
+        }
+
+        return self::sorted($matches[1]);
+    }
+
+    /**
+     * The named volumes a service mounts, as Compose declares them (no project prefix). Bind mounts
+     * (paths) are not volumes.
+     *
+     * @param array<string, mixed> $service
+     * @return list<string>
+     */
+    public static function namedVolumes(array $service): array
+    {
+        $names = [];
+
+        foreach (is_array($service['volumes'] ?? null) ? $service['volumes'] : [] as $mount) {
+            $source = is_string($mount) ? explode(':', $mount, 2)[0] : (is_array($mount) ? (string) ($mount['source'] ?? '') : '');
+            $isNamed = is_string($mount) ? str_contains($mount, ':') : ($mount['type'] ?? 'volume') === 'volume';
+
+            if ($isNamed && $source !== '' && !str_starts_with($source, '.') && !str_starts_with($source, '/') && !str_starts_with($source, '~')) {
+                $names[] = $source;
+            }
+        }
+
+        return self::sorted($names);
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $releaseServices
+     * @param array<string, string> $roles
+     * @return array<string, array{role: string, image: string, healthcheck: bool, volumes: list<string>}>
+     */
+    private static function services(array $releaseServices, array $roles): array
+    {
+        $services = [];
+
+        foreach ($releaseServices as $name => $service) {
+            $healthcheck = $service['healthcheck'] ?? null;
+
+            $services[$name] = [
+                'role' => $roles[$name] ?? self::ROLE_INFRASTRUCTURE,
+                'image' => (string) ($service['image'] ?? ''),
+                'healthcheck' => is_array($healthcheck) && ($healthcheck['disable'] ?? false) !== true,
+                'volumes' => self::namedVolumes($service),
+            ];
+        }
+
+        ksort($services, SORT_STRING);
+
+        return $services;
+    }
+
+    /**
+     * @param list<string> $values
+     * @return list<string>
+     */
+    private static function sorted(array $values): array
+    {
+        $values = array_values(array_unique($values));
+        sort($values, SORT_STRING);
+
+        return $values;
     }
 }

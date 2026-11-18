@@ -5,19 +5,23 @@ declare(strict_types=1);
 namespace Ship\Console\Commands;
 
 use Ship\Config\ShipConfig;
+use Ship\Contracts\DescribesRelease;
 use Ship\Contracts\FrameworkAdapter;
 use Ship\Contracts\ShipEnvironment;
 use Ship\Docker\ComposeCommand;
 use Ship\Docker\ComposeFileBuilder;
-use Ship\Docker\DeployPlan;
 use Ship\Docker\EnvFile;
 use Ship\Docker\MySqlUsernameGuard;
 use Ship\Docker\NginxUpstreamMismatch;
 use Ship\Docker\ProductionBuildRunner;
 use Ship\Docker\ProjectName;
-use Ship\Docker\ReleaseManifest;
+use Ship\Docker\ReleaseDocker;
+use Ship\Docker\ReleaseFailed;
+use Ship\Docker\ReleaseWriter;
 use Ship\Docker\RequiredEnv;
 use Ship\Extensions\ExtensionLoader;
+use Ship\Frameworks\LaravelAdapter;
+use Ship\Frameworks\SymfonyAdapter;
 use Ship\Runtime\ProcessRunner;
 use Ship\Services\ServiceRegistry;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -26,18 +30,24 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
-use Symfony\Component\Filesystem\Filesystem;
-use Symfony\Component\Yaml\Yaml;
 
 /**
- * Produces the portable release artifact under `dist/ship/<tag>/`: a compose file that references
- * finished images (no `build:`), those images as `docker save` tars, `.env.production` copied to
- * `.env`, release.json, and -- when ship.json's deployCommands is set -- a deploy-commands.sh the
- * operator runs once on the server.
+ * Produces the portable release under `dist/ship/<tag>/`, the "ship-release" contract
+ * (docs/release-contract.md): validates the project, builds the production images, and hands off
+ * to ReleaseWriter.
  */
 #[AsCommand(name: 'release', description: 'Build the portable production release artifact')]
 final class ReleaseCommand extends Command
 {
+    /**
+     * Files ship writes into the project on every run, relative to the project root.
+     */
+    private const GENERATED_FILES = [
+        'ship/docker-compose.generated.yml',
+        ComposeCommand::PRODUCTION_COMPOSE_FILE,
+        'ship/prod/entrypoint.sh',
+    ];
+
     /**
      * $registry/$frameworkAdapters are the ones Application already populated. Optional so the
      * command can be constructed directly (tests), in which case it loads its own.
@@ -56,6 +66,8 @@ final class ReleaseCommand extends Command
     protected function configure(): void
     {
         $this->addOption('tag', 't', InputOption::VALUE_REQUIRED, 'The release tag, e.g. 1.2.0');
+        $this->addOption('force', null, InputOption::VALUE_NONE, 'Replace an existing release with the same tag');
+        $this->addOption('no-env', null, InputOption::VALUE_NONE, 'Don\'t copy .env.production into the release (for platforms that keep settings themselves)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -64,6 +76,9 @@ final class ReleaseCommand extends Command
         if ($tag === null) {
             return Command::FAILURE;
         }
+
+        $force = $input->getOption('force') === true;
+        $withEnv = $input->getOption('no-env') !== true;
 
         $envProductionPath = $this->projectRoot . '/.env.production';
         if (!is_file($envProductionPath)) {
@@ -77,13 +92,39 @@ final class ReleaseCommand extends Command
 
         $config = ShipConfig::fromFile($this->projectRoot . '/ship.json');
 
+        // release.json's `app`, and the Compose project name on the server, which prefixes the data
+        // volumes: it has to be the same on every machine that releases the project.
+        if ($config->name === null) {
+            $current = ProjectName::resolve($config, $this->projectRoot);
+            $output->writeln(sprintf(
+                '<error>ship: ship.json has no "name" -- a release needs one, so every release of this project '
+                    . 'gets the same name wherever it is built. Add "name": "%s" (what this folder resolves to '
+                    . 'today) to ship.json. If this project is already deployed, keep the name it was deployed '
+                    . 'under: a different one means new, empty data volumes on the server.</error>',
+                $current,
+            ));
+
+            return Command::FAILURE;
+        }
+
+        // Checked before the build, which takes minutes.
+        try {
+            ReleaseWriter::destination($this->projectRoot, $tag, $force);
+        } catch (ReleaseFailed $e) {
+            $output->writeln("<error>ship: {$e->getMessage()}</error>");
+
+            return Command::FAILURE;
+        }
+
         // The prod-nginx image builds from this published file, so a stale upstream breaks it.
         $nginxWarning = NginxUpstreamMismatch::warning($this->projectRoot, $config);
         if ($nginxWarning !== null) {
             $output->writeln($nginxWarning);
         }
 
-        $usernameProblems = MySqlUsernameGuard::problems($config, EnvFile::parse($envProductionPath));
+        $productionEnv = EnvFile::parse($envProductionPath);
+
+        $usernameProblems = MySqlUsernameGuard::problems($config, $productionEnv);
         if ($usernameProblems !== []) {
             $output->writeln(sprintf(
                 '<error>ship: %s is set to "root" in .env.production -- the official mysql and mariadb '
@@ -106,15 +147,22 @@ final class ReleaseCommand extends Command
         }
 
         $projectName = ProjectName::resolve($config, $this->projectRoot);
+        $framework = $this->describingFramework($frameworkAdapters);
 
-        // Fail on a missing required credential before Docker is invoked (see
-        // RequiredEnv::missingFrom()).
+        // Fail on a missing required setting before Docker is invoked: ship's own credentials (see
+        // RequiredEnv::missingFrom()) and what the framework can't run without.
         $prodCompose = (new ComposeFileBuilder($registry))->build($config, ShipEnvironment::Production, projectName: $projectName);
-        $missingEnv = RequiredEnv::missingFrom($prodCompose, EnvFile::parse($envProductionPath));
+        $missingEnv = array_values(array_unique([
+            ...RequiredEnv::missingFrom($prodCompose, $productionEnv),
+            ...array_filter(
+                $framework?->requiredEnv($this->projectRoot) ?? [],
+                static fn (string $key): bool => ($productionEnv[$key] ?? '') === '',
+            ),
+        ]));
         if ($missingEnv !== []) {
             $output->writeln(sprintf(
-                '<error>ship: %s %s required but not set in .env.production -- `docker compose '
-                    . 'build` will refuse to run at all until %s.</error>',
+                '<error>ship: %s %s required but not set in .env.production -- the release can\'t start '
+                    . 'until %s.</error>',
                 implode(', ', $missingEnv),
                 count($missingEnv) === 1 ? 'is' : 'are',
                 count($missingEnv) === 1 ? 'it is' : 'they are',
@@ -122,6 +170,9 @@ final class ReleaseCommand extends Command
 
             return Command::FAILURE;
         }
+
+        // Before the build, which writes generated files into the project.
+        $source = $this->source();
 
         $result = (new ProductionBuildRunner($this->runner))->build(
             $config,
@@ -137,26 +188,25 @@ final class ReleaseCommand extends Command
             return Command::FAILURE;
         }
 
-        $releaseDir = $this->projectRoot . '/dist/ship/' . $tag;
-        $filesystem = new Filesystem();
-        $filesystem->remove($releaseDir);
-        $filesystem->mkdir($releaseDir . '/images', 0o700);
-        $filesystem->chmod($releaseDir, 0o700);
-
-        $this->writeReleaseCompose($releaseDir);
-        $this->copyProductionEnv($envProductionPath, $releaseDir);
-
-        if (!$this->exportImages($result['images'], $releaseDir, $output)) {
-            $output->writeln('<error>ship: exporting one or more images failed -- the release is incomplete, not '
-                . 'written as release.json/deploy-commands.sh.</error>');
+        try {
+            (new ReleaseWriter(new ReleaseDocker($this->runner, $this->projectRoot), $registry))->write(
+                projectRoot: $this->projectRoot,
+                tag: $tag,
+                config: $config,
+                projectName: $projectName,
+                productionComposeYaml: (string) file_get_contents($this->projectRoot . '/' . ComposeCommand::PRODUCTION_COMPOSE_FILE),
+                images: $result['images'],
+                source: $source,
+                framework: $framework,
+                force: $force,
+                withEnv: $withEnv,
+                output: $output,
+            );
+        } catch (ReleaseFailed $e) {
+            $output->writeln("<error>ship: {$e->getMessage()} No release was written.</error>");
 
             return Command::FAILURE;
         }
-
-        $this->writeDeployScript($config, $releaseDir);
-
-        $manifest = ReleaseManifest::build($tag, $this->projectRoot, $this->runner, $result['images']);
-        $filesystem->dumpFile($releaseDir . '/release.json', json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
 
         $windowsWarning = $this->windowsExecutableBitWarning($config);
         if ($windowsWarning !== null) {
@@ -166,6 +216,54 @@ final class ReleaseCommand extends Command
         $output->writeln("<info>ship: release ready at dist/ship/{$tag}</info>");
 
         return Command::SUCCESS;
+    }
+
+    /**
+     * The first framework adapter that matches the project and can describe it (see
+     * DescribesRelease), the same detection ProductionBuildRunner does.
+     *
+     * @param list<FrameworkAdapter> $extensionAdapters
+     */
+    private function describingFramework(array $extensionAdapters): ?DescribesRelease
+    {
+        foreach ([new LaravelAdapter(), new SymfonyAdapter(), ...$extensionAdapters] as $adapter) {
+            if ($adapter instanceof DescribesRelease && $adapter->detect($this->projectRoot)) {
+                return $adapter;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * release.json's `source`: the commit, and whether the work tree had uncommitted changes. Both
+     * null outside a git repository, or without git.
+     *
+     * The files ship regenerates on every `ship up`/`ship build`/`ship release` don't count: they
+     * aren't source, and counting them would mark every release after the first as dirty.
+     *
+     * @return array{gitCommit: ?string, dirty: ?bool}
+     */
+    private function source(): array
+    {
+        $commit = $this->runner->runQuietWithResult(['git', 'rev-parse', 'HEAD'], $this->projectRoot);
+
+        if ($commit['exitCode'] !== 0 || $commit['output'] === '') {
+            return ['gitCommit' => null, 'dirty' => null];
+        }
+
+        $status = $this->runner->runQuietWithResult(
+            [
+                'git', 'status', '--porcelain', '--', '.',
+                ...array_map(static fn (string $path): string => ":(exclude){$path}", self::GENERATED_FILES),
+            ],
+            $this->projectRoot,
+        );
+
+        return [
+            'gitCommit' => $commit['output'],
+            'dirty' => $status['exitCode'] === 0 ? $status['output'] !== '' : null,
+        ];
     }
 
     /**
@@ -209,104 +307,6 @@ final class ReleaseCommand extends Command
     private function isReallyInteractive(InputInterface $input): bool
     {
         return $input->isInteractive() && stream_isatty(STDIN);
-    }
-
-    /**
-     * Writes the release's docker-compose.yml from ComposeCommand::PRODUCTION_COMPOSE_FILE: every
-     * project-owned service gets its final `image:` tag and loses `build:`.
-     */
-    private function writeReleaseCompose(string $releaseDir): void
-    {
-        $generated = (string) file_get_contents($this->projectRoot . '/' . ComposeCommand::PRODUCTION_COMPOSE_FILE);
-        /** @var array{services: array<string, array<string, mixed>>} $parsed */
-        $parsed = Yaml::parse($generated);
-
-        foreach ($parsed['services'] as $name => $service) {
-            unset($parsed['services'][$name]['build']);
-        }
-
-        file_put_contents(
-            $releaseDir . '/docker-compose.yml',
-            Yaml::dump($parsed, inline: 6, indent: 2, flags: Yaml::DUMP_EMPTY_ARRAY_AS_SEQUENCE),
-        );
-    }
-
-    private function copyProductionEnv(string $source, string $releaseDir): void
-    {
-        $filesystem = new Filesystem();
-        $destination = $releaseDir . '/.env';
-        $filesystem->copy($source, $destination);
-        $filesystem->chmod($destination, 0o600);
-    }
-
-    /**
-     * One `docker save` per unique image (see ProductionImagePlan), not per service. Returns false
-     * on the first failure, so a release never reports success with a missing or truncated tar.
-     *
-     * @param list<array{tag: string, canonicalService: string, members: list<string>}> $images
-     */
-    private function exportImages(array $images, string $releaseDir, OutputInterface $output): bool
-    {
-        foreach ($images as $image) {
-            $path = "{$releaseDir}/images/{$image['canonicalService']}.tar";
-            $output->writeln("<info>ship: exporting {$image['tag']} -> images/{$image['canonicalService']}.tar</info>");
-
-            $result = $this->runner->runInteractive(['docker', 'save', '-o', $path, $image['tag']], $this->projectRoot);
-
-            if ($result !== Command::SUCCESS) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * Written only when ship.json's deployCommands is set. A plain shell script, since the server
-     * has no PHP or ship: it brings up the infrastructure services, then runs each command in a
-     * one-off container of the app image.
-     *
-     * Infrastructure is determined from ComposeCommand::PRODUCTION_COMPOSE_FILE, which still has
-     * `build:`. The release's own compose file has it stripped, which would make "app" and
-     * "webserver" look like infrastructure too (see DeployPlan::infrastructureServices()).
-     *
-     * chmod() is a no-op on Windows; execute() warns about that.
-     */
-    private function writeDeployScript(ShipConfig $config, string $releaseDir): void
-    {
-        if ($config->deployCommands === []) {
-            return;
-        }
-
-        $composeYaml = (string) file_get_contents($this->projectRoot . '/' . ComposeCommand::PRODUCTION_COMPOSE_FILE);
-        $infrastructure = DeployPlan::infrastructureServices($composeYaml);
-        $appService = $config->serviceNames['app'] ?? 'app';
-
-        $lines = [
-            '#!/bin/sh',
-            '',
-            '# Generated by `ship release --tag` -- run once per deploy, after every images/*.tar',
-            '# has been loaded (`docker load -i images/<name>.tar`) and before `docker compose up',
-            '# -d` starts the app services.',
-            'set -e',
-            '',
-        ];
-
-        if ($infrastructure !== []) {
-            $lines[] = 'docker compose up -d --wait ' . implode(' ', $infrastructure);
-            $lines[] = '';
-        }
-
-        foreach ($config->deployCommands as $command) {
-            $escaped = str_replace("'", "'\\''", $command);
-            $lines[] = "docker compose run --rm --no-deps -T {$appService} sh -c '{$escaped}'";
-        }
-
-        $lines[] = '';
-
-        $path = $releaseDir . '/deploy-commands.sh';
-        file_put_contents($path, implode("\n", $lines));
-        chmod($path, 0o755);
     }
 
     /**

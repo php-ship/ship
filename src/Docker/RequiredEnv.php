@@ -34,18 +34,23 @@ final class RequiredEnv
      */
     public static function missingFrom(string $composeYaml, array $env): array
     {
+        return array_values(array_filter(
+            self::requiredIn($composeYaml),
+            static fn (string $var): bool => ($env[$var] ?? '') === '',
+        ));
+    }
+
+    /**
+     * Every variable $composeYaml requires (`${VAR:?...}`), in order of first appearance.
+     *
+     * @return list<string>
+     */
+    public static function requiredIn(string $composeYaml): array
+    {
         if (preg_match_all('/\$\{([A-Za-z_][A-Za-z0-9_]*):\?/', $composeYaml, $matches) === 0) {
             return [];
         }
 
-        $missing = [];
-
-        foreach (array_unique($matches[1]) as $var) {
-            if (($env[$var] ?? '') === '') {
-                $missing[] = $var;
-            }
-        }
-
-        return $missing;
+        return array_values(array_unique($matches[1]));
     }
 }

@@ -6,35 +6,76 @@ namespace Ship\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
 use Ship\Docker\ReleaseManifest;
-use Ship\Runtime\ProcessRunner;
 
+/**
+ * The pure parts of release.json. ReleaseWriterTest covers the manifest as written.
+ */
 final class ReleaseManifestTest extends TestCase
 {
-    public function test_it_lists_the_tag_and_images_without_any_secret(): void
+    /**
+     * `$$` is Compose's escape for a literal `$` (a processes command's own shell variable), so
+     * what follows it is not a variable the deployer must supply.
+     */
+    public function test_referenced_variables_cover_every_interpolation_form_and_skip_escaped_dollars(): void
     {
-        $images = [
-            ['tag' => 'acme-app:1.2.0', 'canonicalService' => 'app', 'members' => ['app', 'horizon']],
-        ];
+        $yaml = <<<'YAML'
+            services:
+              app:
+                environment:
+                  DB_PASSWORD: '${DB_PASSWORD:-secret}'
+                  MAIL_HOST: '$MAIL_HOST'
+                  ROOT: '${DB_ROOT_PASSWORD:?set a real value in .env.production}'
+                command: ['sh', '-c', 'echo $$HOME $${SHELL} $$$${NOT_EITHER}']
+                ports: ['${APP_PORT:-80}:80']
+            YAML;
 
-        $manifest = ReleaseManifest::build('1.2.0', sys_get_temp_dir(), new ProcessRunner(), $images);
-
-        self::assertSame('1.2.0', $manifest['tag']);
-        self::assertSame(
-            [['tag' => 'acme-app:1.2.0', 'services' => ['app', 'horizon'], 'file' => 'images/app.tar']],
-            $manifest['images'],
-        );
-        self::assertArrayHasKey('createdAt', $manifest);
+        self::assertSame(['APP_PORT', 'DB_PASSWORD', 'DB_ROOT_PASSWORD', 'MAIL_HOST'], ReleaseManifest::referencedVariables($yaml));
     }
 
-    /**
-     * The git commit is optional metadata: outside a repository it is null, not an error.
-     */
-    public function test_git_commit_is_null_outside_a_git_repository(): void
+    public function test_named_volumes_exclude_bind_mounts_and_read_the_long_syntax(): void
     {
-        $outsideGit = sys_get_temp_dir();
+        $service = ['volumes' => [
+            'ship-pgsql-data:/var/lib/postgresql',
+            './storage:/var/www/html/storage',
+            '/etc/hosts:/etc/hosts:ro',
+            '~/cache:/cache',
+            ['type' => 'volume', 'source' => 'ship-cache', 'target' => '/cache'],
+            ['type' => 'bind', 'source' => '/srv', 'target' => '/srv'],
+            '/anonymous',
+        ]];
 
-        $manifest = ReleaseManifest::build('1.2.0', $outsideGit, new ProcessRunner(), []);
+        self::assertSame(['ship-cache', 'ship-pgsql-data'], ReleaseManifest::namedVolumes($service));
+        self::assertSame([], ReleaseManifest::namedVolumes([]));
+    }
 
-        self::assertNull($manifest['gitCommit']);
+    public function test_created_at_is_utc_with_a_z_suffix_whatever_the_local_time_zone(): void
+    {
+        $manifest = ReleaseManifest::build(
+            app: 'client',
+            tag: '1.0.0',
+            createdAt: new \DateTimeImmutable('2026-11-17 13:30:00', new \DateTimeZone('Asia/Tehran')),
+            builderVersion: '1.0.0',
+            source: ['gitCommit' => null, 'dirty' => null],
+            platform: 'linux/amd64',
+            images: [],
+            pulledImages: [],
+            releaseServices: [],
+            roles: [],
+            http: [],
+            framework: null,
+            runtime: 'php-fpm',
+            envFile: null,
+            envKeys: [],
+            envReferenced: [],
+            envRequired: [],
+            deploy: null,
+            networks: [],
+        );
+
+        self::assertSame('2026-11-17T10:00:00Z', $manifest['createdAt']);
+        self::assertSame('ship-release', $manifest['format']);
+        self::assertSame(['package' => 'php-ship/ship', 'version' => '1.0.0'], $manifest['builder']);
+        self::assertNull($manifest['deploy']);
+        self::assertSame(['networks' => []], $manifest['requires']);
     }
 }
