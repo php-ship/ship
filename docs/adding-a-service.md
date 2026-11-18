@@ -127,7 +127,7 @@ server, a message broker), don't use the trait — just accept and ignore
 `$instanceName` in both methods, matching `NodeService`/
 `OctaneSwooleService`/`OctaneRoadRunnerService`/`OctaneFrankenPhpService`/
 `DuskService`/`PlaywrightService`/`CypressService`/`ReverbService`/
-`RabbitMqService`. `InitCommand::GROUPS_SUPPORTING_ADDITIONAL_INSTANCES`
+`CentrifugoService`/`RabbitMqService`. `InitCommand::GROUPS_SUPPORTING_ADDITIONAL_INSTANCES`
 is the list of groups `ship init`'s "add another instance" prompt
 offers at all (`database`, `cache`, `storage`, `search`, `mail`) — a
 service in a group outside that list is never asked to support more

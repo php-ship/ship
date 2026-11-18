@@ -6,6 +6,7 @@ namespace Ship\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Ship\Services\CentrifugoService;
 use Ship\Services\CypressService;
 use Ship\Services\DuskService;
 use Ship\Services\ElasticsearchService;
@@ -112,6 +113,7 @@ final class ServiceRegistryTest extends TestCase
         yield 'CypressService' => [CypressService::class];
         yield 'NodeService' => [NodeService::class];
         yield 'ReverbService' => [ReverbService::class];
+        yield 'CentrifugoService' => [CentrifugoService::class];
         yield 'RabbitMqService' => [RabbitMqService::class];
     }
 
@@ -130,6 +132,6 @@ final class ServiceRegistryTest extends TestCase
     {
         // The per-class check proves nothing is missing; the count also catches an extra or
         // duplicate registration.
-        self::assertCount(22, ServiceRegistry::defaults());
+        self::assertCount(23, ServiceRegistry::defaults());
     }
 }

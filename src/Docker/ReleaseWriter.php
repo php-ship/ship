@@ -421,7 +421,7 @@ final class ReleaseWriter
         $health = $framework?->healthPath($projectRoot);
 
         return array_map(
-            static fn (array $entry): array => [...$entry, 'health' => $entry['role'] === 'site' ? $health : null],
+            static fn (array $entry): array => [...$entry, 'health' => $entry['role'] === 'site' ? $health : $entry['health']],
             HttpEntryPoints::resolve($releaseServices, $config, $this->registry, ShipEnvironment::Production),
         );
     }

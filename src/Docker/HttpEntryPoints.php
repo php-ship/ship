@@ -25,7 +25,9 @@ final class HttpEntryPoints
     /**
      * @param array<string, array<string, mixed>> $services the generated compose services, with
      *        serviceNames renames already applied
-     * @return list<array{service: string, port: int, role: string}>
+     * The site's `health` is null here: only the framework knows it (see DescribesRelease).
+     *
+     * @return list<array{service: string, port: int, role: string, health: ?string}>
      */
     public static function resolve(
         array $services,
@@ -37,8 +39,8 @@ final class HttpEntryPoints
         $webserverServiceName = $config->serviceNames['webserver'] ?? 'webserver';
 
         $entries = [isset($services[$webserverServiceName])
-            ? ['service' => $webserverServiceName, 'port' => self::SITE_PORT_NGINX, 'role' => 'site']
-            : ['service' => $appServiceName, 'port' => self::SITE_PORT_OCTANE, 'role' => 'site']];
+            ? ['service' => $webserverServiceName, 'port' => self::SITE_PORT_NGINX, 'role' => 'site', 'health' => null]
+            : ['service' => $appServiceName, 'port' => self::SITE_PORT_OCTANE, 'role' => 'site', 'health' => null]];
 
         foreach ($config->services as $key) {
             $service = $registry->get($key);
@@ -55,7 +57,7 @@ final class HttpEntryPoints
                 $name = $config->serviceNames[$defaultName] ?? $defaultName;
 
                 if (isset($services[$name])) {
-                    $entries[] = ['service' => $name, 'port' => $entry['port'], 'role' => $entry['role']];
+                    $entries[] = ['service' => $name, 'port' => $entry['port'], 'role' => $entry['role'], 'health' => $entry['health'] ?? null];
                 }
             }
         }

@@ -85,6 +85,7 @@ final class ServiceRegistry
             new CypressService(),
             new NodeService(),
             new ReverbService(),
+            new CentrifugoService(),
             new RabbitMqService(),
         ];
     }

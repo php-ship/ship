@@ -89,7 +89,7 @@ A few other differences beyond the WSL requirement:
   [Extending ship](#extending-ship) — not a fork of this one.
 - **Postgres, MySQL, MariaDB, MongoDB and SQL Server, RabbitMQ, Swoole and
   RoadRunner and FrankenPHP, Meilisearch and Elasticsearch, object storage,
-  Reverb, browser testing with Dusk, Playwright or Cypress** —
+  Reverb or Centrifugo, browser testing with Dusk, Playwright or Cypress** —
   `ship init` picks one
   option per group interactively; nothing needed is hardcoded to a single
   choice the way Sail's own service list is.
@@ -174,6 +174,7 @@ doesn't make for you.
 | Cypress | Cypress container (Electron, plus Chrome, Firefox and Edge on amd64) with the project mounted at `/e2e`, `CYPRESS_BASE_URL` set to the app's internal address, `CYPRESS_INSTALL_BINARY=0` on `app` so `npm install` there skips the binary | `npm install -D cypress`. Run with `ship exec cypress cypress run` (`--browser chrome` etc.). Test artifacts (screenshots, videos) are written as root on a Linux bind mount |
 | Node.js / npm | Installed unconditionally in the base image, at the version `ship init`'s "Node.js version" prompt sets (`ship.json`'s `node` field, default 24); `ship npm run dev` works regardless of whether this group is selected | See [Frontend dev server](#frontend-dev-server-vite-hmr) below for HMR |
 | Reverb | Its own `reverb` container + published port, `BROADCAST_CONNECTION=reverb`, server-side `REVERB_HOST=reverb`/`REVERB_PORT`/`REVERB_SCHEME` (Docker DNS — `app` talking to `reverb`), browser-side `VITE_REVERB_HOST=localhost`/`VITE_REVERB_PORT`/`VITE_REVERB_SCHEME` (what Echo in the browser actually connects to) | `composer require laravel/reverb`, then `php artisan install:broadcasting` inside the container once (generates `REVERB_APP_ID`/`KEY`/`SECRET` into `.env` — real per-app credentials, not something `ship` provisions). `ship init` warns at selection time if the package isn't installed yet, since the `reverb` container won't start without it. |
+| Centrifugo (`centrifugo`) | Its own `centrifugo` container (the framework-agnostic alternative to Reverb, no app code), published on `127.0.0.1:${CENTRIFUGO_PORT:-8001}` in development with its admin UI (password `${CENTRIFUGO_ADMIN_PASSWORD:-ship}`), server-side `CENTRIFUGO_URL`/`CENTRIFUGO_API_KEY`/`CENTRIFUGO_TOKEN_SECRET`, browser-side `VITE_CENTRIFUGO_URL` | A client: `composer require centrifugal/phpcent` to publish from PHP (its API is `CENTRIFUGO_URL` + `/api`), and `centrifuge` (npm) in the browser, with connection tokens signed using `CENTRIFUGO_TOKEN_SECRET`. On Laravel, a broadcasting driver package if you want `broadcast()`; `BROADCAST_CONNECTION` is left alone. In production `.env.production` must set `CENTRIFUGO_API_KEY`, `CENTRIFUGO_TOKEN_SECRET` and `CENTRIFUGO_ALLOWED_ORIGINS` (space-separated, e.g. `https://example.com`): with no allowed origins Centrifugo refuses every browser |
 
 Everything in the right column is one-time setup per project, not a `ship`
 limitation — `ship`'s job stops at "the infrastructure is reachable with the
@@ -938,6 +939,8 @@ your shell or a `.env` file in the project root:
 | Octane runtime (serves HTTP itself) | `APP_PORT` | `8000` |
 | Vite dev server | `VITE_PORT` | `5173` |
 | Reverb | `REVERB_PORT` | `8080` |
+| Centrifugo (and its admin UI) | `CENTRIFUGO_PORT` | `8001` |
+| RabbitMQ management UI | `RABBITMQ_MANAGEMENT_PORT` | `15672` |
 | Mailpit web UI | `MAILPIT_WEB_PORT` | `8025` |
 
 If a default is already taken — by another `ship` project, or an unrelated

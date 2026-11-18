@@ -16,6 +16,7 @@ use Ship\Docker\ReleaseFailed;
 use Ship\Docker\ReleaseWriter;
 use Ship\Frameworks\LaravelAdapter;
 use Ship\Runtime\ProcessRunner;
+use Ship\Services\CentrifugoService;
 use Ship\Services\GarageService;
 use Ship\Services\OctaneSwooleService;
 use Ship\Services\PostgresService;
@@ -66,7 +67,7 @@ final class ReleaseWriterTest extends TestCase
 
     private function registry(): ServiceRegistry
     {
-        return new ServiceRegistry([new PostgresService(), new RedisService(), new ReverbService(), new OctaneSwooleService(), new GarageService()]);
+        return new ServiceRegistry([new PostgresService(), new RedisService(), new ReverbService(), new CentrifugoService(), new OctaneSwooleService(), new GarageService()]);
     }
 
     private function config(array $overrides = []): ShipConfig
@@ -226,6 +227,22 @@ final class ReleaseWriterTest extends TestCase
             ['service' => 'webserver', 'port' => 80, 'role' => 'site', 'health' => '/up'],
             ['service' => 'reverb', 'port' => 8080, 'role' => 'websocket', 'health' => null],
         ], $this->release()['manifest']['http']);
+    }
+
+    /**
+     * A service's own health path (Centrifugo's /health) reaches release.json; so do its required
+     * settings, including the allowed origins it can't serve browsers without.
+     */
+    public function test_centrifugo_is_a_websocket_entry_with_its_own_health_path(): void
+    {
+        $manifest = $this->release($this->config(['services' => ['database' => 'pgsql', 'broadcasting' => 'centrifugo']]))['manifest'];
+
+        self::assertSame(['service' => 'centrifugo', 'port' => 8000, 'role' => 'websocket', 'health' => '/health'], $manifest['http'][1]);
+        self::assertSame('infrastructure', $manifest['services']['centrifugo']['role']);
+        self::assertStringStartsWith('centrifugo/centrifugo:v', $manifest['services']['centrifugo']['image']);
+        foreach (['CENTRIFUGO_ALLOWED_ORIGINS', 'CENTRIFUGO_API_KEY', 'CENTRIFUGO_TOKEN_SECRET'] as $required) {
+            self::assertContains($required, $manifest['env']['required']);
+        }
     }
 
     public function test_http_lists_app_on_octanes_port(): void

@@ -10,6 +10,7 @@ use Ship\Config\ShipConfig;
 use Ship\Contracts\ShipEnvironment;
 use Ship\Docker\ComposeFileBuilder;
 use Ship\Docker\HttpEntryPoints;
+use Ship\Services\CentrifugoService;
 use Ship\Services\OctaneFrankenPhpService;
 use Ship\Services\OctaneSwooleService;
 use Ship\Services\PostgresService;
@@ -21,11 +22,11 @@ final class HttpEntryPointsTest extends TestCase
 {
     private function registry(): ServiceRegistry
     {
-        return new ServiceRegistry([new PostgresService(), new ReverbService(), new OctaneSwooleService(), new OctaneFrankenPhpService()]);
+        return new ServiceRegistry([new PostgresService(), new ReverbService(), new CentrifugoService(), new OctaneSwooleService(), new OctaneFrankenPhpService()]);
     }
 
     /**
-     * @return array{entries: list<array{service: string, port: int, role: string}>, services: array<string, array<string, mixed>>}
+     * @return array{entries: list<array{service: string, port: int, role: string, health: ?string}>, services: array<string, array<string, mixed>>}
      */
     private function resolve(ShipConfig $config, ShipEnvironment $environment = ShipEnvironment::Production): array
     {
@@ -39,7 +40,7 @@ final class HttpEntryPointsTest extends TestCase
     {
         $entries = $this->resolve(new ShipConfig(phpVersion: '8.4', services: ['database' => 'pgsql']))['entries'];
 
-        self::assertSame([['service' => 'webserver', 'port' => 80, 'role' => 'site']], $entries);
+        self::assertSame([['service' => 'webserver', 'port' => 80, 'role' => 'site', 'health' => null]], $entries);
     }
 
     /**
@@ -56,7 +57,7 @@ final class HttpEntryPointsTest extends TestCase
     {
         $entries = $this->resolve(new ShipConfig(phpVersion: '8.4', services: ['runtime' => $runtime]))['entries'];
 
-        self::assertSame([['service' => 'app', 'port' => 8000, 'role' => 'site']], $entries);
+        self::assertSame([['service' => 'app', 'port' => 8000, 'role' => 'site', 'health' => null]], $entries);
     }
 
     public function test_reverb_adds_a_websocket_entry_point(): void
@@ -64,9 +65,16 @@ final class HttpEntryPointsTest extends TestCase
         $entries = $this->resolve(new ShipConfig(phpVersion: '8.4', services: ['broadcasting' => 'reverb']))['entries'];
 
         self::assertSame([
-            ['service' => 'webserver', 'port' => 80, 'role' => 'site'],
-            ['service' => 'reverb', 'port' => 8080, 'role' => 'websocket'],
+            ['service' => 'webserver', 'port' => 80, 'role' => 'site', 'health' => null],
+            ['service' => 'reverb', 'port' => 8080, 'role' => 'websocket', 'health' => null],
         ], $entries);
+    }
+
+    public function test_centrifugo_adds_a_websocket_entry_point_with_its_health_path(): void
+    {
+        $entries = $this->resolve(new ShipConfig(phpVersion: '8.4', services: ['broadcasting' => 'centrifugo']))['entries'];
+
+        self::assertSame(['service' => 'centrifugo', 'port' => 8000, 'role' => 'websocket', 'health' => '/health'], $entries[1]);
     }
 
     public function test_renamed_services_are_reported_by_their_final_names(): void

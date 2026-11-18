@@ -29,10 +29,17 @@ and records the non-obvious reasons behind each decision.
 
 ### Services
 
-- 22 built-in services: Postgres, MySQL, MariaDB, MongoDB, SQL Server,
+- 23 built-in services: Postgres, MySQL, MariaDB, MongoDB, SQL Server,
   Redis, SeaweedFS, Garage, RustFS, Silo, Octane with
   Swoole/RoadRunner/FrankenPHP, Meilisearch, Elasticsearch, Mailpit,
-  Dusk/Selenium, Playwright, Cypress, Node, Reverb, RabbitMQ.
+  Dusk/Selenium, Playwright, Cypress, Node, Reverb, Centrifugo, RabbitMQ.
+- Broadcasting: Reverb (Laravel only, runs from the app image) or
+  Centrifugo (any framework, its own image, no app code). Centrifugo is
+  stateless (in-memory engine), publishes on host port 8001 so it doesn't
+  collide with Octane's 8000, and has its admin UI in development only. Its
+  API key, token secret and allowed origins are required in production: with
+  no allowed origins it refuses every browser, same origin included. Its
+  `/health` reaches release.json through `ExposesHttp`'s optional `health`.
 - Named instances (`additionalServices`) for the `database`, `cache`,
   `storage`, `search` and `mail` groups. `SupportsNamedInstances` gives the
   shared naming: compose service `{key}-{name}`, env var prefix `{NAME}_`.

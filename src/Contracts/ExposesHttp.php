@@ -13,10 +13,10 @@ namespace Ship\Contracts;
 interface ExposesHttp
 {
     /**
-     * Keyed by default compose service name, the container port and its role (`site`, `websocket`,
-     * ...).
+     * Keyed by default compose service name, the container port, its role (`site`, `websocket`,
+     * ...) and, optionally, a path that answers 2xx while it works.
      *
-     * @return array<string, array{port: int, role: string}>
+     * @return array<string, array{port: int, role: string, health?: ?string}>
      */
     public function httpEntryPoints(): array;
 }
