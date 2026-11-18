@@ -77,9 +77,10 @@ final class ProductionBuildRunner
             return ['composeServices' => $plan['services'], 'images' => []];
         }
 
-        // Passed to `docker compose build` for Compose's own `${VAR}` substitution; nothing here
-        // is baked into the image automatically.
+        // Passed to `docker compose build` for Compose's own `${VAR}` substitution. Of these, only
+        // the VITE_* settings reach an image, through the assets stage's VITE_ENV (see ViteBuildEnv).
         $buildEnv = EnvFile::parse($projectRoot . '/.env.production');
+        $buildEnv[ViteBuildEnv::VARIABLE] = ViteBuildEnv::render($buildEnv);
 
         $result = $this->runner->runInteractive(
             // No override file and the production compose file: see ComposeCommand::baseArgs().
@@ -89,7 +90,7 @@ final class ProductionBuildRunner
                 ...$canonicalServices,
             ],
             $projectRoot,
-            $buildEnv === [] ? null : $buildEnv,
+            $buildEnv,
         );
 
         if ($result !== Command::SUCCESS) {

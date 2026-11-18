@@ -47,4 +47,19 @@ final class DockerfileStubsTest extends TestCase
         self::assertContains('zip', explode(' ', $matches[1]));
         self::assertContains('sockets', explode(' ', $matches[1]));
     }
+
+    /**
+     * The VITE_* settings reach `npm run build` in both PHP images' assets stage.
+     */
+    public function test_both_assets_stages_load_the_vite_settings_before_building(): void
+    {
+        foreach (['Dockerfile', 'Dockerfile.frankenphp'] as $file) {
+            $dockerfile = (string) file_get_contents(dirname(__DIR__, 2) . '/stubs/docker/php/' . $file);
+            $assets = substr($dockerfile, (int) strpos($dockerfile, 'FROM builder AS assets'));
+            $assets = substr($assets, 0, (int) strpos($assets, "\nFROM ") ?: strlen($assets));
+
+            self::assertStringContainsString('ARG VITE_ENV=""', $assets, $file);
+            self::assertLessThan(strpos($assets, 'npm run build'), strpos($assets, 'eval "$VITE_ENV"'), $file);
+        }
+    }
 }

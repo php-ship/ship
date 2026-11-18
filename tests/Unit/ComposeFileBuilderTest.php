@@ -619,6 +619,38 @@ final class ComposeFileBuilderTest extends TestCase
         self::assertSame('pdo_sqlsrv', $prod['services']['app']['build']['args']['PHP_EXTENSIONS']);
     }
 
+    /**
+     * prod-nginx builds the app's builder and assets stages (composer install, npm run build), so
+     * it needs the app's PHP version, extensions, security floor and VITE_* settings.
+     */
+    public function test_the_production_webserver_builds_with_the_apps_build_args(): void
+    {
+        $builder = new ComposeFileBuilder(new ServiceRegistry([new MongoDbService()]));
+        $config = new ShipConfig(phpVersion: '8.5', services: ['database' => 'mongodb'], nodeVersion: '22');
+
+        $services = Yaml::parse($builder->build($config, ShipEnvironment::Production))['services'];
+
+        self::assertSame('prod-nginx', $services['webserver']['build']['target']);
+        self::assertSame($services['app']['build']['args'], $services['webserver']['build']['args']);
+        self::assertSame('8.5', $services['webserver']['build']['args']['PHP_VERSION']);
+        self::assertSame('mongodb', $services['webserver']['build']['args']['PHP_EXTENSIONS']);
+        self::assertSame('${SHIP_VITE_ENV:-}', $services['webserver']['build']['args']['VITE_ENV']);
+    }
+
+    /**
+     * Development runs Vite's own dev server, which reads .env itself.
+     */
+    public function test_vite_settings_are_only_passed_to_production_builds(): void
+    {
+        $builder = new ComposeFileBuilder($this->registry());
+        $config = new ShipConfig(phpVersion: '8.4', services: []);
+
+        $dev = Yaml::parse($builder->build($config, ShipEnvironment::Development))['services'];
+
+        self::assertArrayNotHasKey('VITE_ENV', $dev['app']['build']['args']);
+        self::assertSame('dev-nginx', $dev['webserver']['build']['target']);
+    }
+
     public function test_php_extensions_defaults_to_an_empty_build_arg_when_not_specified(): void
     {
         $builder = new ComposeFileBuilder($this->registry());

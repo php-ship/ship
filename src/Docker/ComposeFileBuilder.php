@@ -94,6 +94,19 @@ final class ComposeFileBuilder
         );
         $compose['services'] = $this->backfillRestartPolicy($compose['services']);
 
+        // prod-nginx copies public/ from the "assets" stage, which builds on the app's "builder"
+        // and "base" stages: composer install, the PHP version and extensions, the security floor
+        // and the VITE_* settings all apply to it. Without the app's build args it would build on
+        // the Dockerfile's defaults, and `composer install` fails for a project needing another PHP
+        // version or an extension. Identical args also let the two builds share those stages.
+        if (!$environment->isDevelopment()) {
+            $compose['services'] = $this->alignWebserverBuildWithApp(
+                $compose['services'],
+                $config->serviceNames['app'] ?? 'app',
+                $config->serviceNames['webserver'] ?? 'webserver',
+            );
+        }
+
         // `docker compose build` reuses a locally cached base image (php:8.4-fpm-alpine) forever,
         // so a production build always re-resolves its FROM images and picks up PHP's latest
         // patch release. Development skips this so `ship up` still works offline; the
@@ -661,6 +674,21 @@ final class ComposeFileBuilder
      * @param array<string, array<string, mixed>> $services
      * @return array<string, array<string, mixed>>
      */
+    private function alignWebserverBuildWithApp(array $services, string $app, string $webserver): array
+    {
+        if (($services[$webserver]['build']['target'] ?? null) !== 'prod-nginx' || !isset($services[$app]['build']['args'])) {
+            return $services;
+        }
+
+        $services[$webserver]['build']['args'] = $services[$app]['build']['args'];
+
+        return $services;
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $services
+     * @return array<string, array<string, mixed>>
+     */
     private function backfillBuildPull(array $services): array
     {
         foreach ($services as $name => $service) {
@@ -729,6 +757,10 @@ final class ComposeFileBuilder
                         'NODE_VERSION' => $config->nodeVersion,
                         'OCTANE_RUNTIME' => $this->runtimeBuildArg($runtime),
                         'PHP_EXTENSIONS' => $this->phpExtensionsBuildArg($config),
+                        // The production `npm run build` bakes .env.production's VITE_* settings into
+                        // the bundle. Read from the build's environment, not written into this file
+                        // (see ViteBuildEnv and ProductionBuildRunner).
+                        ...(!$environment->isDevelopment() ? ['VITE_ENV' => '${' . ViteBuildEnv::VARIABLE . ':-}'] : []),
                         ...($hostUser !== null ? ['HOST_UID' => (string) $hostUser['uid'], 'HOST_GID' => (string) $hostUser['gid']] : []),
                     ],
                 ],

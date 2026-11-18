@@ -76,8 +76,12 @@ RUN composer dump-autoload --optimize --no-dev
 # ---- assets --------------------------------------------------------------
 # See the "assets" stage in stubs/docker/php/Dockerfile.
 FROM builder AS assets
+# .env.production's VITE_* settings as `export` lines (see Ship\Docker\ViteBuildEnv), which Vite
+# bakes into the bundle. The .env files themselves are kept out of the build context.
+ARG VITE_ENV=""
 RUN if [ -f package.json ]; then \
         if [ -f package-lock.json ]; then npm ci; else npm install; fi \
+        && eval "$VITE_ENV" \
         && npm run build \
         && rm -rf node_modules; \
     fi
