@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/ship-ecosystem/python-ship/main/schema/ship.schema.json",
+  "$id": "https://raw.githubusercontent.com/ship-ecosystem/spec/main/schemas/ship.schema.json",
   "title": "ship.json",
-  "description": "Project configuration for the Ship ecosystem: PHP Ship (php-ship/ship) and Python Ship (python-ship). This file is shared: keep it identical in both repositories. Fields marked PHP or Python are read only by that package; the others mean the same in both.",
+  "description": "Project configuration for the Ship ecosystem (PHP Ship, Python Ship). The source of truth is https://github.com/ship-ecosystem/spec; producers keep a copy that their CI checks against it. Fields marked PHP or Python are read only by that package; the others mean the same in every producer.",
   "type": "object",
   "additionalProperties": false,
   "properties": {

@@ -16,7 +16,7 @@ use Symfony\Component\Yaml\Yaml;
 /**
  * Writes `dist/ship/<tag>/` once the production images are built: pins every image ship doesn't
  * build to its digest, saves the built ones, and writes the compose file, `.env`, deploy script,
- * README and release.json (see docs/release-contract.md).
+ * README and release.json (see the ship-release contract in ship-ecosystem/spec).
  *
  * Everything is written into a staging folder next to the destination, release.json last, and
  * the folder is renamed into place only once all of it succeeded. A failure removes the staging

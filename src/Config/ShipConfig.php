@@ -16,9 +16,10 @@ final class ShipConfig
     public const SILO_IMAGES = [self::SILO_IMAGE_STANDARD, self::SILO_IMAGE_DISTROLESS];
 
     /**
-     * The shared ship.json schema, identical in PHP Ship and Python Ship (schema/ship.schema.json).
+     * The ship.json schema in ship-ecosystem/spec, the source of truth for every producer;
+     * schema/ship.schema.json is this package's copy, which CI checks is identical.
      */
-    public const SCHEMA_URL = 'https://raw.githubusercontent.com/ship-ecosystem/python-ship/main/schema/ship.schema.json';
+    public const SCHEMA_URL = 'https://raw.githubusercontent.com/ship-ecosystem/spec/main/schemas/ship.schema.json';
 
     /**
      * @param array<string, string> $services group => selected service key, e.g.

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/php-ship/ship/main/schema/ship-release.schema.json",
-  "$comment": "The ship-release contract (docs/release-contract.md). Status: draft. Every field below is required because it is part of the first contract. A field added later must NOT be added to any `required` list: readers of older releases won't find it, and the contract says what its absence means. additionalProperties stays open everywhere, because readers ignore fields they don't know.",
+  "$id": "https://raw.githubusercontent.com/ship-ecosystem/spec/main/schemas/ship-release.schema.json",
+  "$comment": "The ship-release contract (docs/release-contract.md in https://github.com/ship-ecosystem/spec). Status: draft. Every field below is required because it is part of the first contract. A field added later must NOT be added to any `required` list: readers of older releases won't find it, and the contract says what its absence means. additionalProperties stays open everywhere, because readers ignore fields they don't know.",
   "title": "release.json",
   "description": "Describes one release folder written by a Ship producer (`ship release --tag <tag>`).",
   "type": "object",

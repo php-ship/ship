@@ -2,7 +2,7 @@
     "name": "php-ship/ship",
     "description": "Framework-agnostic, cross-platform Docker development environment for PHP — no WSL required.",
     "keywords": ["docker", "development-environment", "php", "devops", "octane", "cross-platform"],
-    "homepage": "https://github.com/php-ship/ship",
+    "homepage": "https://github.com/ship-ecosystem/php-ship",
     "license": "MIT",
     "type": "library",
     "authors": [

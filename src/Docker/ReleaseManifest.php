@@ -5,7 +5,8 @@ declare(strict_types=1);
 namespace Ship\Docker;
 
 /**
- * release.json, the "ship-release" contract (docs/release-contract.md, schema/ship-release.schema.json).
+ * release.json, the "ship-release" contract (docs/release-contract.md in ship-ecosystem/spec; its
+ * schema is copied to schema/ship-release.schema.json).
  * Pure: ReleaseWriter collects the facts, this shapes them. No `.env.production` value is passed
  * in, so none can end up in the file.
  */

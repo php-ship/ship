@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * Checks a real release folder against the ship-release contract (docs/release-contract.md):
+ * Checks a real release folder against the ship-release contract (ship-ecosystem/spec):
  *
  *   php tests/Integration/verify-release.php <release-folder> [--load]
  *

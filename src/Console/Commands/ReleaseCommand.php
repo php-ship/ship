@@ -33,7 +33,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
  * Produces the portable release under `dist/ship/<tag>/`, the "ship-release" contract
- * (docs/release-contract.md): validates the project, builds the production images, and hands off
+ * (ship-ecosystem/spec's docs/release-contract.md): validates the project, builds the production images, and hands off
  * to ReleaseWriter.
  */
 #[AsCommand(name: 'release', description: 'Build the portable production release artifact')]

@@ -1,6 +1,6 @@
 # ship
 
-[![CI](https://github.com/php-ship/ship/actions/workflows/ci.yml/badge.svg)](https://github.com/php-ship/ship/actions/workflows/ci.yml)
+[![CI](https://github.com/ship-ecosystem/php-ship/actions/workflows/ci.yml/badge.svg)](https://github.com/ship-ecosystem/php-ship/actions/workflows/ci.yml)
 [![Packagist Version](https://img.shields.io/packagist/v/php-ship/ship)](https://packagist.org/packages/php-ship/ship)
 [![Packagist Downloads](https://img.shields.io/packagist/dt/php-ship/ship)](https://packagist.org/packages/php-ship/ship)
 [![License](https://img.shields.io/packagist/l/php-ship/ship)](LICENSE.md)
@@ -82,7 +82,7 @@ deploying is left to you. `ship release --tag` builds production images (no
 bind mount, assets built) and writes one portable folder: the images, a
 final compose file with every third-party image pinned by digest, a deploy
 script and the exact deploy steps. A server needs nothing but Docker. The
-folder is a documented contract ([ship-release](docs/release-contract.md)),
+folder is a documented contract ([ship-release](https://github.com/ship-ecosystem/spec/blob/main/docs/release-contract.md)),
 so deployment tools can read it: `release.json` names the services and
 their roles, which receive HTTP and their health paths, the data volumes and
 the settings, never their values. Releases are atomic, never overwrite a
@@ -185,7 +185,7 @@ release`.
 | `ship init` | Interactive picker for services (database, cache, runtime, ...); writes `ship.json` and publishes the `ship/` directory. Re-run it after upgrading `ship` to pick up stub changes — see [Adding a service later](#adding-a-service-later). |
 | `ship up` | Regenerates `ship/docker-compose.generated.yml` from `ship.json` and runs `docker compose up --build -d`. Development only — see `ship build`/`ship release` below for production. |
 | `ship build` | Builds every project-owned production image, tagged locally. Needs a real `.env.production` the moment any selected service has a required credential — see that section below. See [Production releases](#production-releases). |
-| `ship release --tag <tag> [--force] [--no-env]` | Builds the same images (re-tagged) and assembles the portable release under `dist/ship/<tag>/`, described by `release.json` ([the ship-release contract](docs/release-contract.md)). `--force` replaces an existing release of that tag; `--no-env` leaves `.env.production` out. Needs `name` in `ship.json`. See [Production releases](#production-releases). |
+| `ship release --tag <tag> [--force] [--no-env]` | Builds the same images (re-tagged) and assembles the portable release under `dist/ship/<tag>/`, described by `release.json` ([the ship-release contract](https://github.com/ship-ecosystem/spec/blob/main/docs/release-contract.md)). `--force` replaces an existing release of that tag; `--no-env` leaves `.env.production` out. Needs `name` in `ship.json`. See [Production releases](#production-releases). |
 | `ship down [--volumes]` | `docker compose down`. `--volumes` also deletes named volumes (database/storage data — use with care). |
 | `ship exec <service> <cmd...>` | Runs an arbitrary command inside a running service container. The generic escape hatch every shortcut below wraps. |
 | `ship shell [service]` | Opens an interactive shell (`sh`) in a service; defaults to `app`. |
@@ -427,7 +427,7 @@ plain, readable JSON document:
 
 ```json
 {
-    "$schema": "https://raw.githubusercontent.com/ship-ecosystem/python-ship/main/schema/ship.schema.json",
+    "$schema": "https://raw.githubusercontent.com/ship-ecosystem/spec/main/schemas/ship.schema.json",
     "php": "8.4",
     "node": "24",
     "services": {
@@ -443,10 +443,11 @@ plain, readable JSON document:
 }
 ```
 
-- `$schema` — the shared [ship.json schema](schema/ship.schema.json), which
-  `ship init` writes so editors validate and complete the file. It is the same
-  schema [Python Ship](https://github.com/ship-ecosystem/python-ship) uses: the
-  field names below mean the same thing in both packages.
+- `$schema` — the [ship.json schema](https://github.com/ship-ecosystem/spec/blob/main/schemas/ship.schema.json)
+  in the ecosystem's shared specification, which `ship init` writes so
+  editors validate and complete the file. Every Ship package uses it, so the
+  field names below mean the same thing in all of them; this package keeps a
+  copy in `schema/` that CI checks is identical.
 - `php` — the PHP version built into the image (`ARG PHP_VERSION` in
   `ship/Dockerfile`). Keep it a bare branch (`"8.4"`) so every build gets
   that branch's latest patch release. See [PHP security
@@ -809,9 +810,10 @@ dist/ship/1.2.0/
 ```
 
 The folder is a public contract, **ship-release**, so deployment tools can
-read it: [docs/release-contract.md](docs/release-contract.md) describes every
-file and every `release.json` field, and `schema/ship-release.schema.json` is
-its JSON Schema. `release.json` names the app, its images (with IDs and
+read it. The contract lives in the ecosystem's shared specification,
+[ship-ecosystem/spec](https://github.com/ship-ecosystem/spec): its [document](https://github.com/ship-ecosystem/spec/blob/main/docs/release-contract.md) describes
+every file and every `release.json` field, next to the JSON Schema, example
+releases and a checker any tool can run. `release.json` names the app, its images (with IDs and
 archive checksums), the services and their roles, which ones receive HTTP
 (and the framework's health path), the data volumes, the settings by name
 only, and the deploy commands. The contract is a draft until it has been
@@ -1283,7 +1285,7 @@ example.
 - [`src/Docker/ReleaseWriter.php`](src/Docker/ReleaseWriter.php) and
   [`ReleaseManifest.php`](src/Docker/ReleaseManifest.php) — write a
   release folder and its `release.json`, the
-  [ship-release contract](docs/release-contract.md).
+  [ship-release contract](https://github.com/ship-ecosystem/spec/blob/main/docs/release-contract.md).
   [`HttpEntryPoints.php`](src/Docker/HttpEntryPoints.php) decides which
   services receive HTTP, for both the external network and `release.json`.
 - [`src/Extensions/ExtensionLoader.php`](src/Extensions/ExtensionLoader.php) —

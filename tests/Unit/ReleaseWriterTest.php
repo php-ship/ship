@@ -28,7 +28,7 @@ use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\Yaml\Yaml;
 
 /**
- * The release folder and release.json (docs/release-contract.md), with Docker replaced by
+ * The release folder and release.json (the ship-release contract), with Docker replaced by
  * FakeReleaseDocker. The real Docker path is covered by CI's docker-build job.
  */
 final class ReleaseWriterTest extends TestCase
