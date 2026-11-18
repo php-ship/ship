@@ -56,6 +56,11 @@ final class LaravelAdapter implements FrameworkAdapter, DescribesRelease
         return $match[2];
     }
 
+    public function siteUrlSetting(): string
+    {
+        return 'APP_URL';
+    }
+
     /**
      * Without APP_KEY, encryption fails, and with it every request that touches the session or a
      * cookie.

@@ -26,7 +26,7 @@ final class ReleaseManifest
      * @param list<array{ref: string, services: list<string>}> $pulledImages
      * @param array<string, array<string, mixed>> $releaseServices the release compose file's services
      * @param array<string, string> $roles service name => role
-     * @param list<array{service: string, port: int, role: string, health: ?string}> $http
+     * @param list<array{service: string, port: int, role: string, health: ?string, urlSetting: ?string}> $http
      * @param list<string> $envKeys
      * @param list<string> $envReferenced
      * @param list<string> $envRequired

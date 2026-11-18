@@ -14,9 +14,10 @@ interface ExposesHttp
 {
     /**
      * Keyed by default compose service name, the container port, its role (`site`, `websocket`,
-     * ...) and, optionally, a path that answers 2xx while it works.
+     * ...) and, optionally, a path that answers 2xx while it works and the name of the setting that
+     * holds the public address browsers use for it (it is baked into the frontend at build time).
      *
-     * @return array<string, array{port: int, role: string, health?: ?string}>
+     * @return array<string, array{port: int, role: string, health?: ?string, urlSetting?: ?string}>
      */
     public function httpEntryPoints(): array;
 }

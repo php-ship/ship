@@ -83,7 +83,9 @@ a runtime — is a class implementing `Ship\Contracts\ServiceDefinition`.
 
 - **If your service receives HTTP traffic of its own** (a WebSocket server
   the browser connects to, say), implement `Ship\Contracts\ExposesHttp`
-  with its container port, role and, if it has one, a health path. The
+  with its container port, role and, if it has one, a health path and the
+  name of the setting holding its public address (`urlSetting`, e.g.
+  `VITE_REVERB_HOST`). The
   service then joins `externalNetwork` alongside the site, and `ship
   release` lists it in `release.json`'s `http`. `ReverbService` and
   `CentrifugoService` are the examples.
@@ -195,10 +197,10 @@ from for a new framework. Three methods:
 
 An adapter can also implement `Ship\Contracts\DescribesRelease` for `ship
 release`: the framework's name, the health path the project defines (read
-from the project, not assumed), and the settings it can't run without,
-which then block a release when `.env.production` lacks them. Laravel's
-adapter returns `laravel`, the `health:` path from `bootstrap/app.php`, and
-`APP_KEY`.
+from the project, not assumed), the setting holding the site's public URL,
+and the settings it can't run without, which then block a release when
+`.env.production` lacks them. Laravel's adapter returns `laravel`, the
+`health:` path from `bootstrap/app.php`, `APP_URL` and `APP_KEY`.
 
 Like `ServiceDefinition`, a third-party adapter doesn't need to fork this
 package — list its FQCN in `ship.json`'s `extensions` array the same way,

@@ -81,6 +81,6 @@ final class ReverbService implements ServiceDefinition, ExposesHttp
      */
     public function httpEntryPoints(): array
     {
-        return ['reverb' => ['port' => 8080, 'role' => 'websocket']];
+        return ['reverb' => ['port' => 8080, 'role' => 'websocket', 'urlSetting' => 'VITE_REVERB_HOST']];
     }
 }

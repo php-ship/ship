@@ -23,6 +23,12 @@ interface DescribesRelease
     public function healthPath(string $projectRoot): ?string;
 
     /**
+     * The name of the setting that holds the site's public URL (Laravel's `APP_URL`), or null when
+     * the framework has none.
+     */
+    public function siteUrlSetting(): ?string;
+
+    /**
      * Settings the app can't run without, which `.env.production` must set. `ship release` fails
      * when one is missing, and release.json lists them in `env.required`.
      *

@@ -224,8 +224,8 @@ final class ReleaseWriterTest extends TestCase
     public function test_http_lists_the_nginx_site_with_its_health_path_and_reverb(): void
     {
         self::assertSame([
-            ['service' => 'webserver', 'port' => 80, 'role' => 'site', 'health' => '/up'],
-            ['service' => 'reverb', 'port' => 8080, 'role' => 'websocket', 'health' => null],
+            ['service' => 'webserver', 'port' => 80, 'role' => 'site', 'health' => '/up', 'urlSetting' => 'APP_URL'],
+            ['service' => 'reverb', 'port' => 8080, 'role' => 'websocket', 'health' => null, 'urlSetting' => 'VITE_REVERB_HOST'],
         ], $this->release()['manifest']['http']);
     }
 
@@ -237,7 +237,7 @@ final class ReleaseWriterTest extends TestCase
     {
         $manifest = $this->release($this->config(['services' => ['database' => 'postgres', 'broadcasting' => 'centrifugo']]))['manifest'];
 
-        self::assertSame(['service' => 'centrifugo', 'port' => 8000, 'role' => 'websocket', 'health' => '/health'], $manifest['http'][1]);
+        self::assertSame(['service' => 'centrifugo', 'port' => 8000, 'role' => 'websocket', 'health' => '/health', 'urlSetting' => 'VITE_CENTRIFUGO_URL'], $manifest['http'][1]);
         self::assertSame('infrastructure', $manifest['services']['centrifugo']['role']);
         self::assertStringStartsWith('centrifugo/centrifugo:v', $manifest['services']['centrifugo']['image']);
         foreach (['CENTRIFUGO_ALLOWED_ORIGINS', 'CENTRIFUGO_API_KEY', 'CENTRIFUGO_TOKEN_SECRET'] as $required) {
@@ -251,7 +251,7 @@ final class ReleaseWriterTest extends TestCase
 
         $manifest = $this->release($config)['manifest'];
 
-        self::assertSame([['service' => 'app', 'port' => 8000, 'role' => 'site', 'health' => '/up']], $manifest['http']);
+        self::assertSame([['service' => 'app', 'port' => 8000, 'role' => 'site', 'health' => '/up', 'urlSetting' => 'APP_URL']], $manifest['http']);
         self::assertSame('octane-swoole', $manifest['runtime']);
     }
 

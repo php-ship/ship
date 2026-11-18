@@ -50,6 +50,14 @@ final class SymfonyAdapter implements FrameworkAdapter, DescribesRelease
     }
 
     /**
+     * Symfony has no standard setting for the site's own URL.
+     */
+    public function siteUrlSetting(): ?string
+    {
+        return null;
+    }
+
+    /**
      * Symfony reads its settings from the .env files in the image as well as the environment, so
      * nothing is required from .env.production specifically.
      */

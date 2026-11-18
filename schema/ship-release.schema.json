@@ -61,12 +61,13 @@
       "description": "Services that receive HTTP traffic. Empty when none.",
       "items": {
         "type": "object",
-        "required": ["service", "port", "role", "health"],
+        "required": ["service", "port", "role", "health", "urlSetting"],
         "properties": {
           "service": {"$ref": "#/$defs/name"},
           "port": {"type": "integer", "minimum": 1, "maximum": 65535, "description": "Container port."},
           "role": {"type": "string", "minLength": 1, "description": "Open list: site, websocket. Unknown: plain HTTP."},
-          "health": {"type": ["string", "null"], "pattern": "^/", "description": "Path answering 2xx while the service works; null when unknown."}
+          "health": {"type": ["string", "null"], "pattern": "^/", "description": "Path answering 2xx while the service works; null when unknown."},
+          "urlSetting": {"type": ["string", "null"], "pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "description": "Name of the setting holding the public address browsers use for this entry; null when unknown. A name, never a value."}
         }
       }
     },

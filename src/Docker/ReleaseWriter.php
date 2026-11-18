@@ -414,14 +414,17 @@ final class ReleaseWriter
 
     /**
      * @param array<string, array<string, mixed>> $releaseServices
-     * @return list<array{service: string, port: int, role: string, health: ?string}>
+     * @return list<array{service: string, port: int, role: string, health: ?string, urlSetting: ?string}>
      */
     private function http(array $releaseServices, ShipConfig $config, ?DescribesRelease $framework, string $projectRoot): array
     {
         $health = $framework?->healthPath($projectRoot);
+        $urlSetting = $framework?->siteUrlSetting();
 
         return array_map(
-            static fn (array $entry): array => [...$entry, 'health' => $entry['role'] === 'site' ? $health : $entry['health']],
+            static fn (array $entry): array => $entry['role'] === 'site'
+                ? [...$entry, 'health' => $health, 'urlSetting' => $urlSetting]
+                : $entry,
             HttpEntryPoints::resolve($releaseServices, $config, $this->registry, ShipEnvironment::Production),
         );
     }

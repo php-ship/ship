@@ -79,8 +79,8 @@ JSON Schema is `schema/ship-release.schema.json`.
     { "ref": "postgres:18-alpine@sha256:…", "services": ["postgres"] }
   ],
   "http": [
-    { "service": "webserver", "port": 80, "role": "site", "health": "/up" },
-    { "service": "reverb", "port": 8080, "role": "websocket", "health": null }
+    { "service": "webserver", "port": 80, "role": "site", "health": "/up", "urlSetting": "APP_URL" },
+    { "service": "reverb", "port": 8080, "role": "websocket", "health": null, "urlSetting": "VITE_REVERB_HOST" }
   ],
   "services": {
     "app":       { "role": "app", "image": "client-app:1.5.0", "healthcheck": false, "volumes": [] },
@@ -113,7 +113,7 @@ Only `builder.package` differs between producers: `php-ship/ship` here.
 | Field | Type | Meaning |
 |---|---|---|
 | `format` | string | Always `"ship-release"`. |
-| `app` | string | The application's name. It is the Compose project name (the Compose file's top-level `name:`) and the same for every release of the application, wherever it was built: it ties `1.0.0` and `2.0.0` together, and it prefixes the data volumes on the server. |
+| `app` | string | The application's name, the same for every release of the application wherever it was built: it ties `1.0.0` and `2.0.0` together. It is the Compose file's top-level `name:`, so a folder deployed as is (`docker compose up`) uses it as the Compose project name, which prefixes the data volumes. A deployment tool may run the release under its own project name instead; it then owns the volume names, and should adopt or move the volumes of an app first deployed by hand. |
 | `tag` | string | The release tag. Matches `^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`. |
 | `createdAt` | string | RFC 3339 timestamp in UTC (`Z`). |
 | `builder.package`, `builder.version` | string | Which producer wrote the release, and its version. |
@@ -135,6 +135,7 @@ Only `builder.package` differs between producers: `php-ship/ship` here.
 | `http[].port` | int | The container port (not a host port). |
 | `http[].role` | string | `site`: the application's web traffic. `websocket`: a WebSocket server the browser connects to directly. **Unknown role:** plain HTTP. |
 | `http[].health` | string or null | A path that answers 2xx while the service works, e.g. `/up`; null when unknown. |
+| `http[].urlSetting` | string or null | The name of the setting that holds the public address browsers use for this entry: `APP_URL` for a Laravel site, `VITE_REVERB_HOST` for Reverb, `VITE_CENTRIFUGO_URL` for Centrifugo. Null when unknown. The value is in the release's settings, as a URL or a host name depending on the setting. Settings a browser uses (`VITE_*`) are baked into the frontend when the release is built, so whoever deploys must route exactly that address. |
 | `services` | object | Every Compose service in the release, keyed by name. |
 | `services.*.role` | string | `app`: the application. `web`: its web server in front of the app. `process`: another long-running process of the application (queue worker, scheduler, WebSocket server). `infrastructure`: a supporting service (database, cache, storage). **Unknown role:** `process`. |
 | `services.*.image` | string | Equal to one `images[].ref` or one `pulledImages[].ref`. |
@@ -146,7 +147,7 @@ Only `builder.package` differs between producers: `php-ship/ship` here.
 | `env.keys` | string[] | The name of every production setting. Names only, never values. |
 | `env.referenced` | string[] | Every variable the Compose file interpolates (`${VAR}`, `$VAR`). |
 | `env.required` | string[] | Settings the release can't start without. A subset of `keys`. |
-| `deploy` | object or null | One-off commands to run once per deploy, before the new release starts. Null when there are none. |
+| `deploy` | object or null | One-off commands to run once per deploy, before the new release starts. Null when there are none. A deployment tool may run them while the previous release is still serving, or after stopping it (briefly taking the app down); the producer's commands must be backward compatible with the previous release, so both are safe. |
 | `deploy.service` | string | The service whose image runs the commands. |
 | `deploy.needs` | string[] | Services that must be up and healthy before the commands run. |
 | `deploy.commands` | string[][] | The commands, in order, each an argv. Each runs in a one-off container of `deploy.service`, with no other service started by it: `docker compose run --rm --no-deps -T <service> <argv…>`. A failing command stops the deploy. |
@@ -154,8 +155,8 @@ Only `builder.package` differs between producers: `php-ship/ship` here.
 
 Every array is present, even when empty, and sorted, except `images`,
 `pulledImages`, `http` and `deploy.commands`, whose order is meaningful or
-stable. `framework`, `deploy`, `env.file`, `source.*` and `http[].health` are
-null rather than absent.
+stable. `framework`, `deploy`, `env.file`, `source.*`, `http[].health` and
+`http[].urlSetting` are null rather than absent.
 
 ### Settings
 
@@ -182,7 +183,8 @@ On a machine with Docker, from the release folder:
 2. `docker load -i <file>` for each `images[]` entry.
 3. When `deploy` is not null, run `sh deploy-commands.sh`, or do what it does:
    `docker compose up -d --wait <needs…>`, then each `deploy.commands` argv as
-   described above.
+   described above. The previous release may keep serving meanwhile, or be
+   stopped first.
 4. `docker compose up -d`.
 
 ## Notes for producers and readers

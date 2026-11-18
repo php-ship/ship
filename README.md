@@ -772,6 +772,17 @@ containers at boot the same way a dev project's `.env` already is. `ship release
 clear error if `.env.production` doesn't exist — there's no silent
 "production ran with no config" failure mode.
 
+**`VITE_*` settings are baked in at build time.** Vite copies every
+`VITE_*` setting into the JavaScript it builds, so a release carries the
+values `.env.production` held when it was built: Reverb's or Centrifugo's
+public address (`VITE_REVERB_HOST`, `VITE_CENTRIFUGO_URL`), `VITE_APP_NAME`,
+and so on. `ship build`/`ship release` pass only the `VITE_*` settings to the
+production `npm run build` (they end up in public JavaScript anyway; nothing
+else from the file does), with `${OTHER}` references resolved the way Laravel
+resolves them. Changing one means building a new release, and a release must
+be served at the address it was built for — `release.json`'s `http[].urlSetting`
+names the setting, so a deployment tool can read it.
+
 Selected services' own credentials (`DB_PASSWORD`, `MEILISEARCH_KEY`,
 `AWS_SECRET_ACCESS_KEY`, ...) are *required* here, not just read: `docker
 compose` itself refuses to build or start anything at all if one was never

@@ -79,7 +79,7 @@ final class CentrifugoServiceTest extends TestCase
     public function test_it_is_a_websocket_entry_point_with_a_health_path(): void
     {
         self::assertSame(
-            ['centrifugo' => ['port' => 8000, 'role' => 'websocket', 'health' => '/health']],
+            ['centrifugo' => ['port' => 8000, 'role' => 'websocket', 'health' => '/health', 'urlSetting' => 'VITE_CENTRIFUGO_URL']],
             (new CentrifugoService())->httpEntryPoints(),
         );
     }

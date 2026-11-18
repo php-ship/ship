@@ -138,6 +138,6 @@ final class CentrifugoService implements ServiceDefinition, ExposesHttp, ConfigA
      */
     public function httpEntryPoints(): array
     {
-        return ['centrifugo' => ['port' => 8000, 'role' => 'websocket', 'health' => '/health']];
+        return ['centrifugo' => ['port' => 8000, 'role' => 'websocket', 'health' => '/health', 'urlSetting' => 'VITE_CENTRIFUGO_URL']];
     }
 }

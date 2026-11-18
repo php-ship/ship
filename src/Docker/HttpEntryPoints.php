@@ -25,9 +25,10 @@ final class HttpEntryPoints
     /**
      * @param array<string, array<string, mixed>> $services the generated compose services, with
      *        serviceNames renames already applied
-     * The site's `health` is null here: only the framework knows it (see DescribesRelease).
+     * The site's `health` and `urlSetting` are null here: only the framework knows them (see
+     * DescribesRelease).
      *
-     * @return list<array{service: string, port: int, role: string, health: ?string}>
+     * @return list<array{service: string, port: int, role: string, health: ?string, urlSetting: ?string}>
      */
     public static function resolve(
         array $services,
@@ -39,8 +40,8 @@ final class HttpEntryPoints
         $webserverServiceName = $config->serviceNames['webserver'] ?? 'webserver';
 
         $entries = [isset($services[$webserverServiceName])
-            ? ['service' => $webserverServiceName, 'port' => self::SITE_PORT_NGINX, 'role' => 'site', 'health' => null]
-            : ['service' => $appServiceName, 'port' => self::SITE_PORT_OCTANE, 'role' => 'site', 'health' => null]];
+            ? ['service' => $webserverServiceName, 'port' => self::SITE_PORT_NGINX, 'role' => 'site', 'health' => null, 'urlSetting' => null]
+            : ['service' => $appServiceName, 'port' => self::SITE_PORT_OCTANE, 'role' => 'site', 'health' => null, 'urlSetting' => null]];
 
         foreach ($config->services as $key) {
             $service = $registry->get($key);
@@ -57,7 +58,13 @@ final class HttpEntryPoints
                 $name = $config->serviceNames[$defaultName] ?? $defaultName;
 
                 if (isset($services[$name])) {
-                    $entries[] = ['service' => $name, 'port' => $entry['port'], 'role' => $entry['role'], 'health' => $entry['health'] ?? null];
+                    $entries[] = [
+                        'service' => $name,
+                        'port' => $entry['port'],
+                        'role' => $entry['role'],
+                        'health' => $entry['health'] ?? null,
+                        'urlSetting' => $entry['urlSetting'] ?? null,
+                    ];
                 }
             }
         }
