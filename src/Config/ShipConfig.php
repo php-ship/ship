@@ -16,6 +16,17 @@ final class ShipConfig
      */
     public const PHP_VERSION_PATTERN = '/^\d+\.\d+(?:\.\d+)?$/';
 
+    /**
+     * ship.schema.json's pattern for "name": lowercase letters and digits, words joined by "-" or
+     * "_", starting with a letter.
+     */
+    public const NAME_PATTERN = '/^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$/';
+
+    /**
+     * ship.schema.json's pattern for a Docker network name in "externalNetwork".
+     */
+    public const NETWORK_NAME_PATTERN = '/^[A-Za-z0-9][A-Za-z0-9_.-]*$/';
+
     public const SILO_IMAGE_STANDARD = 'standard';
     public const SILO_IMAGE_DISTROLESS = 'distroless';
     public const SILO_IMAGES = [self::SILO_IMAGE_STANDARD, self::SILO_IMAGE_DISTROLESS];
@@ -37,8 +48,12 @@ final class ShipConfig
      * @param array<string, string> $serviceNames a compose service's default name ("app",
      *        "webserver", "mysql", ...) mapped to a custom one, for projects sharing a Docker
      *        network where the default aliases would collide. Doesn't apply to additionalServices.
-     * @param ?string $externalNetwork a pre-existing Docker network to attach the app service and
-     *        every HTTP entry point (see HttpEntryPoints) to, in addition to the internal "ship" one.
+     * @param ?string $externalNetwork the first of $externalNetworks, for code written when there
+     *        could be only one.
+     * @param list<string> $externalNetworks pre-existing Docker networks (a reverse proxy's, say)
+     *        to attach the app service and every HTTP entry point (see HttpEntryPoints) to, in
+     *        addition to the internal "ship" one. ship.json's "externalNetwork": one name, or a list.
+     *        Given only $externalNetwork, it's that one.
      * @param list<string> $phpExtensions extra PHP extensions to install beyond the fixed set (see
      *        stubs/docker/php/Dockerfile), passed to mlocati/docker-php-extension-installer.
      * @param bool $publishPorts true publishes production HTTP ports to the host. The default keeps
@@ -64,6 +79,10 @@ final class ShipConfig
      *        form, `{"command": "...", "http": {"port": 8080, "role": "websocket", ...}}`. Each
      *        becomes a release.json http[] entry with an HTTP health check, and is reachable on
      *        externalNetwork like the site.
+     * @param array<string, string> $processHealthchecks the processes (by name) with their own
+     *        health check: a shell command run in the process's container that exits 0 while it
+     *        works (`{"command": "...", "healthcheck": "php artisan horizon:status"}`). It replaces
+     *        the default check, HTTP or "stayed up".
      */
     public function __construct(
         public readonly string $phpVersion,
@@ -81,7 +100,28 @@ final class ShipConfig
         public readonly ?string $name = null,
         public readonly string $siloImage = self::SILO_IMAGE_STANDARD,
         public readonly array $processHttp = [],
+        public readonly array $processHealthchecks = [],
+        array $externalNetworks = [],
     ) {
+        $this->externalNetworks = $externalNetworks !== [] ? array_values(array_unique($externalNetworks))
+            : ($externalNetwork !== null ? [$externalNetwork] : []);
+    }
+
+    /** @var list<string> */
+    public readonly array $externalNetworks;
+
+    /**
+     * ship.json's "externalNetwork" as a list: one name, or several.
+     *
+     * @return list<string>
+     */
+    private static function networkNames(mixed $value): array
+    {
+        if (is_string($value)) {
+            return [$value];
+        }
+
+        return is_array($value) ? array_values(array_filter($value, is_string(...))) : [];
     }
 
     public static function fromFile(string $path): self
@@ -110,7 +150,7 @@ final class ShipConfig
          *     extensions?: list<string>,
          *     additionalServices?: list<array{group: string, service: string, name: string}>,
          *     serviceNames?: array<string,string>,
-         *     externalNetwork?: ?string,
+         *     externalNetwork?: string|list<string>|null,
          *     phpExtensions?: list<string>,
          *     publishPorts?: bool,
          *     deployCommands?: list<string>,
@@ -127,7 +167,7 @@ final class ShipConfig
             nodeVersion: $data['node'] ?? '24',
             additionalServices: $data['additionalServices'] ?? [],
             serviceNames: $data['serviceNames'] ?? [],
-            externalNetwork: $data['externalNetwork'] ?? null,
+            externalNetwork: self::networkNames($data['externalNetwork'] ?? null)[0] ?? null,
             phpExtensions: $data['phpExtensions'] ?? [],
             publishPorts: $data['publishPorts'] ?? false,
             deployCommands: $data['deployCommands'] ?? [],
@@ -136,6 +176,8 @@ final class ShipConfig
             name: $data['name'] ?? null,
             siloImage: $data['siloImage'] ?? self::SILO_IMAGE_STANDARD,
             processHttp: self::processHttpEntries($data['processes'] ?? []),
+            processHealthchecks: self::processHealthcheckCommands($data['processes'] ?? []),
+            externalNetworks: self::networkNames($data['externalNetwork'] ?? null),
         );
     }
 
@@ -169,7 +211,7 @@ final class ShipConfig
             extensions: self::filterStringList($data['extensions'] ?? null),
             additionalServices: self::filterAdditionalServices($data['additionalServices'] ?? null),
             serviceNames: self::filterStringMap($data['serviceNames'] ?? null),
-            externalNetwork: is_string($data['externalNetwork'] ?? null) ? $data['externalNetwork'] : null,
+            externalNetwork: self::networkNames($data['externalNetwork'] ?? null)[0] ?? null,
             phpExtensions: self::filterStringList($data['phpExtensions'] ?? null),
             publishPorts: is_bool($data['publishPorts'] ?? null) ? $data['publishPorts'] : false,
             deployCommands: self::filterStringList($data['deployCommands'] ?? null),
@@ -178,7 +220,27 @@ final class ShipConfig
             name: is_string($data['name'] ?? null) ? $data['name'] : null,
             siloImage: is_string($data['siloImage'] ?? null) ? $data['siloImage'] : self::SILO_IMAGE_STANDARD,
             processHttp: self::processHttpEntries(self::validProcesses($data['processes'] ?? null)),
+            processHealthchecks: self::processHealthcheckCommands(self::validProcesses($data['processes'] ?? null)),
+            externalNetworks: array_values(array_filter(self::networkNames($data['externalNetwork'] ?? null), static fn (string $name): bool => preg_match(self::NETWORK_NAME_PATTERN, $name) === 1)),
         );
+    }
+
+    /**
+     * The healthcheck commands of the processes given in the object form.
+     *
+     * @param array<array-key, mixed> $processes well-formed entries
+     * @return array<string, string>
+     */
+    private static function processHealthcheckCommands(array $processes): array
+    {
+        $commands = [];
+        foreach ($processes as $name => $entry) {
+            if (is_array($entry) && is_string($entry['healthcheck'] ?? null)) {
+                $commands[(string) $name] = $entry['healthcheck'];
+            }
+        }
+
+        return $commands;
     }
 
     /**
@@ -251,13 +313,17 @@ final class ShipConfig
             return 'it must be a command string or an object with a "command"';
         }
 
-        $unknown = array_diff(array_keys($entry), ['command', 'http']);
+        $unknown = array_diff(array_keys($entry), ['command', 'healthcheck', 'http']);
         if ($unknown !== []) {
-            return 'it has unknown fields (' . implode(', ', $unknown) . '): only "command" and "http"';
+            return 'it has unknown fields (' . implode(', ', $unknown) . '): only "command", "healthcheck" and "http"';
         }
 
         if (!is_string($entry['command'] ?? null) || $entry['command'] === '') {
             return 'its "command" must be a non-empty string';
+        }
+
+        if (array_key_exists('healthcheck', $entry) && (!is_string($entry['healthcheck']) || $entry['healthcheck'] === '')) {
+            return 'its "healthcheck" must be a non-empty shell command';
         }
 
         if (!array_key_exists('http', $entry)) {
@@ -337,9 +403,23 @@ final class ShipConfig
      */
     private static function validate(array $data, string $path): void
     {
-        foreach (['php', 'node', 'name', 'externalNetwork'] as $key) {
+        foreach (['php', 'node', 'name'] as $key) {
             if (isset($data[$key]) && !is_string($data[$key])) {
                 throw new RuntimeException("ship.json's \"{$key}\" must be a string at {$path}.");
+            }
+        }
+
+        // One network name, or a list of them (ship.schema.json's "externalNetwork").
+        if (isset($data['externalNetwork'])) {
+            $networks = $data['externalNetwork'];
+            $names = is_string($networks) ? [$networks] : (is_array($networks) && array_is_list($networks) && $networks !== [] ? $networks : null);
+
+            foreach ($names ?? [null] as $name) {
+                if (!is_string($name) || preg_match(self::NETWORK_NAME_PATTERN, $name) !== 1) {
+                    throw new RuntimeException(
+                        "ship.json's \"externalNetwork\" must be a Docker network name, or a list of them, at {$path}.",
+                    );
+                }
             }
         }
 
@@ -465,8 +545,9 @@ final class ShipConfig
         if ($this->serviceNames !== []) {
             $payload['serviceNames'] = $this->serviceNames;
         }
-        if ($this->externalNetwork !== null) {
-            $payload['externalNetwork'] = $this->externalNetwork;
+        // One name stays a string, as ship.json had it before lists were allowed.
+        if ($this->externalNetworks !== []) {
+            $payload['externalNetwork'] = count($this->externalNetworks) === 1 ? $this->externalNetworks[0] : $this->externalNetworks;
         }
         if ($this->phpExtensions !== []) {
             $payload['phpExtensions'] = $this->phpExtensions;
@@ -480,8 +561,12 @@ final class ShipConfig
         if ($this->processes !== []) {
             $payload['processes'] = [];
             foreach ($this->processes as $name => $command) {
-                $payload['processes'][$name] = isset($this->processHttp[$name])
-                    ? ['command' => $command, 'http' => $this->processHttp[$name]]
+                $payload['processes'][$name] = isset($this->processHttp[$name]) || isset($this->processHealthchecks[$name])
+                    ? [
+                        'command' => $command,
+                        ...(isset($this->processHealthchecks[$name]) ? ['healthcheck' => $this->processHealthchecks[$name]] : []),
+                        ...(isset($this->processHttp[$name]) ? ['http' => $this->processHttp[$name]] : []),
+                    ]
                     : $command;
             }
         }

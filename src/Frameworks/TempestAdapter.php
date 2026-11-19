@@ -7,6 +7,7 @@ namespace Ship\Frameworks;
 use Ship\Contracts\DescribesRelease;
 use Ship\Contracts\FrameworkAdapter;
 use Ship\Contracts\RequiresPhpVersion;
+use Ship\Contracts\SuggestsProcesses;
 
 /**
  * Tempest (tempestphp.com): its `tempest` console, and the production steps its deployment guide
@@ -17,7 +18,7 @@ use Ship\Contracts\RequiresPhpVersion;
  * under .tempest/, which the entrypoint hands to www-data after these commands (see
  * EntrypointScriptBuilder).
  */
-final class TempestAdapter implements FrameworkAdapter, DescribesRelease, RequiresPhpVersion
+final class TempestAdapter implements FrameworkAdapter, DescribesRelease, RequiresPhpVersion, SuggestsProcesses
 {
     /**
      * Tempest 3, the current major version, requires PHP ^8.5.
@@ -108,5 +109,58 @@ final class TempestAdapter implements FrameworkAdapter, DescribesRelease, Requir
         }
 
         return self::FALLBACK_MINIMUM_PHP;
+    }
+
+    /**
+     * The scheduler when the project schedules tasks (`#[Schedule]`): Tempest's `schedule:run`
+     * runs what's due once, as cron would every minute, and records each task's last run, so a
+     * loop running it every minute doesn't skip any. The async command worker
+     * (`command:monitor`) when the project has async commands (`#[Async]`).
+     */
+    public function suggestedProcesses(string $projectRoot, array $services): array
+    {
+        $code = self::projectCode($projectRoot);
+        $processes = [];
+
+        if (preg_match('/#\[Schedule\b/', $code) === 1) {
+            $processes['scheduler'] = [
+                'label' => 'Scheduler: runs scheduled tasks every minute (schedule:run)',
+                'command' => 'while true; do php tempest schedule:run; sleep 60; done',
+            ];
+        }
+
+        if (preg_match('/#\[Async\b/', $code) === 1) {
+            $processes['async-commands'] = [
+                'label' => 'Async command worker (command:monitor)',
+                'command' => 'php tempest command:monitor',
+            ];
+        }
+
+        return $processes;
+    }
+
+    /**
+     * The project's own PHP code (its PSR-4 directories, else app/ and src/), concatenated.
+     */
+    private static function projectCode(string $projectRoot): string
+    {
+        $composer = json_decode((string) @file_get_contents($projectRoot . '/composer.json'), associative: true);
+        $directories = is_array($composer['autoload']['psr-4'] ?? null) ? array_values($composer['autoload']['psr-4']) : ['app/', 'src/'];
+        $code = '';
+
+        foreach ($directories as $directory) {
+            if (!is_string($directory) || !is_dir($projectRoot . '/' . $directory)) {
+                continue;
+            }
+
+            $files = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($projectRoot . '/' . $directory, \FilesystemIterator::SKIP_DOTS));
+            foreach ($files as $file) {
+                if ($file instanceof \SplFileInfo && $file->getExtension() === 'php') {
+                    $code .= (string) file_get_contents($file->getPathname());
+                }
+            }
+        }
+
+        return $code;
     }
 }

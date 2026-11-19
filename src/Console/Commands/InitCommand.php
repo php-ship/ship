@@ -19,6 +19,7 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\Process\Process;
 
 #[AsCommand(name: 'init', description: 'Select services and generate ship.json + docker-compose.yml')]
 final class InitCommand extends Command
@@ -108,6 +109,7 @@ final class InitCommand extends Command
             $defaultPhp = $minimumPhp['version'];
         }
         $packageManager = PackageManager::inspect($this->projectRoot);
+        $localNetworks = self::localNetworks();
 
         // Every question is a step of one form, so Ctrl+U goes back to the previous one, which
         // then starts at the answer given before. Steps for kinds that weren't ticked are skipped,
@@ -118,6 +120,19 @@ final class InitCommand extends Command
         $instanceGroups = array_values(array_intersect(self::GROUPS_SUPPORTING_ADDITIONAL_INSTANCES, array_keys($offered)));
 
         $form = $ui->form()
+            // A release needs it, and it names the containers, images and data volumes on the
+            // server, so it's asked first and kept once set.
+            ->add(
+                fn (array $answers, mixed $previous): string => $ui->text(
+                    'Project name',
+                    default: is_string($previous) ? $previous : ($existing->name ?? self::nameFromDirectory($this->projectRoot)),
+                    hint: 'Names its containers, images and data volumes. Keep it once deployed: a new name means new, empty volumes',
+                    validate: static fn (string $answer): ?string => preg_match(ShipConfig::NAME_PATTERN, trim($answer)) === 1
+                        ? null
+                        : 'Lowercase letters and digits, words joined by "-" or "_", starting with a letter.',
+                ),
+                name: 'name',
+            )
             ->addIf(
                 $offered !== [],
                 fn (array $answers, mixed $previous): array => $ui->multiselect(
@@ -165,6 +180,40 @@ final class InitCommand extends Command
                     is_string($previous) ? $previous : ($existing->siloImage ?? ShipConfig::SILO_IMAGE_STANDARD),
                 ),
                 name: 'siloImage',
+            )
+            ->add(
+                fn (array $answers, mixed $previous): array => $this->promptForProcesses(
+                    $ui,
+                    self::selectedServices($answers),
+                    is_array($previous) ? $previous : [
+                        'commands' => $existing->processes ?? [],
+                        'http' => $existing->processHttp ?? [],
+                        'healthchecks' => $existing->processHealthchecks ?? [],
+                    ],
+                ),
+                name: 'processes',
+            )
+            // Networks a reverse proxy (Caddy, Traefik, nginx-proxy) shares with the app, which a
+            // release needs to exist on the server. Comma-separated; empty for none.
+            ->add(
+                fn (array $answers, mixed $previous): array => self::networkList($ui->text(
+                    'External networks (optional)',
+                    default: implode(', ', is_array($previous) ? $previous : ($existing->externalNetworks ?? [])),
+                    placeholder: 'proxy',
+                    hint: 'Comma-separated Docker networks created outside ship, e.g. a reverse proxy\'s'
+                        . ($localNetworks !== [] ? '. On this machine: ' . implode(', ', $localNetworks) : ''),
+                    validate: static function (string $answer): ?string {
+                        foreach (self::networkList($answer) as $name) {
+                            if (preg_match(ShipConfig::NETWORK_NAME_PATTERN, $name) !== 1) {
+                                return "\"{$name}\" isn't a Docker network name: letters, digits, \"_\", \".\" and \"-\", starting with a letter or digit.";
+                            }
+                        }
+
+                        return null;
+                    },
+                    required: false,
+                )),
+                name: 'externalNetworks',
             )
             // Rejects an end-of-life branch or a pinned patch release with known
             // vulnerabilities, or one older than the project's framework needs (Tempest 3: 8.5),
@@ -222,6 +271,10 @@ final class InitCommand extends Command
         $phpVersion = trim((string) $answers['php']);
         $nodeVersion = trim((string) $answers['node']);
         $chosenPackageManager = is_string($answers['packageManager'] ?? null) ? $answers['packageManager'] : null;
+        /** @var list<string> $networks */
+        $networks = is_array($answers['externalNetworks'] ?? null) ? $answers['externalNetworks'] : [];
+        /** @var array{commands: array<string, string>, http: array<string, array{port: int, role: string, health: ?string, urlSetting: ?string}>, healthchecks: array<string, string>} $processes */
+        $processes = $answers['processes'];
 
         if ($chosenPackageManager !== null) {
             $this->recordPackageManager($ui, $packageManager, $chosenPackageManager, $nodeVersion);
@@ -234,15 +287,17 @@ final class InitCommand extends Command
             nodeVersion: $nodeVersion,
             additionalServices: $additionalServices,
             serviceNames: $existing->serviceNames ?? [],
-            externalNetwork: $existing?->externalNetwork,
+            externalNetwork: $networks[0] ?? null,
+            externalNetworks: $networks,
             phpExtensions: $existing->phpExtensions ?? [],
             publishPorts: $existing->publishPorts ?? false,
             deployCommands: $existing->deployCommands ?? [],
-            processes: $existing->processes ?? [],
+            processes: $processes['commands'],
             hostUser: $existing->hostUser ?? false,
-            name: $existing?->name,
+            name: trim((string) $answers['name']),
             siloImage: $siloImage,
-            processHttp: $existing->processHttp ?? [],
+            processHttp: $processes['http'],
+            processHealthchecks: $processes['healthchecks'],
         );
         $config->toFile($this->projectRoot . '/ship.json');
 
@@ -253,6 +308,8 @@ final class InitCommand extends Command
         }
         $ui->table(['Service', 'Choice'], [
             ...($summary === [] ? [['Services', 'None']] : $summary),
+            ...($processes['commands'] === [] ? [] : [['Processes', implode(', ', array_keys($processes['commands']))]]),
+            ...($networks === [] ? [] : [['External networks', implode(', ', $networks)]]),
             ['PHP', $phpVersion],
             ['Node.js', $nodeVersion . ($chosenPackageManager !== null ? ', ' . self::PACKAGE_MANAGERS[$chosenPackageManager] : '')],
         ]);
@@ -263,6 +320,54 @@ final class InitCommand extends Command
         $ui->outro('Wrote ship.json and ship/. Run `ship up` to build and start it.');
 
         return Command::SUCCESS;
+    }
+
+    /**
+     * A name for a new project, from its directory ("Client.App 2" gives "client-app-2"), in the
+     * form ship.schema.json requires.
+     */
+    private static function nameFromDirectory(string $projectRoot): string
+    {
+        $name = strtolower(basename(rtrim($projectRoot, '/\\')));
+        $name = trim((string) preg_replace('/[^a-z0-9]+/', '-', $name), '-');
+        $name = (string) preg_replace('/^[^a-z]+/', '', $name);
+
+        return $name === '' ? 'app' : $name;
+    }
+
+    /**
+     * The names in a comma-separated answer, in order, without duplicates.
+     *
+     * @return list<string>
+     */
+    private static function networkList(string $answer): array
+    {
+        return array_values(array_unique(array_filter(array_map(trim(...), explode(',', $answer)), static fn (string $name): bool => $name !== '')));
+    }
+
+    /**
+     * The Docker networks on this machine, as a hint: Docker's own (bridge, host, none) left out.
+     * Empty when Docker doesn't answer within a few seconds.
+     *
+     * @return list<string>
+     */
+    private static function localNetworks(): array
+    {
+        try {
+            $process = new Process(['docker', 'network', 'ls', '--format', '{{.Name}}'], timeout: 5);
+            $process->run();
+        } catch (\Throwable) {
+            return [];
+        }
+
+        if (!$process->isSuccessful()) {
+            return [];
+        }
+
+        $names = array_filter(array_map(trim(...), explode("\n", $process->getOutput())), static fn (string $name): bool => $name !== '' && !in_array($name, ['bridge', 'host', 'none'], true));
+        sort($names);
+
+        return $names;
     }
 
     /**
@@ -435,6 +540,89 @@ final class InitCommand extends Command
         }
 
         return $additional;
+    }
+
+    /**
+     * The long-running processes that run beside the app in production (ship.json's `processes`):
+     * a checklist of what the project's frameworks suggest (see SuggestsProcesses), ticked where
+     * ship.json already has them, then processes of the user's own. Unticking a suggestion removes
+     * it; ticking one adds it as suggested, but keeps a command already in ship.json under that
+     * name. Other processes already in ship.json are kept as they are.
+     *
+     * @param array<string, string> $services
+     * @param array<mixed> $state the processes so far: commands, http and healthchecks by name
+     * @return array{commands: array<string, string>, http: array<string, array{port: int, role: string, health: ?string, urlSetting: ?string}>, healthchecks: array<string, string>}
+     */
+    private function promptForProcesses(Ui $ui, array $services, array $state): array
+    {
+        /** @var array{commands: array<string, string>, http: array<string, array{port: int, role: string, health: ?string, urlSetting: ?string}>, healthchecks: array<string, string>} $state */
+        $suggested = Frameworks::suggestedProcesses($this->projectRoot, $services, $this->extensionFrameworkAdapters);
+
+        if ($suggested !== []) {
+            $options = [];
+            foreach ($suggested as $name => $process) {
+                $options[$name] = "{$process['label']} ({$name})";
+            }
+
+            $ticked = $ui->multiselect(
+                'Which processes should run beside the app in production?',
+                $options,
+                array_values(array_filter(array_keys($suggested), static fn (string $name): bool => isset($state['commands'][$name]))),
+                'Each runs in its own container from the app\'s image. In development you start them yourself',
+            );
+
+            foreach ($suggested as $name => $process) {
+                if (!in_array($name, $ticked, true)) {
+                    unset($state['commands'][$name], $state['http'][$name], $state['healthchecks'][$name]);
+                } elseif (!isset($state['commands'][$name])) {
+                    $state['commands'][$name] = $process['command'];
+                    if (isset($process['http'])) {
+                        $state['http'][$name] = $process['http'];
+                    }
+                    if (isset($process['healthcheck'])) {
+                        $state['healthchecks'][$name] = $process['healthcheck'];
+                    }
+                }
+            }
+        }
+
+        // The compose names ship already uses: the app, nginx and the chosen services.
+        $taken = ['app', 'webserver', ...array_values($services)];
+
+        while ($ui->confirm($suggested === [] && $state['commands'] === [] ? 'Add a long-running process, such as a queue worker?' : 'Add a process of your own?', false)) {
+            $name = $ui->text(
+                'Process name',
+                placeholder: 'worker',
+                hint: 'Its container\'s name',
+                validate: static function (string $answer) use ($state, $taken): ?string {
+                    $name = trim($answer);
+
+                    return match (true) {
+                        preg_match(ShipConfig::NAME_PATTERN, $name) !== 1 => 'Lowercase letters and digits, words joined by "-" or "_", starting with a letter.',
+                        isset($state['commands'][$name]) || in_array($name, $taken, true) => "\"{$name}\" is already used: pick a different name.",
+                        default => null,
+                    };
+                },
+            );
+            $name = trim($name);
+            $state['commands'][$name] = trim($ui->text(
+                'Command',
+                placeholder: 'php artisan queue:work --queue=emails',
+                hint: 'Runs in the app\'s image, as www-data, restarted if it stops',
+            ));
+
+            $healthcheck = trim($ui->text(
+                'Health check command (optional)',
+                placeholder: 'php artisan horizon:status',
+                hint: 'Exits 0 while the process works. Empty: healthy once it has stayed up 10 seconds',
+                required: false,
+            ));
+            if ($healthcheck !== '') {
+                $state['healthchecks'][$name] = $healthcheck;
+            }
+        }
+
+        return $state;
     }
 
     /**

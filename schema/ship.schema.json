@@ -41,9 +41,11 @@
       "additionalProperties": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$"}
     },
     "externalNetwork": {
-      "type": "string",
-      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$",
-      "description": "A Docker network created outside Ship, attached to the app."
+      "description": "Docker networks created outside Ship (a reverse proxy's, say), attached to the app and to every service that receives HTTP: one name, or a list of names.",
+      "oneOf": [
+        {"$ref": "#/$defs/networkName"},
+        {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/networkName"}}
+      ]
     },
     "extensions": {
       "type": "array",
@@ -70,7 +72,7 @@
     },
     "processes": {
       "type": "object",
-      "description": "Extra long-running processes from the app's image (workers, schedulers, servers): name to command, or to an object whose http says the process receives HTTP traffic, which puts it in the release's http[] with an HTTP health check. Python also accepts argument lists.",
+      "description": "Extra long-running processes from the app's image (workers, schedulers, servers): name to command, or to an object with the command, an optional healthcheck command, and an optional http block saying the process receives HTTP traffic, which puts it in the release's http[] with an HTTP health check. Python also accepts argument lists.",
       "propertyNames": {"pattern": "^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$"},
       "additionalProperties": {
         "oneOf": [
@@ -81,6 +83,7 @@
             "additionalProperties": false,
             "properties": {
               "command": {"$ref": "#/$defs/command"},
+              "healthcheck": {"type": "string", "minLength": 1, "description": "A shell command, run in the process's container, that exits 0 while the process works. Without it: an HTTP check when http is set, otherwise that the process stayed up."},
               "http": {
                 "type": "object",
                 "description": "The process receives HTTP traffic: its release.json http[] entry, with the same fields.",
@@ -142,6 +145,7 @@
     }
   },
   "$defs": {
+    "networkName": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"},
     "command": {
       "oneOf": [
         {"type": "string", "minLength": 1},

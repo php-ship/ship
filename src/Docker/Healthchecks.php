@@ -37,6 +37,18 @@ final class Healthchecks
     }
 
     /**
+     * A process's own health check (see ShipConfig::$processHealthchecks), run by the container's
+     * shell. Every "$" is escaped so Compose's interpolation leaves the command's own variables
+     * alone, as for the process's command.
+     *
+     * @return array<string, mixed>
+     */
+    public static function command(string $command): array
+    {
+        return self::serverTiming(['CMD-SHELL', str_replace('$', '$$', $command)]);
+    }
+
+    /**
      * $path on $port answers 2xx (a redirect is followed): the health path a ship.json process
      * declares (see ShipConfig::$processHttp). PHP's HTTP wrapper fails on 4xx and 5xx.
      *

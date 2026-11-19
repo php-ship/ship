@@ -226,7 +226,8 @@ final class PackageManagerCommandsTest extends TestCase
         $tester = new CommandTester(new InitCommand($this->projectRoot, new ServiceRegistry([]), $this->versions()));
         // PHP and Node versions (defaults), then npm instead of Yarn. With no services there's no
         // question about additional instances.
-        $tester->setInputs(['', '', 'npm']);
+        // The name, no processes, no external networks, PHP and Node at their defaults, then npm.
+        $tester->setInputs(['', 'no', '', '', '', 'npm']);
         $tester->execute([]);
 
         $pm = PackageManager::inspect($this->projectRoot);

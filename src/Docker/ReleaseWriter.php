@@ -142,7 +142,7 @@ final class ReleaseWriter
                 envReferenced: ReleaseManifest::referencedVariables($releaseComposeYaml),
                 envRequired: [...RequiredEnv::requiredIn($releaseComposeYaml), ...($framework?->requiredEnv($projectRoot) ?? [])],
                 deploy: $deploy,
-                networks: $config->externalNetwork === null ? [] : [$config->externalNetwork],
+                networks: $config->externalNetworks,
                 console: [
                     'service' => $config->serviceNames['app'] ?? 'app',
                     'user' => self::CONSOLE_USER,

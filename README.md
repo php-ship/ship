@@ -68,7 +68,7 @@ repository.
   `ship console`, `ship tempest`), and any other framework can plug in the
   same way.
 
-**Development runs the stack production runs.**
+**Development runs almost the same stack production runs.**
 
 - Sail serves the app with `php artisan serve`, PHP's built-in development
   server. ship runs nginx + php-fpm, or the Octane server you pick (Swoole,
@@ -77,6 +77,10 @@ repository.
 - `processes` (queue workers, Horizon, the scheduler), `deployCommands`
   (migrations) and the framework's boot-time optimize step are part of the
   same `ship.json`, not something you reassemble for production.
+- "Almost": `processes` run only in production. In development you start
+  the ones you need yourself (see [`processes`](#configuration-shipjson)),
+  since a long-running worker would keep running old code after every edit.
+  Everything else is the same stack.
 
 **It takes you to production.** Sail is a development environment;
 deploying is left to you. `ship release --tag` builds production images (no
@@ -173,10 +177,26 @@ vendor/bin/ship shell     # drop into the app container
 vendor/bin/ship down
 ```
 
-`ship init` asks which kinds of service the project needs (a checklist), then
-which service for each (each menu ends with None, for a kind you ticked and
-then decided against, such as an Octane runtime when PHP-FPM will do), then the PHP and Node.js versions and the JavaScript
-package manager, and ends with a summary. Re-run it any time: every question
+`ship init` asks, in order:
+
+- the project's **name**, which names its containers, images and data
+  volumes (a release needs it; keep it once deployed);
+- which **kinds of service** it needs (a checklist), then which service for
+  each (each menu ends with None, for a kind you ticked and then decided
+  against, such as an Octane runtime when PHP-FPM will do), and any second
+  instances (a second database, say);
+- which **processes** run beside the app in production: a checklist of what
+  the framework suggests from what the project uses (Horizon or a queue
+  worker and the scheduler for Laravel, plus Reverb when `laravel/reverb` is
+  installed; Messenger workers for the transports `messenger.yaml` configures
+  and Scheduler's schedules for Symfony; the scheduler and the async command
+  worker for Tempest), then processes of your own: a name, a command, and an
+  optional health check command (see [`processes`](#configuration-shipjson));
+- the **external networks** a reverse proxy shares with the app,
+  comma-separated (the hint lists the ones on this machine);
+- the PHP and Node.js versions and the JavaScript package manager,
+
+and ends with a summary. Re-run it any time: every question
 starts at the project's current setting, so pressing Enter keeps it. In a
 terminal it uses [Laravel Prompts](https://github.com/laravel/prompts)
 (arrow keys, space to tick, answers checked as you type, Ctrl+U to go back
@@ -592,9 +612,51 @@ plain, readable JSON document:
   supervised inside the app container: independently restartable, visible in
   `docker compose ps`, and each gets its own SIGTERM. They run as `www-data`,
   and get a 60s stop grace period so Horizon or a worker can finish its job
-  instead of being SIGKILLed after Compose's default 10s. Production only —
-  in development you run these yourself (`ship artisan horizon`) against the
-  bind-mounted code. Write it as a plain shell command, `$VAR` references
+  instead of being SIGKILLed after Compose's default 10s.
+
+  **Production only, and the reason development runs "almost" the same
+  stack.** `ship up` doesn't start them: a long-running worker loads your
+  code once, so in development it would keep running the old code after
+  every edit until restarted. Start the ones you need yourself, in another
+  terminal, inside the app container:
+
+  | In production | In development |
+  |---|---|
+  | `php artisan horizon` | `ship artisan horizon` (after changing a job: Ctrl+C and start it again) |
+  | `php artisan queue:work` | `ship artisan queue:listen` (reloads your code for every job) |
+  | `php artisan schedule:work` | `ship artisan schedule:work` |
+  | `php artisan reverb:start …` (an `http` process) | a service in `docker-compose.override.yml`, below: the browser needs its port, which `ship artisan` can't publish |
+  | `php bin/console messenger:consume …` | `ship console messenger:consume … -vv` |
+  | `php tempest command:monitor` | `ship tempest command:monitor` |
+
+  Without them, everything else works: requests, Vite, the database. Only
+  the work those processes do (queued jobs, scheduled tasks, WebSockets)
+  waits until you start them.
+
+  To have one start with `ship up` anyway, or to reach an `http` process
+  from the browser, add it to
+  [`docker-compose.override.yml`](#customizing-the-stack) yourself, from the
+  app's development image, with the code mounted and its port published on
+  127.0.0.1:
+  ```yaml
+  services:
+    reverb:
+      image: 'myproject-app'        # <name>-<app service>, the dev image `ship up` builds
+      depends_on: [app]
+      command: ['php', 'artisan', 'reverb:start', '--host=0.0.0.0', '--port=8080']
+      volumes: ['.:/var/www/html']
+      ports: ['127.0.0.1:8080:8080']
+      networks: [ship]
+      env_file: [{path: .env, required: false}]
+      environment:
+        SHIP_DEV_SKIP_INSTALL: '1'  # the app container runs composer install
+      restart: unless-stopped
+  ```
+  After changing code such a worker runs, restart it with the same files
+  `ship up` uses:
+  `docker compose -f ship/docker-compose.generated.yml -f docker-compose.override.yml --project-directory . restart reverb`.
+
+  Write each command as a plain shell command, `$VAR` references
   included — `ship` escapes every `$` for you so Compose's own interpolation
   never sees (and silently blanks out) a variable meant for the container's
   shell instead.
@@ -620,6 +682,16 @@ plain, readable JSON document:
   (`REVERB_PORT` here). Use this rather than the built-in Reverb service when
   the app reads Reverb's public address at runtime instead of from
   `VITE_REVERB_HOST`.
+
+  A process can also bring its own health check, a shell command run in its
+  container that exits 0 while it works. It replaces the default check (over
+  HTTP, or "stayed up"):
+  ```json
+  "horizon": {"command": "php artisan horizon", "healthcheck": "php artisan horizon:status"}
+  ```
+  `horizon:status` exits 0 only while Horizon runs, so a deployment waits for
+  Horizon itself, not just its container. `ship init` adds it when you tick
+  Horizon.
 
 Host-side port collisions (running more than one `ship` project, or
 another tool already using a default port) are handled with environment
@@ -745,9 +817,10 @@ need it:
   `ship/nginx/default.conf` bakes the app service's name into its upstream
   at `ship init` time, and only re-running it updates that file; `ship up`
   warns if it ever falls out of sync with a hand-edited `serviceNames`.
-- `externalNetwork` — the name of a Docker network created outside
-  `ship` (by another compose project, e.g. one running your shared
-  MySQL/Redis/etc., or a reverse proxy), attached in addition to `ship`'s
+- `externalNetwork` — a Docker network created outside `ship` (by another
+  compose project, e.g. one running your shared MySQL/Redis/etc., or a
+  reverse proxy), or a list of them (`["proxy", "monitoring"]`), attached in
+  addition to `ship`'s
   own internal network to the app service and to every service that
   receives HTTP: `webserver` (or the app itself under Octane) and Reverb.
   This is what lets the app reach that shared infrastructure — point your

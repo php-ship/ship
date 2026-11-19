@@ -6,6 +6,7 @@ namespace Ship\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Ship\Config\ShipConfig;
 use Ship\Console\Commands\InitCommand;
 use Ship\Services\ServiceRegistry;
 use Ship\Services\SiloService;
@@ -36,7 +37,8 @@ final class InitCommandServiceSelectionTest extends TestCase
     {
         $command = new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults()));
         $tester = new CommandTester($command);
-        $tester->setInputs([...$answers, '8.4']);
+        // The project name first (its default).
+        $tester->setInputs(['', ...$answers, '8.4']);
         $tester->execute([]);
     }
 
@@ -163,8 +165,11 @@ final class InitCommandServiceSelectionTest extends TestCase
         $command = new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults()));
         $tester = new CommandTester($command);
         $tester->setInputs([
+            '', // the project name
             'Object storage', 'SeaweedFS (S3-compatible storage)',
             'yes', 'Object storage', 'Garage (S3-compatible storage, lightweight alt.)', 'archive', 'no',
+            'no', // no processes of our own
+            '', // no external networks
             '8.4', '24',
         ]);
         $tester->execute([]);
@@ -207,11 +212,14 @@ final class InitCommandServiceSelectionTest extends TestCase
         $command = new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults()));
         $tester = new CommandTester($command);
         $tester->setInputs([
+            '', // the project name
             // Main loop: default database only, everything else None.
             'Database', 'PostgreSQL',
             // Add-another-instance loop.
             'yes', 'Database', 'MySQL', 'analytics', 'no',
             // PHP / Node versions.
+            'no', // no processes of our own
+            '', // no external networks
             '8.4', '24',
         ]);
         $tester->execute([]);
@@ -227,10 +235,13 @@ final class InitCommandServiceSelectionTest extends TestCase
         $command = new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults()));
         $tester = new CommandTester($command);
         $tester->setInputs([
+            '', // the project name
             'Database', 'PostgreSQL',
             'yes', 'Database', 'MySQL', 'analytics',
             'yes', 'Cache', 'Redis', 'analytics', 'queue',
             'no',
+            'no', // no processes of our own
+            '', // no external networks
             '8.4', '24',
         ]);
         $tester->execute([]);
@@ -263,9 +274,12 @@ final class InitCommandServiceSelectionTest extends TestCase
         $command = new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults()));
         $tester = new CommandTester($command);
         $tester->setInputs([
+            '', // the project name
             'Database', 'PostgreSQL',
             'yes', 'Database', 'MySQL', $invalidName, 'analytics',
             'no',
+            'no', // no processes of our own
+            '', // no external networks
             '8.4', '24',
         ]);
         $tester->execute([]);
@@ -342,9 +356,12 @@ final class InitCommandServiceSelectionTest extends TestCase
         $command = new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults()));
         $tester = new CommandTester($command);
         $tester->setInputs([
+            '', // the project name
             'Object storage', (new SiloService())->label(),
             'no',
             'Distroless (runs on older CPUs too; no shell in the container)',
+            'no', // no processes of our own
+            '', // no external networks
             '8.4', '24',
         ]);
         $tester->execute([]);
@@ -360,9 +377,12 @@ final class InitCommandServiceSelectionTest extends TestCase
         $command = new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults()));
         $tester = new CommandTester($command);
         $tester->setInputs([
+            '', // the project name
             'Object storage', (new SiloService())->label(),
             'no',
             '',
+            'no', // no processes of our own
+            '', // no external networks
             '8.4', '24',
         ]);
         $tester->execute([]);
@@ -380,7 +400,7 @@ final class InitCommandServiceSelectionTest extends TestCase
 
         $command = new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults()));
         $tester = new CommandTester($command);
-        $tester->setInputs(['', '', 'no', '', '8.4', '24']);
+        $tester->setInputs(['', '', '', 'no', '', 'no', '', '8.4', '24']);
         $tester->execute([]);
 
         self::assertSame('distroless', $this->shipJson()['siloImage']);
@@ -410,10 +430,38 @@ final class InitCommandServiceSelectionTest extends TestCase
     {
         $command = new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults()));
         $tester = new CommandTester($command);
-        $tester->setInputs(['None', 'no', '8.1', '8.4']);
+        $tester->setInputs(['', 'None', 'no', 'no', '', '8.1', '8.4']);
         $tester->execute([]);
 
         self::assertStringContainsString('past end of life', $tester->getDisplay());
         self::assertSame('8.4', $this->shipJson()['php']);
+    }
+
+    public function test_a_new_project_is_named_after_its_directory(): void
+    {
+        $this->runInit(['None']);
+
+        $name = $this->shipJson()['name'];
+        self::assertMatchesRegularExpression(ShipConfig::NAME_PATTERN, $name);
+        self::assertSame(strtolower(basename($this->projectRoot)), str_replace('_', '-', $name));
+    }
+
+    public function test_re_running_init_keeps_the_projects_name(): void
+    {
+        file_put_contents($this->projectRoot . '/ship.json', json_encode(['php' => '8.4', 'services' => [], 'name' => 'nirootech-client']));
+
+        $this->runInit(['None']);
+
+        self::assertSame('nirootech-client', $this->shipJson()['name']);
+    }
+
+    public function test_a_name_the_schema_rejects_is_asked_again(): void
+    {
+        $tester = new CommandTester(new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults())));
+        $tester->setInputs(['My.App', 'my-app', 'None', 'no', 'no', '', '8.4']);
+        $tester->execute([]);
+
+        self::assertStringContainsString('Lowercase letters and digits', $tester->getDisplay());
+        self::assertSame('my-app', $this->shipJson()['name']);
     }
 }

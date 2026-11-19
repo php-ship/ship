@@ -10,6 +10,7 @@ use Laravel\Prompts\MultiSelectPrompt;
 use Laravel\Prompts\Prompt;
 use Laravel\Prompts\SelectPrompt;
 use Laravel\Prompts\TextPrompt;
+use Symfony\Component\Console\Exception\MissingInputException;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\StreamableInputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -58,9 +59,9 @@ final class Ui
     /**
      * @param ?\Closure(string): ?string $validate returns the problem with an answer, or null
      */
-    public function text(string $label, string $default = '', string $placeholder = '', string $hint = '', ?\Closure $validate = null): string
+    public function text(string $label, string $default = '', string $placeholder = '', string $hint = '', ?\Closure $validate = null, bool $required = true): string
     {
-        return \Laravel\Prompts\text(label: $label, placeholder: $placeholder, default: $default, required: true, validate: $validate, hint: $hint);
+        return \Laravel\Prompts\text(label: $label, placeholder: $placeholder, default: $default, required: $required, validate: $validate, hint: $hint);
     }
 
     public function confirm(string $label, bool $default = false, string $hint = ''): bool
@@ -197,29 +198,44 @@ final class Ui
     {
         $io = $this->io;
 
-        TextPrompt::fallbackUsing(static fn (TextPrompt $prompt): string => (string) $io->ask(
-            $prompt->label,
-            $prompt->default === '' ? null : $prompt->default,
-            static function (mixed $answer) use ($prompt): string {
-                $answer = trim((string) $answer);
-                $problem = $answer === '' && $prompt->required !== false
-                    ? (is_string($prompt->required) ? $prompt->required : 'An answer is required.')
-                    : ($prompt->validate instanceof \Closure ? ($prompt->validate)($answer) : null);
+        // An optional question with no input left (piped answers ran out) is an empty answer, not
+        // an abort.
+        TextPrompt::fallbackUsing(static function (TextPrompt $prompt) use ($io): string {
+            try {
+                return (string) $io->ask(
+                    $prompt->label,
+                    $prompt->default === '' ? null : $prompt->default,
+                    static function (mixed $answer) use ($prompt): string {
+                        $answer = trim((string) $answer);
+                        $problem = match (true) {
+                            $answer === '' && $prompt->required !== false => is_string($prompt->required) ? $prompt->required : 'An answer is required.',
+                            $answer === '' => null,
+                            default => $prompt->validate instanceof \Closure ? ($prompt->validate)($answer) : null,
+                        };
 
-                if (is_string($problem)) {
-                    throw new \RuntimeException($problem);
+                        if (is_string($problem)) {
+                            throw new \RuntimeException($problem);
+                        }
+
+                        return $answer;
+                    },
+                );
+            } catch (MissingInputException $exception) {
+                if ($prompt->required !== false) {
+                    throw $exception;
                 }
 
-                return $answer;
-            },
-        ));
+                return '';
+            }
+        });
 
         ConfirmPrompt::fallbackUsing(static fn (ConfirmPrompt $prompt): bool => $io->confirm($prompt->label, $prompt->default));
 
-        // Comma-separated numbers or labels; "None" ticks nothing.
+        // Comma-separated numbers or labels; "None" ticks nothing. Answers are split on commas, so
+        // a comma in a label is shown as a semicolon.
         MultiSelectPrompt::fallbackUsing(static function (MultiSelectPrompt $prompt) use ($io): array {
             /** @var array<string, string> $options */
-            $options = $prompt->options;
+            $options = array_map(static fn (string $label): string => str_replace(',', ';', $label), $prompt->options);
             $labels = ['None', ...array_values($options)];
             $keys = array_map(strval(...), array_keys($options));
             /** @var list<string> $default */

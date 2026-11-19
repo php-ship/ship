@@ -6,11 +6,13 @@ namespace Ship\Frameworks;
 
 use Ship\Contracts\DescribesRelease;
 use Ship\Contracts\FrameworkAdapter;
+use Ship\Contracts\SuggestsProcesses;
+use Ship\Support\ComposerPackages;
 
 /**
  * Reference FrameworkAdapter implementation.
  */
-final class LaravelAdapter implements FrameworkAdapter, DescribesRelease
+final class LaravelAdapter implements FrameworkAdapter, DescribesRelease, SuggestsProcesses
 {
     public function detect(string $projectRoot): bool
     {
@@ -68,5 +70,47 @@ final class LaravelAdapter implements FrameworkAdapter, DescribesRelease
     public function requiredEnv(string $projectRoot): array
     {
         return ['APP_KEY'];
+    }
+
+    /**
+     * Horizon when laravel/horizon is installed (checked with `horizon:status`, which exits 0 only
+     * while it runs), a plain queue worker otherwise; the scheduler; and Reverb when laravel/reverb
+     * is installed but ship's own Reverb service isn't selected (a project that reads Reverb's
+     * address at runtime runs it this way). Reverb binds 0.0.0.0:8080 like its own defaults, and
+     * answers /up in the versions that define that route.
+     */
+    public function suggestedProcesses(string $projectRoot, array $services): array
+    {
+        $processes = ComposerPackages::has($projectRoot, 'laravel/horizon')
+            ? ['horizon' => [
+                'label' => 'Horizon: runs queued jobs and its dashboard',
+                'command' => 'php artisan horizon',
+                'healthcheck' => 'php artisan horizon:status',
+            ]]
+            : ['queue' => [
+                'label' => 'Queue worker: runs queued jobs (queue:work)',
+                'command' => 'php artisan queue:work',
+            ]];
+
+        $processes['scheduler'] = [
+            'label' => 'Scheduler: runs scheduled tasks every minute (schedule:work)',
+            'command' => 'php artisan schedule:work',
+        ];
+
+        if (ComposerPackages::has($projectRoot, 'laravel/reverb') && ($services['broadcasting'] ?? null) !== 'reverb') {
+            $factory = (string) @file_get_contents($projectRoot . '/vendor/laravel/reverb/src/Servers/Reverb/Factory.php');
+            $processes['reverb'] = [
+                'label' => 'Reverb: the WebSocket server, reached through VITE_REVERB_HOST',
+                'command' => 'php artisan reverb:start --host=0.0.0.0 --port=8080',
+                'http' => [
+                    'port' => 8080,
+                    'role' => 'websocket',
+                    'health' => str_contains($factory, "'/up'") ? '/up' : null,
+                    'urlSetting' => 'VITE_REVERB_HOST',
+                ],
+            ];
+        }
+
+        return $processes;
     }
 }

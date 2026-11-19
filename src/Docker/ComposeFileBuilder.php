@@ -164,9 +164,14 @@ final class ComposeFileBuilder
         // Attaches the app to a pre-existing network (see ShipConfig::$externalNetwork), in
         // addition to "ship". Before the process services are added, so they copy it; the HTTP
         // entry points are attached further down.
-        if ($config->externalNetwork !== null) {
-            $compose['networks']['external'] = ['name' => $config->externalNetwork, 'external' => true];
-            $compose['services'][$appServiceName]['networks'][] = 'external';
+        // The first keeps the key "external" it had when there could be only one; the others are
+        // "external-2", "external-3", ...
+        $externalKeys = [];
+        foreach ($config->externalNetworks as $index => $network) {
+            $key = $index === 0 ? 'external' : 'external-' . ($index + 1);
+            $externalKeys[] = $key;
+            $compose['networks'][$key] = ['name' => $network, 'external' => true];
+            $compose['services'][$appServiceName]['networks'][] = $key;
         }
 
         // After the app's own environment and networks are final -- these copy them.
@@ -186,13 +191,10 @@ final class ComposeFileBuilder
 
         // A reverse proxy on the external network has to reach every service that receives HTTP,
         // which is "webserver" rather than "app" with nginx, plus Reverb (see HttpEntryPoints).
-        if ($config->externalNetwork !== null) {
+        if ($externalKeys !== []) {
             foreach (HttpEntryPoints::resolve($compose['services'], $config, $this->registry, $environment) as $entry) {
                 $networks = $compose['services'][$entry['service']]['networks'] ?? [];
-
-                if (!in_array('external', $networks, true)) {
-                    $compose['services'][$entry['service']]['networks'] = [...$networks, 'external'];
-                }
+                $compose['services'][$entry['service']]['networks'] = [...$networks, ...array_values(array_diff($externalKeys, $networks))];
             }
         }
 
@@ -546,15 +548,22 @@ final class ComposeFileBuilder
                 'healthcheck' => Healthchecks::stayedUp(),
             ];
 
+            // The process's own check when it has one; otherwise over HTTP for an http process, and
+            // for a plain worker, with no port to ask, that it stays up rather than crash-looping.
             $http = $config->processHttp[$name] ?? null;
-            if ($http === null) {
-                // No port to ask: the check is that the worker stays up rather than crash-looping.
-                continue;
+            $healthcheck = $config->processHealthchecks[$name] ?? null;
+
+            if ($healthcheck !== null) {
+                $services[$name]['healthcheck'] = Healthchecks::command($healthcheck);
+            } elseif ($http !== null) {
+                $services[$name]['healthcheck'] = $http['health'] !== null
+                    ? Healthchecks::httpPath($http['port'], $http['health'])
+                    : Healthchecks::httpServer($http['port']);
             }
 
-            $services[$name]['healthcheck'] = $http['health'] !== null
-                ? Healthchecks::httpPath($http['port'], $http['health'])
-                : Healthchecks::httpServer($http['port']);
+            if ($http === null) {
+                continue;
+            }
 
             if ($config->publishPorts) {
                 $variable = strtoupper(str_replace('-', '_', $name)) . '_PORT';

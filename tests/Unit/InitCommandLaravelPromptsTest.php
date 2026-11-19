@@ -50,12 +50,14 @@ final class InitCommandLaravelPromptsTest extends TestCase
     {
         $registry = new ServiceRegistry(ServiceRegistry::defaults());
         Prompt::fake([
+            // The project name: its default.
+            Key::ENTER,
             // The checklist: tick Database (the first kind), continue.
             Key::SPACE, Key::ENTER,
             // Database: its first service.
             Key::ENTER,
-            // No additional instances.
-            Key::ENTER,
+            // No additional instances, no processes, no external networks.
+            Key::ENTER, Key::ENTER, Key::ENTER,
             // PHP: an end-of-life branch is refused in place, then 8.4 is typed.
             ...array_fill(0, 3, Key::BACKSPACE), '7', '.', '4', Key::ENTER,
             ...array_fill(0, 3, Key::BACKSPACE), '8', '.', '4', Key::ENTER,
@@ -92,6 +94,8 @@ final class InitCommandLaravelPromptsTest extends TestCase
         $registry = new ServiceRegistry(ServiceRegistry::defaults());
 
         Prompt::fake([
+            // The project name: its default.
+            Key::ENTER,
             // Tick Database, continue.
             Key::SPACE, Key::ENTER,
             // Database: the second service.
@@ -100,8 +104,9 @@ final class InitCommandLaravelPromptsTest extends TestCase
             // the third instead.
             Key::CTRL_U,
             Key::DOWN, Key::ENTER,
-            // No additional instances, then PHP and Node at their defaults.
-            Key::ENTER, Key::ENTER, Key::ENTER,
+            // No additional instances, no processes, no external networks, then PHP and Node at
+            // their defaults.
+            Key::ENTER, Key::ENTER, Key::ENTER, Key::ENTER, Key::ENTER,
         ]);
 
         $tester = new CommandTester(new InitCommand(

@@ -210,6 +210,16 @@ and the settings it can't run without, which then block a release when
 `.env.production` lacks them. Laravel's adapter returns `laravel`, the
 `health:` path from `bootstrap/app.php`, `APP_URL` and `APP_KEY`.
 
+A framework whose projects commonly run long-lived processes implements
+`Ship\Contracts\SuggestsProcesses`: `suggestedProcesses()` returns them by
+name, with a label, the command, and optionally a health check command and an
+`http` block, and `ship init` offers them as a checklist. Read them from the
+project rather than assuming: Laravel's adapter offers Horizon only when
+`laravel/horizon` is installed (with `horizon:status` as its check), Symfony's
+consumes the transports `config/packages/messenger.yaml` defines, and Tempest's
+offers its scheduler only when the code has `#[Schedule]` tasks.
+`Ship\Support\ComposerPackages::has()` tells which packages are installed.
+
 A framework that needs a newer PHP than ship's default implements
 `Ship\Contracts\RequiresPhpVersion`: `ship init` then starts the PHP question
 at that version and refuses an older one, and `ship config:test` reports it.

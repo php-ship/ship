@@ -34,7 +34,7 @@ final class InitCommandReverbWarningTest extends TestCase
     {
         $command = new InitCommand($this->projectRoot, new ServiceRegistry([new ReverbService()]));
         $tester = new CommandTester($command);
-        $tester->setInputs($broadcastingAnswer === 'None' ? ['None', '8.4'] : ['Broadcasting', $broadcastingAnswer, '8.4']);
+        $tester->setInputs($broadcastingAnswer === 'None' ? ['', 'None', '8.4'] : ['', 'Broadcasting', $broadcastingAnswer, '8.4']);
         $tester->execute([]);
 
         return $tester->getDisplay();

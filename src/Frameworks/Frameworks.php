@@ -7,6 +7,7 @@ namespace Ship\Frameworks;
 use Ship\Contracts\DescribesRelease;
 use Ship\Contracts\FrameworkAdapter;
 use Ship\Contracts\RequiresPhpVersion;
+use Ship\Contracts\SuggestsProcesses;
 
 /**
  * The framework adapters ship knows: its own, then any ship.json extensions add. The one list
@@ -64,6 +65,27 @@ final class Frameworks
         }
 
         return $minimum;
+    }
+
+    /**
+     * The processes the project's frameworks suggest (see SuggestsProcesses), the first
+     * framework's winning a name two of them suggest.
+     *
+     * @param array<string, string> $services
+     * @param list<FrameworkAdapter> $extensionAdapters
+     * @return array<string, array{label: string, command: string, healthcheck?: string, http?: array{port: int, role: string, health: ?string, urlSetting: ?string}}>
+     */
+    public static function suggestedProcesses(string $projectRoot, array $services, array $extensionAdapters = []): array
+    {
+        $suggested = [];
+
+        foreach (self::detected($projectRoot, $extensionAdapters) as $adapter) {
+            if ($adapter instanceof SuggestsProcesses) {
+                $suggested += $adapter->suggestedProcesses($projectRoot, $services);
+            }
+        }
+
+        return $suggested;
     }
 
     /**
