@@ -187,7 +187,8 @@ vendor/bin/ship down
 - which **processes** run beside the app in production: a checklist of what
   the framework suggests from what the project uses (Horizon or a queue
   worker and the scheduler for Laravel, plus Reverb when `laravel/reverb` is
-  installed; Messenger workers for the transports `messenger.yaml` configures
+  installed and ship's own Reverb service isn't chosen — see
+  [Reverb: a service or a process?](#reverb-a-service-or-a-process); Messenger workers for the transports `messenger.yaml` configures
   and Scheduler's schedules for Symfony; the scheduler and the async command
   worker for Tempest), then processes of your own: a name, a command, and an
   optional health check command (see [`processes`](#configuration-shipjson));
@@ -379,6 +380,23 @@ Silo instance, including ones added through `additionalServices`.
 |---|---|---|
 | Reverb | Its own `reverb` container + published port, `BROADCAST_CONNECTION=reverb`, server-side `REVERB_HOST=reverb`/`REVERB_PORT`/`REVERB_SCHEME` (Docker DNS — `app` talking to `reverb`), browser-side `VITE_REVERB_HOST=localhost`/`VITE_REVERB_PORT`/`VITE_REVERB_SCHEME` (what Echo in the browser actually connects to) | `composer require laravel/reverb`, then `php artisan install:broadcasting` inside the container once (generates `REVERB_APP_ID`/`KEY`/`SECRET` into `.env` — real per-app credentials, not something `ship` provisions). `ship init` warns at selection time if the package isn't installed yet, since the `reverb` container won't start without it. |
 | Centrifugo (`centrifugo`) | Its own `centrifugo` container (the framework-agnostic alternative to Reverb, no app code), published on `127.0.0.1:${CENTRIFUGO_PORT:-8001}` in development with its admin UI (password `${CENTRIFUGO_ADMIN_PASSWORD:-ship}`), server-side `CENTRIFUGO_URL`/`CENTRIFUGO_API_KEY`/`CENTRIFUGO_TOKEN_SECRET`, browser-side `VITE_CENTRIFUGO_URL` | A client: `composer require centrifugal/phpcent` to publish from PHP (its API is `CENTRIFUGO_URL` + `/api`), and `centrifuge` (npm) in the browser, with connection tokens signed using `CENTRIFUGO_TOKEN_SECRET`. On Laravel, a broadcasting driver package if you want `broadcast()`; `BROADCAST_CONNECTION` is left alone. Runs in memory; see [Centrifugo with Redis](#centrifugo-with-redis) for running more than one Centrifugo server. In production `.env.production` must set `CENTRIFUGO_API_KEY`, `CENTRIFUGO_TOKEN_SECRET` and `CENTRIFUGO_ALLOWED_ORIGINS` (space-separated, e.g. `https://example.com`): with no allowed origins Centrifugo refuses every browser |
+
+#### Reverb: a service or a process?
+
+A Laravel app can run Reverb in one of two ways. Pick one, not both: both
+would start a Reverb server.
+
+| | Ship's Reverb service | Reverb as a process |
+|---|---|---|
+| How to choose it | `ship init`: Broadcasting → Reverb | `ship init`: Broadcasting → None, then tick Reverb in the process checklist (or write it in [`processes`](#configuration-shipjson) yourself) |
+| Development | Runs with `ship up`, its port published | Not started; run it from `docker-compose.override.yml` (see `processes`) |
+| Production | Runs, in `release.json`'s `http[]` | Runs, in `http[]` |
+| Address the browser uses | `VITE_REVERB_HOST`, baked into the frontend when the release is built | Any setting you name in its `urlSetting` (e.g. `REVERB_PUBLIC_HOST`), so the app can read it at runtime |
+
+Take the service unless your frontend gets Reverb's address at runtime.
+`ship init` only suggests Reverb as a process while the service isn't
+chosen, so with Broadcasting → Reverb it doesn't appear in the process
+checklist.
 
 #### Centrifugo with Redis
 
@@ -720,7 +738,7 @@ plain, readable JSON document:
   `publishPorts` its port is published at `${<NAME>_PORT:-<port>}`
   (`REVERB_PORT` here). Use this rather than the built-in Reverb service when
   the app reads Reverb's public address at runtime instead of from
-  `VITE_REVERB_HOST`.
+  `VITE_REVERB_HOST` — see [Reverb: a service or a process?](#reverb-a-service-or-a-process).
 
   A process can also bring its own health check, a shell command run in its
   container that exits 0 while it works. It replaces the default check (over
