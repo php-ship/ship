@@ -10,6 +10,7 @@ use Ship\Contracts\FrameworkAdapter;
 use Ship\Contracts\RequiresPhpExtensions;
 use Ship\Docker\DockerignoreGuard;
 use Ship\Docker\PhpExtensions;
+use Ship\Docker\ProjectEnv;
 use Ship\Frameworks\Frameworks;
 use Ship\Node\PackageManager;
 use Ship\Node\PackageManagerVersions;
@@ -329,6 +330,7 @@ final class InitCommand extends Command
             ['Node.js', $nodeVersion . ($chosenPackageManager !== null ? ', ' . self::PACKAGE_MANAGERS[$chosenPackageManager] : '')],
         ]);
 
+        $this->updateEnvFiles($ui, $config);
         $this->warnAboutViteDevServerConfigIfNeeded($ui);
         $this->warnAboutMissingReverbPackageIfNeeded($ui, $selected);
 
@@ -526,6 +528,71 @@ final class InitCommand extends Command
     private function readExistingConfig(): ?ShipConfig
     {
         return ShipConfig::tryFromFile($this->projectRoot . '/ship.json');
+    }
+
+    /**
+     * Adds the settings the chosen services and the framework use to the project's env files,
+     * where they're missing (see ProjectEnv): .env.example and .env with their development values
+     * (.env created from .env.example when there's none), .env.production with the ones a release
+     * can't run without, empty. Points out where a file gives a setting ship fixes another value,
+     * without changing it.
+     */
+    private function updateEnvFiles(Ui $ui, ShipConfig $config): void
+    {
+        $development = ProjectEnv::development($config, $this->registry);
+        $labels = array_values(array_unique(array_filter(
+            array_map(
+                fn (string $key): ?string => $this->registry->has($key) ? $this->registry->get($key)->label() : null,
+                [...array_values($config->services), ...array_column($config->additionalServices, 'service')],
+            ),
+            static fn (?string $label): bool => $label !== null,
+        )));
+        $because = 'Added by ship init for ' . implode(', ', $labels);
+        $added = [];
+
+        $example = $this->projectRoot . '/.env.example';
+        $env = $this->projectRoot . '/.env';
+        if ($development !== []) {
+            foreach ([$example, $env] as $path) {
+                if ($path === $env && !is_file($env)) {
+                    copy($example, $env);
+                    $added[] = 'Created .env from .env.example.';
+                    continue;
+                }
+
+                $missing = ProjectEnv::missingFrom($path, array_keys($development));
+                if ($missing !== []) {
+                    $created = !is_file($path);
+                    ProjectEnv::append($path, $because, array_intersect_key($development, array_flip($missing)));
+                    $added[] = sprintf('%s %s: %s.', $created ? 'Created' : 'Added to', basename($path), implode(', ', $missing));
+                }
+            }
+        }
+
+        $production = $this->projectRoot . '/.env.production';
+        $required = ProjectEnv::missingFrom($production, ProjectEnv::productionRequired($config, $this->registry, $this->projectRoot, $this->extensionFrameworkAdapters));
+        if ($required !== []) {
+            $created = !is_file($production);
+            ProjectEnv::append($production, 'Required by a release (ship init): fill these in before `ship release`', array_fill_keys($required, ''));
+            $added[] = sprintf('%s .env.production, empty for you to fill in: %s.', $created ? 'Created' : 'Added to', implode(', ', $required));
+        }
+
+        foreach ($added as $line) {
+            $ui->info($line);
+        }
+
+        $fixed = ProjectEnv::fixed($config, $this->registry);
+        foreach ([$example, $env, $production] as $path) {
+            $conflicts = ProjectEnv::conflicts($path, $fixed);
+            if ($conflicts !== []) {
+                $ui->note(sprintf(
+                    '%s sets %s, but ship\'s containers use %s. Inside them ship\'s value wins; the file\'s only applies to commands run outside ship.',
+                    basename($path),
+                    implode(', ', array_map(static fn (string $key, array $values): string => "{$key}={$values[0]}", array_keys($conflicts), $conflicts)),
+                    implode(', ', array_map(static fn (string $key, array $values): string => "{$key}={$values[1]}", array_keys($conflicts), $conflicts)),
+                ));
+            }
+        }
     }
 
     /**

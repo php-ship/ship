@@ -11,6 +11,7 @@ use Ship\Docker\ComposeFileBuilder;
 use Ship\Docker\EnvFile;
 use Ship\Docker\MySqlUsernameGuard;
 use Ship\Docker\NginxUpstreamMismatch;
+use Ship\Docker\ProjectEnv;
 use Ship\Docker\ProjectName;
 use Ship\Docker\RequiredEnv;
 use Ship\Extensions\ExtensionLoader;
@@ -91,6 +92,7 @@ final class ConfigTestCommand extends Command
             }
 
             $this->checkRequiredProductionEnv($prodCompose, $output);
+            $this->checkEnvFiles($registry, $config, $output);
         }
 
         // A warning, not a problem, as in `ship up`/`build`/`release`.
@@ -204,6 +206,50 @@ final class ConfigTestCommand extends Command
             $output->writeln("<error>ship.json ({$label}): {$e->getMessage()}</error>");
 
             return null;
+        }
+    }
+
+    /**
+     * Warnings, not problems, so a CI run without the project's env files still passes: the
+     * settings the services use missing from .env.example or .env, a file giving a setting ship
+     * fixes another value, and the framework's own production settings missing from
+     * .env.production (the services' credentials are checkRequiredProductionEnv()'s problems).
+     * `ship init` adds what's missing (see ProjectEnv).
+     */
+    private function checkEnvFiles(ServiceRegistry $registry, ShipConfig $config, OutputInterface $output): void
+    {
+        $development = array_keys(ProjectEnv::development($config, $registry));
+
+        foreach (['.env.example', '.env'] as $file) {
+            $missing = ProjectEnv::missingFrom($this->projectRoot . '/' . $file, $development);
+            if ($missing !== []) {
+                $output->writeln(sprintf(
+                    '<comment>ship: %s doesn\'t set %s, which your services use. `ship init` adds %s.</comment>',
+                    $file,
+                    implode(', ', $missing),
+                    count($missing) === 1 ? 'it' : 'them',
+                ));
+            }
+        }
+
+        $fixed = ProjectEnv::fixed($config, $registry);
+        foreach (['.env.example', '.env', '.env.production'] as $file) {
+            foreach (ProjectEnv::conflicts($this->projectRoot . '/' . $file, $fixed) as $key => [$theirs, $ships]) {
+                $output->writeln("<comment>ship: {$file} sets {$key}={$theirs}, but ship's containers use {$key}={$ships}; the file's value only applies outside them.</comment>");
+            }
+        }
+
+        $frameworkRequired = array_diff(
+            ProjectEnv::productionRequired($config, $registry, $this->projectRoot, $this->extensionFrameworkAdapters),
+            RequiredEnv::requiredIn((new ComposeFileBuilder($registry))->build($config, ShipEnvironment::Production, projectRoot: $this->projectRoot)),
+        );
+        $production = EnvFile::parse($this->projectRoot . '/.env.production');
+        $unset = array_values(array_filter($frameworkRequired, static fn (string $key): bool => ($production[$key] ?? '') === ''));
+        if ($unset !== []) {
+            $output->writeln(sprintf(
+                '<comment>ship: .env.production doesn\'t set %s, which `ship release` requires.</comment>',
+                implode(', ', $unset),
+            ));
         }
     }
 

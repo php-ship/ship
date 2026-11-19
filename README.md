@@ -199,7 +199,24 @@ vendor/bin/ship down
   comma-separated (the hint lists the ones on this machine);
 - the PHP and Node.js versions and the JavaScript package manager,
 
-and ends with a summary. Re-run it any time: every question
+and ends with a summary. It then adds the settings your choices use to the
+project's env files, where they're missing:
+
+- `.env.example` and `.env`: every setting the chosen services pass to the
+  app (`DB_HOST`, `DB_PASSWORD`, `REDIS_HOST`, …) with the development value
+  ship uses — a value built from others, such as SQL Server's `DB_URL`, as
+  references (`"…${DB_PASSWORD}…"`), so it follows them. `.env.example` is
+  created if there's none, and `.env` as its copy;
+- `.env.production`: the settings a release can't run without (the
+  services' passwords, the framework's own such as `APP_KEY`), **empty**, for
+  you to fill in — a release still refuses until you do.
+
+Only missing keys are added (a commented-out one counts as missing), at the
+end of the file under a `# Added by ship init …` line; nothing is changed or
+removed. Where a file gives a setting ship fixes another value (`.env`'s
+`DB_CONNECTION=sqlite` while you chose PostgreSQL), it says so: inside the
+containers ship's value wins, and the file's only applies to commands run
+outside them. `ship config:test` reports the same things as warnings. Re-run it any time: every question
 starts at the project's current setting, so pressing Enter keeps it. The
 instances and processes ship.json already has are listed, ticked: untick one
 to remove it (an instance's data volume stays until you delete it), and to
@@ -232,7 +249,7 @@ release`.
 | `ship shell [service]` | Opens an interactive shell (`sh`) in a service; defaults to `app`. |
 | `ship logs [service] [-f]` | Tails logs for one service, or all services if none given. `-f`/`--follow` streams live. |
 | `ship db [instance]` | Opens a database's interactive client shell (`psql`/`mysql`/`mariadb`/`mongosh`/`sqlcmd`), reading credentials from that container's own environment. Omit `instance` for the default database; name one of `additionalServices`' database entries to open that instance instead. Fails clearly if no database is selected, or the named instance doesn't exist. |
-| `ship config:test` | `ship.json`'s equivalent of `nginx -t`: validates `ship.json`, builds both the development and production compose files, and checks for a required production credential missing from `.env.production` or a stale nginx upstream — all without starting or building anything. Reports every problem it finds in one pass, not just the first. |
+| `ship config:test` | `ship.json`'s equivalent of `nginx -t`: validates `ship.json`, builds both the development and production compose files, and checks for a required production credential missing from `.env.production` or a stale nginx upstream, and warns about service settings missing from `.env` or `.env.example`, values there that ship's containers override, and framework settings a release needs (`APP_KEY`) — all without starting or building anything. Reports every problem it finds in one pass, not just the first. |
 | `ship doctor` | Shows the installed and published versions and the state and health of every container in the development stack, with a recovery hint for anything that crashed or is unhealthy. Reads the compose file `ship up` generated; changes nothing. |
 | `ship composer <args...>` | Proxies to `composer` inside the `app` container. |
 | `ship npm <args...>` | Proxies to `npm` inside the `app` container (e.g. `ship npm run dev`, `ship npm install`). |
