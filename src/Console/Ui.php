@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ship\Console;
 
 use Laravel\Prompts\ConfirmPrompt;
+use Laravel\Prompts\FormBuilder;
 use Laravel\Prompts\MultiSelectPrompt;
 use Laravel\Prompts\Prompt;
 use Laravel\Prompts\SelectPrompt;
@@ -90,6 +91,15 @@ final class Ui
     public function intro(string $title): void
     {
         $this->rich ? \Laravel\Prompts\intro($title) : $this->io->title($title);
+    }
+
+    /**
+     * Questions asked as steps of one form: Ctrl+U goes back to the previous step (Prompts' own
+     * interface only; plain questions can't go back).
+     */
+    public function form(): FormBuilder
+    {
+        return \Laravel\Prompts\form();
     }
 
     public function note(string $message): void

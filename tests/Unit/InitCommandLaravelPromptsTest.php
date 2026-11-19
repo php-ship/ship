@@ -82,4 +82,40 @@ final class InitCommandLaravelPromptsTest extends TestCase
         self::assertStringContainsString('past end of life', $tester->getDisplay());
         self::assertStringContainsString('Run `ship up`', $tester->getDisplay());
     }
+
+    /**
+     * Ctrl+U goes back to the previous question, which starts at the answer given before.
+     */
+    #[RunInSeparateProcess]
+    public function test_ctrl_u_goes_back_to_the_previous_question(): void
+    {
+        $registry = new ServiceRegistry(ServiceRegistry::defaults());
+
+        Prompt::fake([
+            // Tick Database, continue.
+            Key::SPACE, Key::ENTER,
+            // Database: the second service.
+            Key::DOWN, Key::ENTER,
+            // At "Add a second instance…?": back to Database, which starts at the second service;
+            // the third instead.
+            Key::CTRL_U,
+            Key::DOWN, Key::ENTER,
+            // No additional instances, then PHP and Node at their defaults.
+            Key::ENTER, Key::ENTER, Key::ENTER,
+        ]);
+
+        $tester = new CommandTester(new InitCommand(
+            $this->projectRoot,
+            $registry,
+            ui: static fn (InputInterface $input, OutputInterface $output): Ui => new Ui($input, $output, rich: true),
+        ));
+        $tester->execute([]);
+
+        self::assertSame(0, $tester->getStatusCode());
+
+        /** @var array{services: array<string, string>} $config */
+        $config = json_decode((string) file_get_contents($this->projectRoot . '/ship.json'), associative: true, flags: JSON_THROW_ON_ERROR);
+
+        self::assertSame($registry->inGroup('database')[2]->key(), $config['services']['database']);
+    }
 }

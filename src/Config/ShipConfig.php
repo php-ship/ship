@@ -306,7 +306,7 @@ final class ShipConfig
      *
      * @return list<array{group: string, service: string, name: string}>
      */
-    private static function filterAdditionalServices(mixed $value): array
+    public static function filterAdditionalServices(mixed $value): array
     {
         if (!is_array($value)) {
             return [];

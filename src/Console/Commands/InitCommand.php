@@ -57,14 +57,15 @@ final class InitCommand extends Command
         $ui = ($this->ui)($input, $output);
         $ui->intro('ship init');
 
+        if ($ui->rich) {
+            $ui->info('Ctrl+U goes back to the previous question.');
+        }
+
         $existing = $this->readExistingConfig();
 
         if ($existing !== null) {
             $ui->note('This project already has a ship.json: every question defaults to its current setting, so pressing Enter keeps it.');
         }
-
-        $selected = [];
-        $summary = [];
 
         // One checklist of the kinds of service the project needs, then a choice for each one
         // ticked. A kind starts ticked when the project has a service of it that's still offered,
@@ -81,60 +82,116 @@ final class InitCommand extends Command
             }
         }
 
-        $kinds = $offered === [] ? [] : $ui->multiselect(
-            'Which services does this project need?',
-            array_map(fn (string $group): string => $this->groups()[$group][0], array_combine(array_keys($offered), array_keys($offered))),
-            array_values(array_filter(
-                array_keys($offered),
-                static fn (string $group): bool => isset($offered[$group][$existing->services[$group] ?? '']),
-            )),
-            'Space ticks a kind, Enter continues; you pick the service for each next',
-        );
-
-        foreach ($kinds as $group) {
-            [$label, $hint] = $this->groups()[$group];
-            $choices = $offered[$group];
-            $current = $existing->services[$group] ?? null;
-            $answer = $ui->select($label, $choices, $current !== null && isset($choices[$current]) ? $current : null, $hint);
-            $selected[$group] = $answer;
-            $summary[] = [$label, $choices[$answer]];
-        }
-
-        $additionalServices = $this->promptForAdditionalInstances($ui, $existing->additionalServices ?? []);
-        $siloImage = $this->promptForSiloImage(
-            $ui,
-            $selected,
-            $additionalServices,
-            $existing->siloImage ?? ShipConfig::SILO_IMAGE_STANDARD,
-        );
-
-        // Rejects an end-of-life branch or a pinned patch release with known vulnerabilities, or
-        // one older than the project's framework needs (Tempest 3: 8.5), here rather than at the
-        // end of the first build.
         $minimumPhp = Frameworks::minimumPhp($this->projectRoot, $this->extensionFrameworkAdapters);
         $defaultPhp = $existing->phpVersion ?? '8.4';
         if ($minimumPhp !== null && version_compare($defaultPhp, $minimumPhp['version'], '<')) {
             $defaultPhp = $minimumPhp['version'];
         }
-        $phpVersion = $ui->text(
-            'PHP version',
-            default: $defaultPhp,
-            hint: $minimumPhp !== null
-                ? "{$minimumPhp['framework']} needs {$minimumPhp['version']} or newer"
-                : 'A supported branch, such as 8.4, or an exact release',
-            validate: fn (string $answer): ?string => (preg_match(ShipConfig::PHP_VERSION_PATTERN, trim($answer)) === 1 ? null : 'Use a PHP version such as 8.4 or 8.4.12.')
-                ?? PhpSecurityFloor::problemWith(trim($answer))
-                ?? Frameworks::phpVersionProblem($this->projectRoot, $answer, $this->extensionFrameworkAdapters),
-        );
-        $nodeVersion = $ui->text(
-            'Node.js version',
-            default: $existing->nodeVersion ?? '24',
-            hint: 'A major version, such as 24, or an exact release',
-            validate: static fn (string $answer): ?string => preg_match('/^\d+(\.\d+){0,2}$/', trim($answer)) === 1
-                ? null
-                : 'Use a Node.js version such as 24 or 24.11.',
-        );
-        $packageManager = $this->promptForPackageManager($ui, $nodeVersion);
+        $packageManager = PackageManager::inspect($this->projectRoot);
+
+        // Every question is a step of one form, so Ctrl+U goes back to the previous one, which
+        // then starts at the answer given before. Steps for kinds that weren't ticked are skipped,
+        // going forward and back. Nothing is written until the last answer.
+        // A step that asks nothing would send Ctrl+U straight back to where it came from, so steps
+        // that might not ask (no services at all, Silo not chosen) are conditional: Prompts skips
+        // them both ways.
+        $instanceGroups = array_values(array_intersect(self::GROUPS_SUPPORTING_ADDITIONAL_INSTANCES, array_keys($offered)));
+
+        $answers = $ui->form()
+            ->addIf(
+                $offered !== [],
+                fn (array $answers, mixed $previous): array => $ui->multiselect(
+                    'Which services does this project need?',
+                    array_map(fn (string $group): string => $this->groups()[$group][0], array_combine(array_keys($offered), array_keys($offered))),
+                    is_array($previous) ? array_values(array_map(strval(...), $previous)) : array_values(array_filter(
+                        array_keys($offered),
+                        static fn (string $group): bool => isset($offered[$group][$existing->services[$group] ?? '']),
+                    )),
+                    'Space ticks a kind, Enter continues; you pick the service for each next',
+                ),
+                name: 'kinds',
+            );
+
+        foreach ($offered as $group => $choices) {
+            [$label, $hint] = $this->groups()[$group];
+            $answers->addIf(
+                static fn (array $answers): bool => in_array($group, $answers['kinds'] ?? [], true),
+                static function (array $answers, mixed $previous) use ($ui, $label, $hint, $choices, $existing, $group): string {
+                    $current = is_string($previous) ? $previous : ($existing->services[$group] ?? null);
+
+                    return $ui->select($label, $choices, $current !== null && isset($choices[$current]) ? $current : null, $hint);
+                },
+                name: "service:{$group}",
+            );
+        }
+
+        $answers = $answers
+            ->addIf(
+                $instanceGroups !== [],
+                // Going back to it keeps the instances added before (it then asks to add another).
+                fn (array $answers, mixed $previous): array => $this->promptForAdditionalInstances(
+                    $ui,
+                    is_array($previous) ? ShipConfig::filterAdditionalServices($previous) : ($existing->additionalServices ?? []),
+                ),
+                name: 'additionalServices',
+            )
+            ->addIf(
+                static fn (array $answers): bool => self::usesSilo(self::selectedServices($answers), is_array($answers['additionalServices'] ?? null) ? $answers['additionalServices'] : []),
+                fn (array $answers, mixed $previous): string => $this->promptForSiloImage(
+                    $ui,
+                    is_string($previous) ? $previous : ($existing->siloImage ?? ShipConfig::SILO_IMAGE_STANDARD),
+                ),
+                name: 'siloImage',
+            )
+            // Rejects an end-of-life branch or a pinned patch release with known
+            // vulnerabilities, or one older than the project's framework needs (Tempest 3: 8.5),
+            // here rather than at the end of the first build.
+            ->add(
+                fn (array $answers, mixed $previous): string => $ui->text(
+                    'PHP version',
+                    default: is_string($previous) ? $previous : $defaultPhp,
+                    hint: $minimumPhp !== null
+                        ? "{$minimumPhp['framework']} needs {$minimumPhp['version']} or newer"
+                        : 'A supported branch, such as 8.4, or an exact release',
+                    validate: fn (string $answer): ?string => (preg_match(ShipConfig::PHP_VERSION_PATTERN, trim($answer)) === 1 ? null : 'Use a PHP version such as 8.4 or 8.4.12.')
+                        ?? PhpSecurityFloor::problemWith(trim($answer))
+                        ?? Frameworks::phpVersionProblem($this->projectRoot, $answer, $this->extensionFrameworkAdapters),
+                ),
+                name: 'php',
+            )
+            ->add(
+                static fn (array $answers, mixed $previous): string => $ui->text(
+                    'Node.js version',
+                    default: is_string($previous) ? $previous : ($existing->nodeVersion ?? '24'),
+                    hint: 'A major version, such as 24, or an exact release',
+                    validate: static fn (string $answer): ?string => preg_match('/^\d+(\.\d+){0,2}$/', trim($answer)) === 1
+                        ? null
+                        : 'Use a Node.js version such as 24 or 24.11.',
+                ),
+                name: 'node',
+            )
+            ->addIf(
+                $packageManager->hasPackageJson,
+                fn (array $answers, mixed $previous): string => $this->askPackageManager($ui, $packageManager, is_string($previous) ? $previous : null),
+                name: 'packageManager',
+            )
+            ->submit();
+
+        $selected = self::selectedServices($answers);
+        $summary = [];
+        foreach ($selected as $group => $key) {
+            $summary[] = [$this->groups()[$group][0], $offered[$group][$key]];
+        }
+        /** @var list<array{group: string, service: string, name: string}> $additionalServices */
+        $additionalServices = is_array($answers['additionalServices'] ?? null) ? $answers['additionalServices'] : ($existing->additionalServices ?? []);
+        $siloImage = is_string($answers['siloImage'] ?? null) ? $answers['siloImage'] : ($existing->siloImage ?? ShipConfig::SILO_IMAGE_STANDARD);
+        $phpVersion = trim((string) $answers['php']);
+        $nodeVersion = trim((string) $answers['node']);
+        $chosenPackageManager = is_string($answers['packageManager'] ?? null) ? $answers['packageManager'] : null;
+
+        if ($chosenPackageManager !== null) {
+            $this->recordPackageManager($ui, $packageManager, $chosenPackageManager, $nodeVersion);
+        }
 
         $config = new ShipConfig(
             phpVersion: $phpVersion,
@@ -163,7 +220,7 @@ final class InitCommand extends Command
         $ui->table(['Service', 'Choice'], [
             ...($summary === [] ? [['Services', 'None']] : $summary),
             ['PHP', $phpVersion],
-            ['Node.js', $nodeVersion . ($packageManager !== null ? ', ' . self::PACKAGE_MANAGERS[$packageManager] : '')],
+            ['Node.js', $nodeVersion . ($chosenPackageManager !== null ? ', ' . self::PACKAGE_MANAGERS[$chosenPackageManager] : '')],
         ]);
 
         $this->warnAboutViteDevServerConfigIfNeeded($ui);
@@ -172,6 +229,37 @@ final class InitCommand extends Command
         $ui->outro('Wrote ship.json and ship/. Run `ship up` to build and start it.');
 
         return Command::SUCCESS;
+    }
+
+    /**
+     * Whether Silo is the storage service or one of the additional instances.
+     *
+     * @param array<string, string> $selected
+     * @param array<mixed> $additionalServices
+     */
+    private static function usesSilo(array $selected, array $additionalServices): bool
+    {
+        return ($selected['storage'] ?? null) === 'silo'
+            || in_array('silo', array_column($additionalServices, 'service'), strict: true);
+    }
+
+    /**
+     * The service chosen for each ticked kind, from the form's answers.
+     *
+     * @param array<mixed> $answers
+     * @return array<string, string>
+     */
+    private static function selectedServices(array $answers): array
+    {
+        $selected = [];
+        foreach (is_array($answers['kinds'] ?? null) ? $answers['kinds'] : [] as $group) {
+            $service = $answers["service:{$group}"] ?? null;
+            if (is_string($group) && is_string($service)) {
+                $selected[$group] = $service;
+            }
+        }
+
+        return $selected;
     }
 
     private function serviceLabel(string $group, string $key): string
@@ -318,24 +406,10 @@ final class InitCommand extends Command
     /**
      * Silo's standard image doesn't run on every CPU (see ShipConfig::$siloImage), which the
      * service list alone can't convey, so whenever Silo is selected the choice is asked for
-     * together with the reason. $current is kept when Silo isn't selected.
-     *
-     * @param array<string, string> $selected
-     * @param list<array{group: string, service: string, name: string}> $additionalServices
+     * together with the reason.
      */
-    private function promptForSiloImage(
-        Ui $ui,
-        array $selected,
-        array $additionalServices,
-        string $current,
-    ): string {
-        $siloSelected = ($selected['storage'] ?? null) === 'silo'
-            || in_array('silo', array_column($additionalServices, 'service'), strict: true);
-
-        if (!$siloSelected) {
-            return $current;
-        }
-
+    private function promptForSiloImage(Ui $ui, string $current): string
+    {
         $ui->note(implode("\n\n", [
             'Silo publishes two images of the same release. The standard one is built on RHEL 9, '
                 . 'which requires a CPU with the x86-64-v2 instruction set: on an older CPU, or a '
@@ -401,29 +475,17 @@ final class InitCommand extends Command
 
     /**
      * Which package manager the project uses, for a project with a package.json. The default is
-     * what it already uses (see PackageManager), so pressing Enter changes nothing.
-     *
-     * The choice is recorded in package.json's packageManager at its current version (see
-     * PackageManagerVersions: the project's own Yarn line for a Yarn 1 lockfile, and for npm the
-     * npm its Node version comes with). Recording it is all a project that doesn't use another tool
-     * yet needs. Moving a project off another tool also removes its lockfile and installed packages
-     * and reinstalls, which needs the container, so it's left to `ship package-manager`: the
-     * recorded choice makes `ship up` remind the user, and the production build refuse, until it's
-     * done.
+     * what it already uses (see PackageManager), so pressing Enter changes nothing; $previous is
+     * the answer given before going back to this question.
      */
-    private function promptForPackageManager(Ui $ui, string $nodeVersion): ?string
+    private function askPackageManager(Ui $ui, PackageManager $current, ?string $previous): string
     {
-        $current = PackageManager::inspect($this->projectRoot);
-
-        if (!$current->hasPackageJson) {
-            return null;
-        }
-
-        $default = $current->tool()
+        $default = $previous
+            ?? $current->tool()
             ?? (in_array($current->declared, PackageManager::TOOLS, true) ? $current->declared : null)
             ?? ($current->lockfileTools[0] ?? 'npm');
 
-        $choice = $ui->select(
+        return $ui->select(
             'JavaScript package manager',
             self::PACKAGE_MANAGERS,
             $default,
@@ -433,7 +495,19 @@ final class InitCommand extends Command
                 default => 'The project has no lockfile yet',
             },
         );
+    }
 
+    /**
+     * Records the chosen package manager in package.json's packageManager at its current version
+     * (see PackageManagerVersions: the project's own Yarn line for a Yarn 1 lockfile, and for npm
+     * the npm its Node version comes with). Recording it is all a project that doesn't use another
+     * tool yet needs. Moving a project off another tool also removes its lockfile and installed
+     * packages and reinstalls, which needs the container, so it's left to `ship package-manager`:
+     * the recorded choice makes `ship up` remind the user, and the production build refuse, until
+     * it's done.
+     */
+    private function recordPackageManager(Ui $ui, PackageManager $current, string $choice, string $nodeVersion): void
+    {
         $switching = $current->problem() !== null || ($current->tool() !== null && $current->tool() !== $choice);
 
         if ($current->declared !== $choice) {
@@ -447,7 +521,7 @@ final class InitCommand extends Command
                     $switching ? 'switch the project to it' : 'record it',
                 ));
 
-                return $choice;
+                return;
             }
 
             PackageManagerVersions::record($this->projectRoot, $spec);
@@ -457,8 +531,6 @@ final class InitCommand extends Command
         if ($switching) {
             $ui->note("Switching the project to {$choice} removes the old lockfile and node_modules and reinstalls, in the container: run `ship up`, then `ship package-manager {$choice}`.");
         }
-
-        return $choice;
     }
 
     /**
