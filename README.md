@@ -10,7 +10,7 @@ PHP — inspired by Laravel Sail, but usable outside Laravel and without
 requiring Windows users to put their project inside WSL.
 
 **Status: production-ready.** `init`/`up`/`down`/`exec`/`shell`/`logs`/
-`db`/`composer`/`npm`/`yarn`/`pnpm`/`package-manager`/`artisan`/`console` all work end-to-end, verified
+`db`/`composer`/`npm`/`yarn`/`pnpm`/`package-manager`/`artisan`/`console`/`tempest` all work end-to-end, verified
 against a real Docker daemon in both dev and production mode — including
 a real production HTTP request, a real database, and a real crashed-
 container recovery. CI passes on every push, across Ubuntu/macOS/Windows
@@ -63,9 +63,10 @@ repository.
   wherever you keep it. Docker Desktop still uses WSL2 under the hood to run
   Linux containers; only that part is unavoidable.
 - Sail is Laravel's (`php artisan sail:install`). ship knows nothing about
-  any framework in its core: Laravel and Symfony are two
+  any framework in its core: Laravel, Symfony and Tempest are
   [`FrameworkAdapter`](src/Contracts/FrameworkAdapter.php)s (`ship artisan`,
-  `ship console`), and any other framework can plug in the same way.
+  `ship console`, `ship tempest`), and any other framework can plug in the
+  same way.
 
 **Development runs the stack production runs.**
 
@@ -209,6 +210,7 @@ release`.
 | `ship package-manager <npm\|yarn\|pnpm>[@version]` | Switches the project to that package manager, or updates the version it records: removes the other tools' lockfiles and `node_modules` (asking first), records the tool in `packageManager`, and reinstalls. Needs the app running (`ship up`). |
 | `ship artisan <args...>` | Proxies to `php artisan` inside `app` — only registered when Laravel's `artisan` is detected at the project root. |
 | `ship console <args...>` | Proxies to `php bin/console` inside `app` — only registered when Symfony's `bin/console` is detected at the project root. |
+| `ship tempest <args...>` | Proxies to `php tempest` inside `app` — only registered for a Tempest project (a `tempest` console file and `tempest/framework` in `composer.json`). |
 
 `ship exec` and every proxied command forward their arguments exactly as
 typed, flags included (`-m` in `ship artisan make:model Post -m`), so `ship`
@@ -787,9 +789,16 @@ same one with a flag flipped:
   tool's lockfile isn't built at all. There is no Vite
   *dev* server in production — see [Frontend dev server](#frontend-dev-server-vite-hmr)
   below for that, which only applies in development.
+- **Opcache is on, the JIT is off.** PHP 8.5.12's tracing JIT crashes
+  php-fpm workers (a segfault on every request of a plain Tempest app), and a
+  web request mostly waits on I/O, where the JIT gains little. Turn it back
+  on in `ship/prod/php.ini` if you need it.
 - **Each framework's own optimize command runs at container *boot*, not
   build time.** Laravel gets `php artisan optimize`; Symfony gets `php
-  bin/console cache:clear`. This has to happen at boot rather than during
+  bin/console cache:clear`; Tempest gets `php tempest cache:clear --internal
+  --all --force` (so no cache from local development survives into the
+  image) and `php tempest discovery:generate`, its deployment guide's steps.
+  This has to happen at boot rather than during
   the image build because these commands bake real environment values
   into compiled files, which only exist once the orchestrator injects them
   at container start, not during the build.
@@ -955,8 +964,9 @@ A few rules keep a release trustworthy:
   compose file and `release.json`, so the server runs exactly what was
   released, not whatever the tag points to later.
 - **Settings the framework can't run without are required.** Laravel's
-  `APP_KEY` has to be in `.env.production`, alongside every credential
-  the selected services need.
+  `APP_KEY`, or Tempest's `SIGNING_KEY` and `ENVIRONMENT` (without it
+  Tempest runs as `local`), has to be in `.env.production`, alongside every
+  credential the selected services need.
 - **`--no-env`** leaves `.env.production` out of the release, for platforms
   that keep settings themselves. It's still required and checked, and
   `release.json` still lists the settings by name; whoever deploys provides

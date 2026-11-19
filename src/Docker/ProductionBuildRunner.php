@@ -7,8 +7,7 @@ namespace Ship\Docker;
 use Ship\Config\ShipConfig;
 use Ship\Contracts\FrameworkAdapter;
 use Ship\Contracts\ShipEnvironment;
-use Ship\Frameworks\LaravelAdapter;
-use Ship\Frameworks\SymfonyAdapter;
+use Ship\Frameworks\Frameworks;
 use Ship\Node\PackageManager;
 use Ship\Runtime\ProcessRunner;
 use Ship\Services\ServiceRegistry;
@@ -162,15 +161,6 @@ final class ProductionBuildRunner
      */
     private function detectFrameworkAdapters(string $projectRoot, array $extensionFrameworkAdapters): array
     {
-        $candidates = [
-            new LaravelAdapter(),
-            new SymfonyAdapter(),
-            ...$extensionFrameworkAdapters,
-        ];
-
-        return array_values(array_filter(
-            $candidates,
-            fn (FrameworkAdapter $adapter): bool => $adapter->detect($projectRoot),
-        ));
+        return Frameworks::detected($projectRoot, $extensionFrameworkAdapters);
     }
 }

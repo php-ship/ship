@@ -38,8 +38,9 @@ final class EntrypointScriptBuilder
         // Release commands run as root, but php-fpm's workers run as www-data and need to write
         // here at request time. Limited to the directories a framework writes to: chowning
         // vendor/ too adds tens of seconds to every boot. "database" covers Laravel's default
-        // SQLite file, whose directory must be writable for journal files.
-        $lines[] = 'for dir in storage bootstrap/cache database var; do';
+        // SQLite file, whose directory must be writable for journal files; ".tempest" is Tempest's
+        // caches and logs.
+        $lines[] = 'for dir in storage bootstrap/cache database var .tempest; do';
         $lines[] = '    [ -d "$dir" ] && chown -R www-data:www-data "$dir"';
         $lines[] = 'done';
         $lines[] = '';

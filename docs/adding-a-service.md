@@ -181,7 +181,8 @@ that mechanism does and doesn't do.
 
 A `Ship\Contracts\FrameworkAdapter` is the other extension point — one per
 target framework rather than one per service. `LaravelAdapter` and
-`SymfonyAdapter` are the two built-in ones; either is a reference to copy
+`SymfonyAdapter` and `TempestAdapter` are the built-in ones (listed once, in
+`Ship\Frameworks\Frameworks::builtIn()`); any of them is a reference to copy
 from for a new framework. Three methods:
 
 - `detect(string $projectRoot): bool` — how this adapter recognizes the
@@ -208,6 +209,12 @@ from the project, not assumed), the setting holding the site's public URL,
 and the settings it can't run without, which then block a release when
 `.env.production` lacks them. Laravel's adapter returns `laravel`, the
 `health:` path from `bootstrap/app.php`, `APP_URL` and `APP_KEY`.
+
+A framework that needs a newer PHP than ship's default implements
+`Ship\Contracts\RequiresPhpVersion`: `ship init` then starts the PHP question
+at that version and refuses an older one, and `ship config:test` reports it.
+Tempest's adapter reads the PHP its installed `tempest/framework` requires from
+`composer.lock` (8.5 for Tempest 3).
 
 Like `ServiceDefinition`, a third-party adapter doesn't need to fork this
 package — list its FQCN in `ship.json`'s `extensions` array the same way,

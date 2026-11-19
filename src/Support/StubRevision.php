@@ -9,7 +9,8 @@ namespace Ship\Support;
  * config), recorded in ship/.stub-revision. It goes up whenever the compose files ship generates
  * start depending on something new in those files: revision 2 adds the php-fpm ping the production
  * healthchecks ask for and the assets stage's VITE_ENV; revision 3 adds Corepack (Yarn, pnpm) and
- * the assets stage's PACKAGE_MANAGER (ship/build-assets.sh).
+ * the assets stage's PACKAGE_MANAGER (ship/build-assets.sh), and turns off the production JIT,
+ * which crashes PHP 8.5's php-fpm workers.
  *
  * Building against older published files would produce images the generated compose file doesn't
  * match (a healthcheck that can never pass, a bundle without its VITE_* settings), so `ship build`

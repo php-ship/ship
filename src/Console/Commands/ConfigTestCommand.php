@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ship\Console\Commands;
 
 use Ship\Config\ShipConfig;
+use Ship\Contracts\FrameworkAdapter;
 use Ship\Contracts\ShipEnvironment;
 use Ship\Docker\ComposeFileBuilder;
 use Ship\Docker\EnvFile;
@@ -13,6 +14,7 @@ use Ship\Docker\NginxUpstreamMismatch;
 use Ship\Docker\ProjectName;
 use Ship\Docker\RequiredEnv;
 use Ship\Extensions\ExtensionLoader;
+use Ship\Frameworks\Frameworks;
 use Ship\Node\PackageManager;
 use Ship\Services\ServiceRegistry;
 use Ship\Support\StubRevision;
@@ -35,9 +37,13 @@ final class ConfigTestCommand extends Command
      * $registry is the one Application already populated. Optional so the command can be
      * constructed directly (tests).
      */
+    /**
+     * @param list<FrameworkAdapter> $extensionFrameworkAdapters
+     */
     public function __construct(
         private readonly string $projectRoot,
         private readonly ?ServiceRegistry $registry = null,
+        private readonly array $extensionFrameworkAdapters = [],
     ) {
         parent::__construct();
     }
@@ -91,6 +97,12 @@ final class ConfigTestCommand extends Command
         if ($packageManagerProblem !== null) {
             $this->problems++;
             $output->writeln("<error>ship: {$packageManagerProblem}</error>");
+        }
+
+        $phpProblem = Frameworks::phpVersionProblem($this->projectRoot, $config->phpVersion, $this->extensionFrameworkAdapters);
+        if ($phpProblem !== null) {
+            $this->problems++;
+            $output->writeln("<error>ship: {$phpProblem} Set \"php\" in ship.json (or re-run `ship init`).</error>");
         }
 
         $stubProblem = StubRevision::problem($this->projectRoot);

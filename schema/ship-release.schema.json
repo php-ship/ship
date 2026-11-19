@@ -86,7 +86,7 @@
         }
       }
     },
-    "framework": {"type": ["string", "null"], "minLength": 1, "description": "Open list, e.g. laravel, symfony; null when unknown."},
+    "framework": {"type": ["string", "null"], "minLength": 1, "description": "Open list, e.g. laravel, symfony, tempest; null when unknown."},
     "runtime": {"type": "string", "minLength": 1, "description": "Open list, e.g. php-fpm, octane-swoole, octane-roadrunner, octane-frankenphp."},
     "env": {
       "type": "object",

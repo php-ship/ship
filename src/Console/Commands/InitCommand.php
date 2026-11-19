@@ -6,7 +6,9 @@ namespace Ship\Console\Commands;
 
 use Ship\Config\ShipConfig;
 use Ship\Console\Ui;
+use Ship\Contracts\FrameworkAdapter;
 use Ship\Docker\DockerignoreGuard;
+use Ship\Frameworks\Frameworks;
 use Ship\Node\PackageManager;
 use Ship\Node\PackageManagerVersions;
 use Ship\Services\ServiceRegistry;
@@ -36,12 +38,14 @@ final class InitCommand extends Command
     /**
      * @param ?\Closure(InputInterface, OutputInterface): Ui $ui builds the interface (tests force
      *        Prompts' own, with its terminal faked)
+     * @param list<FrameworkAdapter> $extensionFrameworkAdapters
      */
     public function __construct(
         private readonly string          $projectRoot,
         private readonly ServiceRegistry $registry,
         ?PackageManagerVersions $packageManagerVersions = null,
         ?\Closure $ui = null,
+        private readonly array $extensionFrameworkAdapters = [],
     ) {
         parent::__construct();
         $this->packageManagerVersions = $packageManagerVersions ?? new PackageManagerVersions();
@@ -104,13 +108,22 @@ final class InitCommand extends Command
             $existing->siloImage ?? ShipConfig::SILO_IMAGE_STANDARD,
         );
 
-        // Rejects an end-of-life branch or a pinned patch release with known vulnerabilities
-        // here, rather than at the end of the first `ship up`.
+        // Rejects an end-of-life branch or a pinned patch release with known vulnerabilities, or
+        // one older than the project's framework needs (Tempest 3: 8.5), here rather than at the
+        // end of the first build.
+        $minimumPhp = Frameworks::minimumPhp($this->projectRoot, $this->extensionFrameworkAdapters);
+        $defaultPhp = $existing->phpVersion ?? '8.4';
+        if ($minimumPhp !== null && version_compare($defaultPhp, $minimumPhp['version'], '<')) {
+            $defaultPhp = $minimumPhp['version'];
+        }
         $phpVersion = $ui->text(
             'PHP version',
-            default: $existing->phpVersion ?? '8.4',
-            hint: 'A supported branch, such as 8.4, or an exact release',
-            validate: static fn (string $answer): ?string => PhpSecurityFloor::problemWith(trim($answer)),
+            default: $defaultPhp,
+            hint: $minimumPhp !== null
+                ? "{$minimumPhp['framework']} needs {$minimumPhp['version']} or newer"
+                : 'A supported branch, such as 8.4, or an exact release',
+            validate: fn (string $answer): ?string => PhpSecurityFloor::problemWith(trim($answer))
+                ?? Frameworks::phpVersionProblem($this->projectRoot, $answer, $this->extensionFrameworkAdapters),
         );
         $nodeVersion = $ui->text(
             'Node.js version',

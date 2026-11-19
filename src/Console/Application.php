@@ -20,8 +20,7 @@ use Ship\Console\Commands\ShellCommand;
 use Ship\Console\Commands\UpCommand;
 use Ship\Contracts\FrameworkAdapter;
 use Ship\Extensions\ExtensionLoader;
-use Ship\Frameworks\LaravelAdapter;
-use Ship\Frameworks\SymfonyAdapter;
+use Ship\Frameworks\Frameworks;
 use Ship\Node\PackageManager;
 use Ship\Runtime\ProcessRunner;
 use Ship\Services\ServiceRegistry;
@@ -58,7 +57,7 @@ final class Application extends SymfonyApplication
         $this->extensionFrameworkAdapters = $loaded['frameworkAdapters'];
 
         // One registry, shared by every command, so extension classes are only loaded once.
-        $this->registerCommand(new InitCommand($this->projectRoot, $registry));
+        $this->registerCommand(new InitCommand($this->projectRoot, $registry, extensionFrameworkAdapters: $this->extensionFrameworkAdapters));
         $this->registerCommand(new UpCommand($this->projectRoot, $runner, $registry));
         $this->registerCommand(new BuildCommand($this->projectRoot, $runner, $registry, $this->extensionFrameworkAdapters));
         $this->registerCommand(new ReleaseCommand($this->projectRoot, $runner, $registry, $this->extensionFrameworkAdapters));
@@ -67,7 +66,7 @@ final class Application extends SymfonyApplication
         $this->registerCommand(new ShellCommand($this->projectRoot, $runner));
         $this->registerCommand(new LogsCommand($this->projectRoot, $runner));
         $this->registerCommand(new DbCommand($this->projectRoot, $runner, $registry));
-        $this->registerCommand(new ConfigTestCommand($this->projectRoot, $registry));
+        $this->registerCommand(new ConfigTestCommand($this->projectRoot, $registry, $this->extensionFrameworkAdapters));
         $this->registerCommand(new DoctorCommand($this->projectRoot, $runner));
 
         // Package-manager commands are always available. Node is installed in the app image, with
@@ -124,17 +123,7 @@ final class Application extends SymfonyApplication
      */
     private function detectFrameworkAdapters(): array
     {
-        // detect() decides whether an adapter contributes commands for this project.
-        $candidates = [
-            new LaravelAdapter(),
-            new SymfonyAdapter(),
-            ...$this->extensionFrameworkAdapters,
-        ];
-
-        return array_values(array_filter(
-            $candidates,
-            fn (FrameworkAdapter $adapter): bool => $adapter->detect($this->projectRoot),
-        ));
+        return Frameworks::detected($this->projectRoot, $this->extensionFrameworkAdapters);
     }
 
     private function readConfigIfPresent(): ?ShipConfig

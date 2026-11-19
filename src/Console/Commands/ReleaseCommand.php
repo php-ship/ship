@@ -20,8 +20,7 @@ use Ship\Docker\ReleaseFailed;
 use Ship\Docker\ReleaseWriter;
 use Ship\Docker\RequiredEnv;
 use Ship\Extensions\ExtensionLoader;
-use Ship\Frameworks\LaravelAdapter;
-use Ship\Frameworks\SymfonyAdapter;
+use Ship\Frameworks\Frameworks;
 use Ship\Runtime\ProcessRunner;
 use Ship\Services\ServiceRegistry;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -230,10 +229,8 @@ final class ReleaseCommand extends Command
     {
         $commands = [];
 
-        foreach ([new LaravelAdapter(), new SymfonyAdapter(), ...$extensionAdapters] as $adapter) {
-            if ($adapter->detect($this->projectRoot)) {
-                $commands = [...$commands, ...$adapter->consoleCommands()];
-            }
+        foreach (Frameworks::detected($this->projectRoot, $extensionAdapters) as $adapter) {
+            $commands = [...$commands, ...$adapter->consoleCommands()];
         }
 
         return $commands;
@@ -247,8 +244,8 @@ final class ReleaseCommand extends Command
      */
     private function describingFramework(array $extensionAdapters): ?DescribesRelease
     {
-        foreach ([new LaravelAdapter(), new SymfonyAdapter(), ...$extensionAdapters] as $adapter) {
-            if ($adapter instanceof DescribesRelease && $adapter->detect($this->projectRoot)) {
+        foreach (Frameworks::detected($this->projectRoot, $extensionAdapters) as $adapter) {
+            if ($adapter instanceof DescribesRelease) {
                 return $adapter;
             }
         }
