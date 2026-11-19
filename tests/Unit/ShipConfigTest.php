@@ -134,7 +134,7 @@ final class ShipConfigTest extends TestCase
         );
 
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('"processes"');
+        $this->expectExceptionMessage('processes entry "worker" is invalid');
 
         ShipConfig::fromFile($this->projectRoot . '/ship.json');
     }

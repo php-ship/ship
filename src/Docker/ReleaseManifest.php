@@ -87,7 +87,8 @@ final class ReleaseManifest
             ],
             'deploy' => $deploy === null ? null : [...$deploy, 'needs' => self::sorted($deploy['needs'])],
             'requires' => ['networks' => self::sorted($networks)],
-            'console' => [...$console, 'commands' => self::sortedByKey($console['commands'])],
+            // An object even when empty (no framework): PHP would encode an empty array as [].
+            'console' => [...$console, 'commands' => $console['commands'] === [] ? new \stdClass() : self::sortedByKey($console['commands'])],
         ];
     }
 

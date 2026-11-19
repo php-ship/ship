@@ -54,6 +54,11 @@ final class ShipConfig
      *        or "distroless", the same release for CPUs without x86-64-v2, which the standard
      *        image's RHEL 9 base requires. Prompted by `ship init` when Silo is selected. Applies to
      *        every Silo instance, since it depends on the machines running the stack.
+     * @param array<string, array{port: int, role: string, health: ?string, urlSetting: ?string}> $processHttp
+     *        the processes (by name, from $processes) that receive HTTP traffic: ship.json's object
+     *        form, `{"command": "...", "http": {"port": 8080, "role": "websocket", ...}}`. Each
+     *        becomes a release.json http[] entry with an HTTP health check, and is reachable on
+     *        externalNetwork like the site.
      */
     public function __construct(
         public readonly string $phpVersion,
@@ -70,6 +75,7 @@ final class ShipConfig
         public readonly bool $hostUser = false,
         public readonly ?string $name = null,
         public readonly string $siloImage = self::SILO_IMAGE_STANDARD,
+        public readonly array $processHttp = [],
     ) {
     }
 
@@ -103,7 +109,7 @@ final class ShipConfig
          *     phpExtensions?: list<string>,
          *     publishPorts?: bool,
          *     deployCommands?: list<string>,
-         *     processes?: array<string,string>,
+         *     processes?: array<string, string|array{command: string, http?: array{port: int, role: string, health?: ?string, urlSetting?: ?string}}>,
          *     hostUser?: bool,
          *     name?: ?string,
          *     siloImage?: string,
@@ -120,10 +126,11 @@ final class ShipConfig
             phpExtensions: $data['phpExtensions'] ?? [],
             publishPorts: $data['publishPorts'] ?? false,
             deployCommands: $data['deployCommands'] ?? [],
-            processes: $data['processes'] ?? [],
+            processes: self::processCommands($data['processes'] ?? []),
             hostUser: $data['hostUser'] ?? false,
             name: $data['name'] ?? null,
             siloImage: $data['siloImage'] ?? self::SILO_IMAGE_STANDARD,
+            processHttp: self::processHttpEntries($data['processes'] ?? []),
         );
     }
 
@@ -161,11 +168,112 @@ final class ShipConfig
             phpExtensions: self::filterStringList($data['phpExtensions'] ?? null),
             publishPorts: is_bool($data['publishPorts'] ?? null) ? $data['publishPorts'] : false,
             deployCommands: self::filterStringList($data['deployCommands'] ?? null),
-            processes: self::filterStringMap($data['processes'] ?? null),
+            processes: self::processCommands(self::validProcesses($data['processes'] ?? null)),
             hostUser: is_bool($data['hostUser'] ?? null) ? $data['hostUser'] : false,
             name: is_string($data['name'] ?? null) ? $data['name'] : null,
             siloImage: is_string($data['siloImage'] ?? null) ? $data['siloImage'] : self::SILO_IMAGE_STANDARD,
+            processHttp: self::processHttpEntries(self::validProcesses($data['processes'] ?? null)),
         );
+    }
+
+    /**
+     * The processes entries that are well-formed (see processProblem()); the others are dropped.
+     *
+     * @return array<string, mixed>
+     */
+    private static function validProcesses(mixed $value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+
+        return array_filter($value, static fn (mixed $entry, mixed $name): bool => is_string($name) && self::processProblem($entry) === null, ARRAY_FILTER_USE_BOTH);
+    }
+
+    /**
+     * Each process's command, whichever form it was given in.
+     *
+     * @param array<array-key, mixed> $processes well-formed entries
+     * @return array<string, string>
+     */
+    private static function processCommands(array $processes): array
+    {
+        $commands = [];
+        foreach ($processes as $name => $entry) {
+            $commands[(string) $name] = is_array($entry) ? (string) $entry['command'] : (string) $entry;
+        }
+
+        return $commands;
+    }
+
+    /**
+     * The http blocks of the processes given in the object form, with health and urlSetting null
+     * when absent.
+     *
+     * @param array<array-key, mixed> $processes well-formed entries
+     * @return array<string, array{port: int, role: string, health: ?string, urlSetting: ?string}>
+     */
+    private static function processHttpEntries(array $processes): array
+    {
+        $entries = [];
+        foreach ($processes as $name => $entry) {
+            if (is_array($entry) && is_array($entry['http'] ?? null)) {
+                /** @var array{port: int, role: string, health?: ?string, urlSetting?: ?string} $http */
+                $http = $entry['http'];
+                $entries[(string) $name] = [
+                    'port' => $http['port'],
+                    'role' => $http['role'],
+                    'health' => $http['health'] ?? null,
+                    'urlSetting' => $http['urlSetting'] ?? null,
+                ];
+            }
+        }
+
+        return $entries;
+    }
+
+    /**
+     * What's wrong with one processes entry, or null: a command string, or an object with a
+     * "command" and an optional "http" (see ship.schema.json).
+     */
+    private static function processProblem(mixed $entry): ?string
+    {
+        if (is_string($entry)) {
+            return $entry === '' ? 'its command is empty' : null;
+        }
+
+        if (!is_array($entry) || array_is_list($entry)) {
+            return 'it must be a command string or an object with a "command"';
+        }
+
+        $unknown = array_diff(array_keys($entry), ['command', 'http']);
+        if ($unknown !== []) {
+            return 'it has unknown fields (' . implode(', ', $unknown) . '): only "command" and "http"';
+        }
+
+        if (!is_string($entry['command'] ?? null) || $entry['command'] === '') {
+            return 'its "command" must be a non-empty string';
+        }
+
+        if (!array_key_exists('http', $entry)) {
+            return null;
+        }
+
+        $http = $entry['http'];
+        if (!is_array($http) || array_is_list($http)) {
+            return 'its "http" must be an object with "port" and "role"';
+        }
+
+        $unknown = array_diff(array_keys($http), ['port', 'role', 'health', 'urlSetting']);
+
+        return match (true) {
+            $unknown !== [] => 'its "http" has unknown fields (' . implode(', ', $unknown) . '): only "port", "role", "health" and "urlSetting"',
+            !is_int($http['port'] ?? null) || $http['port'] < 1 || $http['port'] > 65535 => 'its "http.port" must be a port number (1-65535)',
+            !is_string($http['role'] ?? null) || $http['role'] === '' => 'its "http.role" must be a role such as "site" or "websocket"',
+            isset($http['health']) && (!is_string($http['health']) || !str_starts_with($http['health'], '/')) => 'its "http.health" must be a path starting with "/", or null',
+            isset($http['urlSetting']) && (!is_string($http['urlSetting']) || preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $http['urlSetting']) !== 1) => 'its "http.urlSetting" must be a setting name such as APP_URL, or null',
+            default => null,
+        };
     }
 
     /**
@@ -296,11 +404,11 @@ final class ShipConfig
 
         self::requireArray($data, 'processes', $path);
 
-        foreach ($data['processes'] ?? [] as $name => $command) {
-            if (!is_string($name) || !is_string($command)) {
-                throw new RuntimeException(
-                    "ship.json's \"processes\" must map string names to string commands at {$path}.",
-                );
+        foreach ($data['processes'] ?? [] as $name => $entry) {
+            $problem = is_string($name) ? self::processProblem($entry) : 'its name must be a string';
+
+            if ($problem !== null) {
+                throw new RuntimeException("ship.json's processes entry \"{$name}\" is invalid at {$path}: {$problem}.");
             }
         }
     }
@@ -335,7 +443,8 @@ final class ShipConfig
             '$schema' => self::SCHEMA_URL,
             'php' => $this->phpVersion,
             'node' => $this->nodeVersion,
-            'services' => $this->services,
+            // An object even when empty, as the schema says: PHP would encode an empty array as [].
+            'services' => $this->services === [] ? new \stdClass() : $this->services,
             'additionalServices' => $this->additionalServices,
             'extensions' => $this->extensions,
         ];
@@ -357,7 +466,12 @@ final class ShipConfig
             $payload['deployCommands'] = $this->deployCommands;
         }
         if ($this->processes !== []) {
-            $payload['processes'] = $this->processes;
+            $payload['processes'] = [];
+            foreach ($this->processes as $name => $command) {
+                $payload['processes'][$name] = isset($this->processHttp[$name])
+                    ? ['command' => $command, 'http' => $this->processHttp[$name]]
+                    : $command;
+            }
         }
         if ($this->hostUser) {
             $payload['hostUser'] = true;

@@ -137,6 +137,7 @@ final class InitCommand extends Command
             hostUser: $existing->hostUser ?? false,
             name: $existing?->name,
             siloImage: $siloImage,
+            processHttp: $existing->processHttp ?? [],
         );
         $config->toFile($this->projectRoot . '/ship.json');
 

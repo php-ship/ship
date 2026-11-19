@@ -593,6 +593,28 @@ plain, readable JSON document:
   never sees (and silently blanks out) a variable meant for the container's
   shell instead.
 
+  A process that receives HTTP itself (your own WebSocket server, a second
+  HTTP service) says so with the object form, whose `http` block has the
+  same fields as a release's `http[]` entry:
+  ```json
+  "processes": {
+      "reverb": {
+          "command": "php artisan reverb:start --host=0.0.0.0 --port=8080",
+          "http": {"port": 8080, "role": "websocket", "urlSetting": "REVERB_PUBLIC_HOST"}
+      }
+  }
+  ```
+  `port` and `role` (`site`, `websocket`, or anything else for plain HTTP) are
+  required; `health` (a path that answers 2xx) and `urlSetting` (the name of
+  the setting holding its public address) are optional. Such a process is
+  listed in `release.json`'s `http[]`, so a deployment tool routes to it; it's
+  attached to `externalNetwork` like the site; its healthcheck asks it over
+  HTTP (its `health` path, or any answer at all without one); and with
+  `publishPorts` its port is published at `${<NAME>_PORT:-<port>}`
+  (`REVERB_PORT` here). Use this rather than the built-in Reverb service when
+  the app reads Reverb's public address at runtime instead of from
+  `VITE_REVERB_HOST`.
+
 Host-side port collisions (running more than one `ship` project, or
 another tool already using a default port) are handled with environment
 variables at `ship up` time, not by editing `ship.json` — see
@@ -795,6 +817,7 @@ same one with a flag flipped:
   | `webserver` (nginx) | nginx passes that ping through to php-fpm |
   | `app` (Octane), Reverb | their HTTP server answers a request (any status) |
   | `processes` workers | the worker has stayed up for 10 seconds, which a worker that crashes on boot and restarts in a loop never does |
+  | `processes` with `http` | their `health` path answers 2xx, or without one, their HTTP server answers at all |
   | databases, caches, search, storage, ... | their own checks, as in development |
 
   These check that the server serves, not that the app works: a deployment

@@ -228,7 +228,7 @@ jobs:
           '
 
       - name: The release passes ship-ecosystem/spec's checker
-        uses: ship-ecosystem/spec@e6f17c163d4f54cfc4ba2ce858477942173e1d8c # main
+        uses: ship-ecosystem/spec@544038194fd86aeacac86f99698a363bb3656fca # main
         with:
           path: /tmp/ci-fixture/dist/ship/ci-test
 

@@ -37,6 +37,22 @@ final class Healthchecks
     }
 
     /**
+     * $path on $port answers 2xx (a redirect is followed): the health path a ship.json process
+     * declares (see ShipConfig::$processHttp). PHP's HTTP wrapper fails on 4xx and 5xx.
+     *
+     * @return array<string, mixed>
+     */
+    public static function httpPath(int $port, string $path): array
+    {
+        return self::serverTiming([
+            'CMD',
+            'php',
+            '-r',
+            sprintf("exit(@file_get_contents(%s, false, stream_context_create(['http' => ['timeout' => 5]])) === false ? 1 : 0);", var_export("http://127.0.0.1:{$port}{$path}", true)),
+        ]);
+    }
+
+    /**
      * An HTTP server on $port answers at all. Any status counts: a 500 still means it is serving
      * (used for Octane and Reverb).
      *

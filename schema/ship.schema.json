@@ -70,9 +70,33 @@
     },
     "processes": {
       "type": "object",
-      "description": "Extra long-running processes from the app's image (workers, schedulers): name to command. Python also accepts argument lists.",
+      "description": "Extra long-running processes from the app's image (workers, schedulers, servers): name to command, or to an object whose http says the process receives HTTP traffic, which puts it in the release's http[] with an HTTP health check. Python also accepts argument lists.",
       "propertyNames": {"pattern": "^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$"},
-      "additionalProperties": {"$ref": "#/$defs/command"}
+      "additionalProperties": {
+        "oneOf": [
+          {"$ref": "#/$defs/command"},
+          {
+            "type": "object",
+            "required": ["command"],
+            "additionalProperties": false,
+            "properties": {
+              "command": {"$ref": "#/$defs/command"},
+              "http": {
+                "type": "object",
+                "description": "The process receives HTTP traffic: its release.json http[] entry, with the same fields.",
+                "required": ["port", "role"],
+                "additionalProperties": false,
+                "properties": {
+                  "port": {"type": "integer", "minimum": 1, "maximum": 65535, "description": "Container port the process listens on."},
+                  "role": {"type": "string", "minLength": 1, "description": "Open list: site, websocket. Unknown: plain HTTP."},
+                  "health": {"type": ["string", "null"], "pattern": "^/", "description": "Path answering 2xx while the process works; null or absent when unknown."},
+                  "urlSetting": {"type": ["string", "null"], "pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "description": "Name of the setting holding the public address browsers use; null or absent when unknown. A name, never a value."}
+                }
+              }
+            }
+          }
+        ]
+      }
     },
     "php": {
       "type": "string",

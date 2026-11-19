@@ -15,7 +15,8 @@ use Ship\Services\ServiceRegistry;
  * ComposeFileBuilder (which attaches them to an external network) and release.json's `http`.
  *
  * The site is "webserver" (nginx, port 80) when there is one, otherwise "app" itself, which an
- * Octane runtime serves on port 8000. Services implementing ExposesHttp add their own entries.
+ * Octane runtime serves on port 8000. Services implementing ExposesHttp add their own entries, and
+ * ship.json processes with an `http` block theirs (see ShipConfig::$processHttp).
  */
 final class HttpEntryPoints
 {
@@ -66,6 +67,13 @@ final class HttpEntryPoints
                         'urlSetting' => $entry['urlSetting'] ?? null,
                     ];
                 }
+            }
+        }
+
+        // ship.json processes that declare they receive HTTP (production only, like processes).
+        foreach ($config->processHttp as $name => $entry) {
+            if (isset($services[$name])) {
+                $entries[] = ['service' => $name, ...$entry];
             }
         }
 

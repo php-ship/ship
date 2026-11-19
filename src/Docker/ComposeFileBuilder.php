@@ -171,7 +171,7 @@ final class ComposeFileBuilder
 
         // After the app's own environment and networks are final -- these copy them.
         if (!$environment->isDevelopment()) {
-            $compose['services'] = $this->addProcessServices($compose['services'], $config->processes, $appServiceName);
+            $compose['services'] = $this->addProcessServices($compose['services'], $config, $appServiceName);
         }
 
         $compose['services'] = $this->alignReverbWithApp(
@@ -507,15 +507,18 @@ final class ComposeFileBuilder
      * to www-data even when the app is php-fpm and starts as root. The longer stop_grace_period
      * lets Horizon or a queue worker finish its job instead of being SIGKILLed after 10s.
      *
+     * A process with an `http` block (ShipConfig::$processHttp) is checked over HTTP instead, and
+     * with publishPorts its port is published like Reverb's, at ${<NAME>_PORT:-<port>}. It joins
+     * the external network with the other HTTP entry points (see HttpEntryPoints).
+     *
      * @param array<string, array<string, mixed>> $services
-     * @param array<string, string> $processes
      * @return array<string, array<string, mixed>>
      */
-    private function addProcessServices(array $services, array $processes, string $appServiceName): array
+    private function addProcessServices(array $services, ShipConfig $config, string $appServiceName): array
     {
         $app = $services[$appServiceName];
 
-        foreach ($processes as $name => $command) {
+        foreach ($config->processes as $name => $command) {
             if (preg_match('/^[a-z][a-z0-9_-]*$/', $name) !== 1) {
                 throw new \InvalidArgumentException(
                     "ship.json processes: \"{$name}\" is not a valid name -- it becomes a compose service "
@@ -540,9 +543,23 @@ final class ComposeFileBuilder
                 'networks' => $app['networks'],
                 'restart' => 'unless-stopped',
                 'stop_grace_period' => '60s',
-                // No port to ask: the check is that the worker stays up rather than crash-looping.
                 'healthcheck' => Healthchecks::stayedUp(),
             ];
+
+            $http = $config->processHttp[$name] ?? null;
+            if ($http === null) {
+                // No port to ask: the check is that the worker stays up rather than crash-looping.
+                continue;
+            }
+
+            $services[$name]['healthcheck'] = $http['health'] !== null
+                ? Healthchecks::httpPath($http['port'], $http['health'])
+                : Healthchecks::httpServer($http['port']);
+
+            if ($config->publishPorts) {
+                $variable = strtoupper(str_replace('-', '_', $name)) . '_PORT';
+                $services[$name]['ports'] = ["\${{$variable}:-{$http['port']}}:{$http['port']}"];
+            }
         }
 
         return $services;

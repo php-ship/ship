@@ -110,6 +110,7 @@ final class ReleaseWriterTest extends TestCase
         bool $force = false,
         bool $withEnv = true,
         string $tag = '1.5.0',
+        ?array $consoleCommands = null,
     ): array {
         $config ??= $this->config();
         $built = $this->built($config, $tag);
@@ -123,7 +124,7 @@ final class ReleaseWriterTest extends TestCase
             images: $built['images'],
             source: ['gitCommit' => str_repeat('a', 40), 'dirty' => false],
             framework: new LaravelAdapter(),
-            consoleCommands: (new LaravelAdapter())->consoleCommands(),
+            consoleCommands: $consoleCommands ?? (new LaravelAdapter())->consoleCommands(),
             force: $force,
             withEnv: $withEnv,
             output: new NullOutput(),
@@ -524,6 +525,20 @@ final class ReleaseWriterTest extends TestCase
 
         self::assertSame('client-app', $manifest['console']['service']);
         self::assertArrayHasKey('client-app', $manifest['services']);
+    }
+
+    /**
+     * Without a framework there are no console commands: still a JSON object, as the contract
+     * says, not the [] PHP would write for an empty array.
+     */
+    public function test_no_console_commands_is_an_empty_object_that_passes_the_schema(): void
+    {
+        $json = $this->release(consoleCommands: [])['json'];
+
+        self::assertStringContainsString('"commands": {}', $json);
+
+        $schema = (string) file_get_contents(dirname(__DIR__, 2) . '/schema/ship-release.schema.json');
+        self::assertTrue((new Validator())->validate(json_decode($json), $schema)->isValid());
     }
 
     public function test_requires_lists_the_external_network(): void
