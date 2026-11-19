@@ -26,6 +26,9 @@ final class InitCommand extends Command
     // Groups whose services give each instance its own env var prefix and compose service name
     // (see SupportsNamedInstances). Only one runtime, testing driver, frontend tool,
     // broadcasting server or message broker makes sense per project.
+    /** The "None" choice of a service menu. */
+    private const NONE = '__none__';
+
     private const PACKAGE_MANAGERS = ['npm' => 'npm', 'yarn' => 'Yarn', 'pnpm' => 'pnpm'];
 
     private const GROUPS_SUPPORTING_ADDITIONAL_INSTANCES = ['database', 'cache', 'storage', 'search', 'mail'];
@@ -117,6 +120,9 @@ final class InitCommand extends Command
             $answers->addIf(
                 static fn (array $answers): bool => in_array($group, $answers['kinds'] ?? [], true),
                 static function (array $answers, mixed $previous) use ($ui, $label, $hint, $choices, $existing, $group): string {
+                    // "None" last, so a kind ticked by mistake (an Octane runtime when php-fpm
+                    // will do) can still be left out; the menu starts on a real service.
+                    $choices += [self::NONE => $group === 'runtime' ? 'None (PHP-FPM behind nginx)' : 'None'];
                     $current = is_string($previous) ? $previous : ($existing->services[$group] ?? null);
 
                     return $ui->select($label, $choices, $current !== null && isset($choices[$current]) ? $current : null, $hint);
@@ -254,7 +260,7 @@ final class InitCommand extends Command
         $selected = [];
         foreach (is_array($answers['kinds'] ?? null) ? $answers['kinds'] : [] as $group) {
             $service = $answers["service:{$group}"] ?? null;
-            if (is_string($group) && is_string($service)) {
+            if (is_string($group) && is_string($service) && $service !== self::NONE) {
                 $selected[$group] = $service;
             }
         }
@@ -622,7 +628,7 @@ final class InitCommand extends Command
         return [
             'database' => ['Database', 'The app\'s primary database; add more below'],
             'cache' => ['Cache', 'Sessions, cache and queues'],
-            'runtime' => ['Application runtime', 'None runs PHP-FPM behind nginx'],
+            'runtime' => ['Application runtime', 'An Octane server, or None for PHP-FPM behind nginx'],
             'storage' => ['Object storage', 'An S3-compatible bucket for uploads'],
             'search' => ['Search engine', ''],
             'mail' => ['Mail capture', 'Catches every email sent in development'],

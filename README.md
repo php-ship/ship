@@ -174,7 +174,8 @@ vendor/bin/ship down
 ```
 
 `ship init` asks which kinds of service the project needs (a checklist), then
-which service for each, then the PHP and Node.js versions and the JavaScript
+which service for each (each menu ends with None, for a kind you ticked and
+then decided against, such as an Octane runtime when PHP-FPM will do), then the PHP and Node.js versions and the JavaScript
 package manager, and ends with a summary. Re-run it any time: every question
 starts at the project's current setting, so pressing Enter keeps it. In a
 terminal it uses [Laravel Prompts](https://github.com/laravel/prompts)

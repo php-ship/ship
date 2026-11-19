@@ -172,6 +172,18 @@ final class InitCommandServiceSelectionTest extends TestCase
         self::assertFileExists($this->projectRoot . '/ship/garage/garage.toml');
     }
 
+    /**
+     * A kind ticked by mistake can still be left out: an Octane runtime ticked, then PHP-FPM
+     * preferred.
+     */
+    public function test_a_ticked_kind_can_still_be_answered_with_none(): void
+    {
+        $this->runInit(['Database,Application runtime', 'PostgreSQL', 'None (PHP-FPM behind nginx)']);
+
+        self::assertSame(['database' => 'postgres'], $this->shipJson()['services']);
+        self::assertFileExists($this->projectRoot . '/ship/nginx/default.conf');
+    }
+
     public function test_the_base_php_stubs_are_always_published_regardless_of_selection(): void
     {
         $this->runInit(['None']);
