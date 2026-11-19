@@ -23,6 +23,7 @@ use Ship\Extensions\ExtensionLoader;
 use Ship\Frameworks\Frameworks;
 use Ship\Runtime\ProcessRunner;
 use Ship\Services\ServiceRegistry;
+use Ship\Services\SqlServerService;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -147,6 +148,11 @@ final class ReleaseCommand extends Command
 
         $projectName = ProjectName::resolve($config, $this->projectRoot);
         $framework = $this->describingFramework($frameworkAdapters);
+
+        // Not a failure: a release may be tried on a server before it's licensed.
+        foreach (SqlServerService::licenseWarnings($config, $productionEnv) as $warning) {
+            $output->writeln("<comment>ship: {$warning}</comment>");
+        }
 
         // Fail on a missing required setting before Docker is invoked: ship's own credentials (see
         // RequiredEnv::missingFrom()) and what the framework can't run without.

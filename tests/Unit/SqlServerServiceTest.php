@@ -6,6 +6,7 @@ namespace Ship\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Ship\Config\ShipConfig;
 use Ship\Contracts\ShipEnvironment;
 use Ship\Services\SqlServerService;
 
@@ -30,11 +31,26 @@ final class SqlServerServiceTest extends TestCase
     }
 
     /**
-     * Developer Edition isn't licensed for production.
+     * A release warns while SQL Server would run as the Developer edition, for each instance,
+     * and stops warning once MSSQL_PID names a licensed edition or a product key.
      */
-    public function test_it_is_absent_from_production(): void
+    public function test_a_release_warns_until_a_licensed_edition_is_set(): void
     {
-        self::assertSame([], (new SqlServerService())->composeFragment(ShipEnvironment::Production));
+        $config = new ShipConfig(
+            phpVersion: '8.4',
+            services: ['database' => 'sqlserver'],
+            additionalServices: [['group' => 'database', 'service' => 'sqlserver', 'name' => 'reports']],
+        );
+
+        $warnings = SqlServerService::licenseWarnings($config, []);
+        self::assertCount(2, $warnings);
+        self::assertStringContainsString('set MSSQL_PID in .env.production', $warnings[0]);
+        self::assertStringContainsString('SQL Server "reports"', $warnings[1]);
+        self::assertStringContainsString('REPORTS_MSSQL_PID', $warnings[1]);
+
+        self::assertCount(1, SqlServerService::licenseWarnings($config, ['MSSQL_PID' => 'Enterprise', 'REPORTS_MSSQL_PID' => 'developer']));
+        self::assertSame([], SqlServerService::licenseWarnings($config, ['MSSQL_PID' => 'Standard', 'REPORTS_MSSQL_PID' => 'XXXXX-XXXXX-XXXXX-XXXXX-XXXXX']));
+        self::assertSame([], SqlServerService::licenseWarnings(new ShipConfig(phpVersion: '8.4', services: ['database' => 'mysql']), []));
     }
 
     public function test_it_runs_developer_edition_with_the_eula_accepted_on_amd64(): void

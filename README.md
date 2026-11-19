@@ -117,8 +117,7 @@ tag silently, and refuse to build without the credentials production needs.
 per group, and `additionalServices` adds named second instances (a second
 database, a second Redis) with their own env var prefix:
 
-- Databases: Postgres, MySQL, MariaDB, MongoDB, SQL Server (Developer
-  Edition, development only).
+- Databases: Postgres, MySQL, MariaDB, MongoDB, SQL Server.
 - Runtimes: php-fpm with nginx, or Octane with Swoole, RoadRunner or
   FrankenPHP.
 - Object storage: Garage, SeaweedFS, RustFS, Silo.
@@ -273,7 +272,18 @@ vars", not "every Composer package is pre-installed".
 | MySQL | `DB_*` env vars, `pdo_mysql` extension | Nothing — works out of the box |
 | MariaDB | `DB_*` env vars (`DB_CONNECTION=mariadb`), `pdo_mysql` extension | Nothing on Laravel 11+, whose `mariadb` connection this uses |
 | MongoDB | `MONGODB_URI`/`MONGODB_DATABASE`, `mongodb` PHP extension (added to the image automatically) | `composer require mongodb/laravel-mongodb`, add its `mongodb` connection to `config/database.php` (reading those two variables), and set `DB_CONNECTION=mongodb` yourself if it should be the default. `MONGODB_PASSWORD` is embedded in the URI, so keep it free of characters that need percent-encoding (`@ : / ? # [ ] %`) |
-| SQL Server (`sqlserver`) | **Development only** — Developer Edition isn't licensed for production, so in production no container is started and the app uses the licensed server set in `.env.production`. `DB_*` env vars (`DB_CONNECTION=sqlsrv`) plus `DB_URL` with `trust_server_certificate=true` (the container's certificate is self-signed), the app database and a login owning it created on first boot, `pdo_sqlsrv` and Microsoft's ODBC driver (added to the image automatically, in production too) | Nothing on Laravel. Passwords must meet SQL Server's policy (8+ characters from three of upper/lowercase, digits, symbols) — the defaults do; `DB_PASSWORD` also goes into `DB_URL`, so keep it free of characters that need percent-encoding. `DB_USERNAME` can't be `sa`. Needs about 2 GB of RAM, and the image is amd64-only (emulated on Apple Silicon) |
+| SQL Server (`sqlserver`) | Its own `sqlserver` container: the Developer edition in development; in a release, the edition `MSSQL_PID` in `.env.production` names (`Standard`, `Enterprise`, … or a product key), Developer when unset — see [SQL Server licensing](#sql-server-licensing). `DB_*` env vars (`DB_CONNECTION=sqlsrv`) plus `DB_URL` with `trust_server_certificate=true` (the container's certificate is self-signed), the app database and a login owning it created on first boot, `pdo_sqlsrv` and Microsoft's ODBC driver (added to the image automatically, in production too) | Nothing on Laravel. In production `.env.production` must set `DB_PASSWORD` and `DB_ROOT_PASSWORD`. Passwords must meet SQL Server's policy (8+ characters from three of upper/lowercase, digits, symbols, and not containing the login's name: with the default `DB_USERNAME=app`, a password containing "app" is refused) — the defaults do; `DB_PASSWORD` also goes into `DB_URL`, so keep it free of characters that need percent-encoding. `DB_USERNAME` can't be `sa`. Needs about 2 GB of RAM, and the image is amd64-only (emulated on Apple Silicon) |
+
+#### SQL Server licensing
+
+Development runs SQL Server's Developer edition, which Microsoft licenses for
+development and testing at no cost. A release runs the edition `MSSQL_PID` in
+`.env.production` names — `Standard`, `Enterprise`, or your product key — and
+the Developer edition when it's unset. That lets you put a release on a
+server and try it before you buy a license; `ship build`, `ship release` and
+`ship config:test` warn while it would run as the Developer edition. A named
+instance reads its own, `<NAME>_MSSQL_PID`. Licensing is yours: the container
+accepts Microsoft's license terms (`ACCEPT_EULA=Y`) as the image requires.
 
 ### Cache (`cache`)
 

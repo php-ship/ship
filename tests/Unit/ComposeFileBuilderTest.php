@@ -604,7 +604,10 @@ final class ComposeFileBuilderTest extends TestCase
      * The SQL Server container is development-only, but the production app still talks to a
      * licensed SQL Server, so pdo_sqlsrv is built into both images.
      */
-    public function test_sql_server_is_absent_from_production_but_its_php_extension_is_not(): void
+    /**
+     * SQL Server is released too, as the edition MSSQL_PID names, with its passwords required.
+     */
+    public function test_sql_server_runs_in_production_as_the_edition_mssql_pid_names(): void
     {
         $builder = new ComposeFileBuilder(new ServiceRegistry([new SqlServerService()]));
         $config = new ShipConfig(phpVersion: '8.4', services: ['database' => 'sqlserver']);
@@ -612,9 +615,11 @@ final class ComposeFileBuilderTest extends TestCase
         $dev = Yaml::parse($builder->build($config, ShipEnvironment::Development));
         $prod = Yaml::parse($builder->build($config, ShipEnvironment::Production));
 
-        self::assertArrayHasKey('sqlserver', $dev['services']);
-        self::assertArrayNotHasKey('sqlserver', $prod['services']);
-        self::assertArrayNotHasKey('DB_HOST', $prod['services']['app']['environment'] ?? []);
+        self::assertSame('Developer', $dev['services']['sqlserver']['environment']['MSSQL_PID']);
+        self::assertSame('${MSSQL_PID:-Developer}', $prod['services']['sqlserver']['environment']['MSSQL_PID']);
+        self::assertStringStartsWith('${DB_ROOT_PASSWORD:?', $prod['services']['sqlserver']['environment']['MSSQL_SA_PASSWORD']);
+        self::assertStringStartsWith('${DB_PASSWORD:?', $prod['services']['sqlserver']['environment']['SHIP_MSSQL_PASSWORD']);
+        self::assertSame('sqlserver', $prod['services']['app']['environment']['DB_HOST']);
         self::assertSame('pdo_sqlsrv', $dev['services']['app']['build']['args']['PHP_EXTENSIONS']);
         self::assertSame('pdo_sqlsrv', $prod['services']['app']['build']['args']['PHP_EXTENSIONS']);
     }

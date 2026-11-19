@@ -4,16 +4,20 @@ declare(strict_types=1);
 
 namespace Ship\Services;
 
+use Ship\Config\ShipConfig;
 use Ship\Contracts\ProvidesDatabaseShell;
 use Ship\Contracts\RequiresPhpExtensions;
 use Ship\Contracts\ServiceDefinition;
 use Ship\Contracts\ShipEnvironment;
+use Ship\Docker\RequiredEnv;
 
 /**
- * Microsoft SQL Server, Developer Edition. Development only: Developer Edition is licensed for
- * development and testing, not production, so in production this contributes nothing (see
- * ComposeFileBuilder::applyService()) and the app connects to a licensed server configured in
- * .env.production.
+ * Microsoft SQL Server. Development runs the Developer edition, which is free and licensed for
+ * development and testing. A release runs the edition MSSQL_PID names (Standard, Enterprise, or a
+ * product key), Developer when it's unset: a release can be tried on a server before it's
+ * licensed, and `ship build`/`ship release` warn that it still needs a license (see
+ * licenseWarnings()). Licensing is the user's: ACCEPT_EULA accepts Microsoft's terms, as the
+ * image requires.
  *
  * The image creates no database and no user besides `sa`, so the entrypoint starts SQL Server,
  * creates the app's database and a login that owns it (both idempotent, on every boot), then
@@ -77,7 +81,7 @@ final class SqlServerService implements ServiceDefinition, ProvidesDatabaseShell
 
     public function label(): string
     {
-        return 'SQL Server (Developer Edition, development only)';
+        return 'SQL Server';
     }
 
     public function group(): string
@@ -87,10 +91,6 @@ final class SqlServerService implements ServiceDefinition, ProvidesDatabaseShell
 
     public function composeFragment(ShipEnvironment $environment, ?string $instanceName = null): array
     {
-        if (!$environment->isDevelopment()) {
-            return [];
-        }
-
         $name = $this->composeServiceName($instanceName);
         $prefix = $this->envPrefix($instanceName);
 
@@ -105,13 +105,14 @@ final class SqlServerService implements ServiceDefinition, ProvidesDatabaseShell
                 'stop_grace_period' => '30s',
                 'environment' => [
                     'ACCEPT_EULA' => 'Y',
-                    'MSSQL_PID' => 'Developer',
+                    // The edition, or a product key. Production reads it from .env.production.
+                    'MSSQL_PID' => $environment->isDevelopment() ? 'Developer' : "\${{$prefix}MSSQL_PID:-Developer}",
                     // A separate secret from the app login's DB_PASSWORD: "app" never
-                    // authenticates as sa.
-                    'MSSQL_SA_PASSWORD' => "\${{$prefix}DB_ROOT_PASSWORD:-ShipRoot123}",
+                    // authenticates as sa. Production requires both (see RequiredEnv).
+                    'MSSQL_SA_PASSWORD' => RequiredEnv::expr("{$prefix}DB_ROOT_PASSWORD", 'ShipRoot123', $environment),
                     'SHIP_MSSQL_DATABASE' => "\${{$prefix}DB_DATABASE:-app}",
                     'SHIP_MSSQL_USERNAME' => "\${{$prefix}DB_USERNAME:-app}",
-                    'SHIP_MSSQL_PASSWORD' => "\${{$prefix}DB_PASSWORD:-ShipSecret123}",
+                    'SHIP_MSSQL_PASSWORD' => RequiredEnv::expr("{$prefix}DB_PASSWORD", 'ShipSecret123', $environment),
                 ],
                 'volumes' => ["ship-{$name}-data:/var/opt/mssql"],
                 'healthcheck' => [
@@ -179,5 +180,39 @@ final class SqlServerService implements ServiceDefinition, ProvidesDatabaseShell
     public function requiredPhpExtensions(): array
     {
         return ['pdo_sqlsrv'];
+    }
+
+    /**
+     * A warning for each SQL Server (the database, and each named instance) a release would run as
+     * the Developer edition: MSSQL_PID unset or "Developer" in $env (.env.production).
+     *
+     * @param array<string, string> $env
+     * @return list<string>
+     */
+    public static function licenseWarnings(ShipConfig $config, array $env): array
+    {
+        $instances = [
+            ...(($config->services['database'] ?? null) === 'sqlserver' ? [null] : []),
+            ...array_column(array_filter($config->additionalServices, static fn (array $a): bool => $a['service'] === 'sqlserver'), 'name'),
+        ];
+
+        $warnings = [];
+        foreach ($instances as $instance) {
+            $setting = ($instance === null ? '' : strtoupper($instance) . '_') . 'MSSQL_PID';
+            $edition = trim($env[$setting] ?? '');
+
+            if ($edition === '' || strtolower($edition) === 'developer') {
+                $warnings[] = sprintf(
+                    'SQL Server%s runs as the Developer edition, which Microsoft licenses for development and '
+                        . 'testing only. Fine for trying a release on a server; before it serves real users, set '
+                        . '%s in .env.production to your licensed edition (Standard, Enterprise, ...) or product key. '
+                        . 'Licensing it is up to you.',
+                    $instance === null ? '' : " \"{$instance}\"",
+                    $setting,
+                );
+            }
+        }
+
+        return $warnings;
     }
 }

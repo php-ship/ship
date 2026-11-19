@@ -16,6 +16,7 @@ use Ship\Docker\RequiredEnv;
 use Ship\Extensions\ExtensionLoader;
 use Ship\Runtime\ProcessRunner;
 use Ship\Services\ServiceRegistry;
+use Ship\Services\SqlServerService;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -72,7 +73,8 @@ final class BuildCommand extends Command
         // RequiredEnv::missingFrom()). .env.production is read leniently: a project with no
         // credentialed service doesn't need the file.
         $prodCompose = (new ComposeFileBuilder($registry))->build($config, ShipEnvironment::Production, projectName: $projectName, projectRoot: $this->projectRoot);
-        $missingEnv = RequiredEnv::missingFrom($prodCompose, EnvFile::parse($this->projectRoot . '/.env.production'));
+        $productionEnv = EnvFile::parse($this->projectRoot . '/.env.production');
+        $missingEnv = RequiredEnv::missingFrom($prodCompose, $productionEnv);
         if ($missingEnv !== []) {
             $output->writeln(sprintf(
                 '<error>ship: %s %s required but not set in .env.production -- `docker compose '
@@ -83,6 +85,10 @@ final class BuildCommand extends Command
             ));
 
             return Command::FAILURE;
+        }
+
+        foreach (SqlServerService::licenseWarnings($config, $productionEnv) as $warning) {
+            $output->writeln("<comment>ship: {$warning}</comment>");
         }
 
         $result = (new ProductionBuildRunner($this->runner))->build(

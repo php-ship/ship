@@ -17,6 +17,7 @@ use Ship\Extensions\ExtensionLoader;
 use Ship\Frameworks\Frameworks;
 use Ship\Node\PackageManager;
 use Ship\Services\ServiceRegistry;
+use Ship\Services\SqlServerService;
 use Ship\Support\StubRevision;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -84,6 +85,11 @@ final class ConfigTestCommand extends Command
         }
 
         if ($prodCompose !== null) {
+            // A warning, not a problem: a release may be tried on a server before it's licensed.
+            foreach (SqlServerService::licenseWarnings($config, EnvFile::parse($this->projectRoot . '/.env.production')) as $warning) {
+                $output->writeln("<comment>ship: {$warning}</comment>");
+            }
+
             $this->checkRequiredProductionEnv($prodCompose, $output);
         }
 
