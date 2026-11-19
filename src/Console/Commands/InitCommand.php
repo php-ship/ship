@@ -502,6 +502,34 @@ final class InitCommand extends Command
             return $additional;
         }
 
+        // The instances ship.json already has, shown so they can be seen and removed (to change
+        // one, untick it and add it again: its name and service make its container and volume).
+        if ($additional !== []) {
+            $options = [];
+            foreach ($additional as $index => $instance) {
+                $options["instance-{$index}"] = sprintf(
+                    '%s "%s": %s',
+                    $this->groups()[$instance['group']][0] ?? $instance['group'],
+                    $instance['name'],
+                    $this->serviceLabel($instance['group'], $instance['service']),
+                );
+            }
+
+            $kept = $ui->multiselect(
+                $selected === [] ? 'Keep these services?' : 'Keep these service instances?',
+                $options,
+                array_keys($options),
+                'Untick to remove; its data volume stays',
+            );
+
+            $additional = array_values(array_filter(
+                $additional,
+                static fn (int $index): bool => in_array("instance-{$index}", $kept, true),
+                ARRAY_FILTER_USE_KEY,
+            ));
+            $usedNames = array_map(static fn (array $a): string => $a['name'], $additional);
+        }
+
         while ($ui->confirm(
             // With no service chosen above, these are simply the project's services.
             match (true) {
@@ -563,23 +591,30 @@ final class InitCommand extends Command
         /** @var array{commands: array<string, string>, http: array<string, array{port: int, role: string, health: ?string, urlSetting: ?string}>, healthchecks: array<string, string>} $state */
         $suggested = Frameworks::suggestedProcesses($this->projectRoot, $services, $this->extensionFrameworkAdapters);
 
-        if ($suggested !== []) {
-            $options = [];
-            foreach ($suggested as $name => $process) {
-                $options[$name] = "{$process['label']} ({$name})";
-            }
+        // One checklist: the framework's suggestions, then the processes ship.json already has
+        // that aren't among them (shown so they can be seen and removed; to change one, untick it
+        // and add it again below). Ticked: what ship.json has.
+        $options = [];
+        foreach ($suggested as $name => $process) {
+            $options[$name] = "{$process['label']} ({$name})";
+        }
+        foreach ($state['commands'] as $name => $command) {
+            $options[$name] ??= "{$name}: {$command}";
+        }
 
+        if ($options !== []) {
             $ticked = $ui->multiselect(
                 'Which processes should run beside the app in production?',
                 $options,
-                array_values(array_filter(array_keys($suggested), static fn (string $name): bool => isset($state['commands'][$name]))),
+                array_values(array_filter(array_keys($options), static fn (string $name): bool => isset($state['commands'][$name]))),
                 'Production only; in development you start them yourself',
             );
 
-            foreach ($suggested as $name => $process) {
+            foreach (array_keys($options) as $name) {
                 if (!in_array($name, $ticked, true)) {
                     unset($state['commands'][$name], $state['http'][$name], $state['healthchecks'][$name]);
-                } elseif (!isset($state['commands'][$name])) {
+                } elseif (!isset($state['commands'][$name]) && isset($suggested[$name])) {
+                    $process = $suggested[$name];
                     $state['commands'][$name] = $process['command'];
                     if (isset($process['http'])) {
                         $state['http'][$name] = $process['http'];
@@ -594,7 +629,7 @@ final class InitCommand extends Command
         // The compose names ship already uses: the app, nginx and the chosen services.
         $taken = ['app', 'webserver', ...array_values($services)];
 
-        while ($ui->confirm($suggested === [] && $state['commands'] === [] ? 'Add a long-running process, such as a queue worker?' : 'Add a process of your own?', false)) {
+        while ($ui->confirm($options === [] && $state['commands'] === [] ? 'Add a long-running process, such as a queue worker?' : 'Add a process of your own?', false)) {
             $name = $ui->text(
                 'Process name',
                 placeholder: 'worker',

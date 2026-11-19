@@ -197,7 +197,10 @@ vendor/bin/ship down
 - the PHP and Node.js versions and the JavaScript package manager,
 
 and ends with a summary. Re-run it any time: every question
-starts at the project's current setting, so pressing Enter keeps it. In a
+starts at the project's current setting, so pressing Enter keeps it. The
+instances and processes ship.json already has are listed, ticked: untick one
+to remove it (an instance's data volume stays until you delete it), and to
+change one, untick it and add it again. In a
 terminal it uses [Laravel Prompts](https://github.com/laravel/prompts)
 (arrow keys, space to tick, answers checked as you type, Ctrl+U to go back
 to the previous question, which keeps the answer you gave), on a clean

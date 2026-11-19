@@ -325,10 +325,9 @@ final class InitCommandServiceSelectionTest extends TestCase
     }
 
     /**
-     * Existing additional instances are kept without re-prompting, even when nothing new is
-     * added.
+     * Existing additional instances are shown, ticked: Enter keeps them.
      */
-    public function test_re_running_init_keeps_existing_additional_instances_without_re_prompting(): void
+    public function test_re_running_init_shows_existing_instances_and_enter_keeps_them(): void
     {
         file_put_contents(
             $this->projectRoot . '/ship.json',
@@ -339,12 +338,40 @@ final class InitCommandServiceSelectionTest extends TestCase
             ]),
         );
 
-        $this->runInit(['None', 'no']);
+        // No kinds; the existing instance kept with Enter; nothing added.
+        $this->runInit(['None', '', 'no']);
 
         $additional = $this->shipJson()['additionalServices'];
 
         self::assertCount(1, $additional);
         self::assertSame(['group' => 'database', 'service' => 'mysql', 'name' => 'analytics'], $additional[0]);
+    }
+
+    /**
+     * Existing instances can be seen and removed on a re-run.
+     */
+    public function test_re_running_init_removes_an_unticked_instance(): void
+    {
+        file_put_contents(
+            $this->projectRoot . '/ship.json',
+            json_encode([
+                'php' => '8.4',
+                'services' => ['database' => 'postgres'],
+                'additionalServices' => [
+                    ['group' => 'database', 'service' => 'mysql', 'name' => 'analytics'],
+                    ['group' => 'cache', 'service' => 'redis', 'name' => 'queue'],
+                ],
+            ]),
+        );
+
+        $command = new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults()));
+        $tester = new CommandTester($command);
+        // Name; kinds and the database kept; only the cache instance kept; nothing added.
+        $tester->setInputs(['', '', '', 'Cache "queue": Redis', 'no']);
+        $tester->execute([]);
+
+        self::assertStringContainsString('Database "analytics": MySQL', $tester->getDisplay());
+        self::assertSame([['group' => 'cache', 'service' => 'redis', 'name' => 'queue']], $this->shipJson()['additionalServices']);
     }
 
     /**

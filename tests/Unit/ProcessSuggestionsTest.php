@@ -199,8 +199,8 @@ final class ProcessSuggestionsTest extends TestCase
     }
 
     /**
-     * Re-running starts with what ship.json has ticked; unticking a suggestion removes it, and a
-     * process of one's own is kept as it is, as is a changed command under a suggestion's name.
+     * Re-running shows what ship.json has, ticked, suggestions and processes of one's own alike;
+     * unticking one removes it, and a changed command under a suggestion's name is kept.
      */
     public function test_re_running_init_keeps_custom_processes_and_drops_unticked_suggestions(): void
     {
@@ -211,11 +211,16 @@ final class ProcessSuggestionsTest extends TestCase
             'mailer' => 'php artisan queue:work --queue=emails',
         ]]));
 
-        // Name; only Horizon stays ticked; nothing of our own; PHP; Node.
-        $this->init(['', 'Horizon: runs queued jobs and its dashboard (horizon)', 'no', '', '8.4', '']);
+        // Name; Horizon and the mailer stay ticked; nothing new; PHP; Node.
+        $tester = $this->init(['', 'Horizon: runs queued jobs and its dashboard (horizon),mailer: php artisan queue:work --queue=emails', 'no', '', '8.4', '']);
 
+        self::assertStringContainsString('mailer: php artisan queue:work --queue=emails', $tester->getDisplay());
         $processes = json_decode((string) file_get_contents($this->projectRoot . '/ship.json'), true)['processes'];
         self::assertSame(['horizon' => 'php artisan horizon --environment=production', 'mailer' => 'php artisan queue:work --queue=emails'], $processes);
+
+        // Unticking a process of one's own removes it.
+        $this->init(['', 'Horizon: runs queued jobs and its dashboard (horizon)', 'no', '', '8.4', '']);
+        self::assertSame(['horizon'], array_keys(json_decode((string) file_get_contents($this->projectRoot . '/ship.json'), true)['processes']));
     }
 
     public function test_a_process_name_already_used_is_asked_again(): void
