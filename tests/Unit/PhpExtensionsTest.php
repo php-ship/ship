@@ -6,10 +6,14 @@ namespace Ship\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
 use Ship\Config\ShipConfig;
+use Ship\Console\Commands\InitCommand;
 use Ship\Contracts\ShipEnvironment;
 use Ship\Docker\ComposeFileBuilder;
 use Ship\Docker\PhpExtensions;
+use Ship\Node\PackageManagerVersions;
+use Ship\Services\MongoDbService;
 use Ship\Services\ServiceRegistry;
+use Symfony\Component\Console\Tester\CommandTester;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\Yaml\Yaml;
 
@@ -71,5 +75,59 @@ final class PhpExtensionsTest extends TestCase
         self::assertSame('bcmath gmp imagick gd', $development['services']['app']['build']['args']['PHP_EXTENSIONS']);
         // Production leaves out what only development packages declare.
         self::assertSame('bcmath gmp gd', $production['services']['app']['build']['args']['PHP_EXTENSIONS']);
+    }
+
+    private function init(array $inputs, ?ServiceRegistry $registry = null): CommandTester
+    {
+        $tester = new CommandTester(new InitCommand($this->projectRoot, $registry ?? new ServiceRegistry([]), new PackageManagerVersions(static fn (string $url): ?string => null)));
+        $tester->setInputs($inputs);
+        $tester->execute([]);
+
+        return $tester;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function listed(): array
+    {
+        return json_decode((string) file_get_contents($this->projectRoot . '/ship.json'), true)['phpExtensions'] ?? [];
+    }
+
+    /**
+     * What's added anyway is shown with the reason, and listing one of those, or one every image
+     * has, is refused.
+     */
+    public function test_init_says_what_is_added_and_refuses_listing_it_again(): void
+    {
+        // Name; MongoDB as the database; no instances, no processes; the extensions (refused
+        // twice); no networks; PHP; Node.
+        $tester = $this->init(
+            ['', 'Database', 'MongoDB', 'no', 'no', 'bcmath', 'intl', 'GD, apcu', '', '8.4', ''],
+            new ServiceRegistry([new MongoDbService()]),
+        );
+        $display = (string) preg_replace('/\s*\n\s*!?\s*/', ' ', $tester->getDisplay());
+
+        self::assertStringContainsString('bcmath (dragon-code/support)', $display);
+        self::assertStringContainsString('mongodb (the MongoDB service)', $display);
+        self::assertStringContainsString('bcmath is added already (dragon-code/support)', $display);
+        self::assertStringContainsString('intl is in every image already', $display);
+        self::assertSame(['gd', 'apcu'], $this->listed());
+    }
+
+    /**
+     * A re-run starts from ship.json's list, without what the image now has anyway.
+     */
+    public function test_a_re_run_offers_the_list_without_what_is_added_anyway(): void
+    {
+        file_put_contents($this->projectRoot . '/ship.json', json_encode(['php' => '8.4', 'services' => [], 'phpExtensions' => ['gd', 'zip', 'bcmath']]));
+
+        // Name; no processes; Enter keeps the offered list; no networks; PHP; Node.
+        $tester = $this->init(['', 'no', '', '', '8.4', '']);
+        $display = (string) preg_replace('/\s*\n\s*!?\s*/', ' ', $tester->getDisplay());
+
+        self::assertStringContainsString('Other PHP extensions (optional) [gd]', $display);
+        self::assertStringContainsString('the image has them anyway: zip, bcmath', $display);
+        self::assertSame(['gd'], $this->listed());
     }
 }

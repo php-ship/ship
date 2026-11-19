@@ -7,6 +7,7 @@ namespace Ship\Console\Commands;
 use Ship\Config\ShipConfig;
 use Ship\Console\Ui;
 use Ship\Contracts\FrameworkAdapter;
+use Ship\Contracts\RequiresPhpExtensions;
 use Ship\Docker\DockerignoreGuard;
 use Ship\Docker\PhpExtensions;
 use Ship\Frameworks\Frameworks;
@@ -191,6 +192,16 @@ final class InitCommand extends Command
                 ),
                 name: 'processes',
             )
+            // After the services, since some of them add their own (MongoDB's mongodb, say).
+            ->add(
+                fn (array $answers, mixed $previous): array => $this->promptForPhpExtensions(
+                    $ui,
+                    self::selectedServices($answers),
+                    ShipConfig::filterAdditionalServices($answers['additionalServices'] ?? ($existing->additionalServices ?? [])),
+                    is_array($previous) ? array_values(array_map(strval(...), $previous)) : ($existing->phpExtensions ?? []),
+                ),
+                name: 'phpExtensions',
+            )
             // Networks a reverse proxy (Caddy, Traefik, nginx-proxy) shares with the app, which a
             // release needs to exist on the server. Comma-separated; empty for none.
             ->add(
@@ -269,6 +280,8 @@ final class InitCommand extends Command
         $phpVersion = trim((string) $answers['php']);
         $nodeVersion = trim((string) $answers['node']);
         $chosenPackageManager = is_string($answers['packageManager'] ?? null) ? $answers['packageManager'] : null;
+        /** @var list<string> $phpExtensions */
+        $phpExtensions = is_array($answers['phpExtensions'] ?? null) ? $answers['phpExtensions'] : ($existing->phpExtensions ?? []);
         /** @var list<string> $networks */
         $networks = is_array($answers['externalNetworks'] ?? null) ? $answers['externalNetworks'] : [];
         /** @var array{commands: array<string, string>, http: array<string, array{port: int, role: string, health: ?string, urlSetting: ?string}>, healthchecks: array<string, string>} $processes */
@@ -287,7 +300,7 @@ final class InitCommand extends Command
             serviceNames: $existing->serviceNames ?? [],
             externalNetwork: $networks[0] ?? null,
             externalNetworks: $networks,
-            phpExtensions: $existing->phpExtensions ?? [],
+            phpExtensions: $phpExtensions,
             publishPorts: $existing->publishPorts ?? false,
             deployCommands: $existing->deployCommands ?? [],
             processes: $processes['commands'],
@@ -309,7 +322,7 @@ final class InitCommand extends Command
             ...($processes['commands'] === [] ? [] : [['Processes', implode(', ', array_keys($processes['commands']))]]),
             ...($networks === [] ? [] : [['External networks', implode(', ', $networks)]]),
             // What the image installs beyond its own: the packages' declared needs and ship.json's.
-            ...(($extensions = array_values(array_unique([...PhpExtensions::missingFromComposer($this->projectRoot, withDev: false), ...($existing->phpExtensions ?? [])]))) === []
+            ...(($extensions = array_values(array_unique([...PhpExtensions::missingFromComposer($this->projectRoot, withDev: false), ...$this->serviceExtensions($selected, $additionalServices), ...$phpExtensions]))) === []
                 ? []
                 : [['PHP extensions', implode(', ', $extensions)]]),
             ['PHP', $phpVersion],
@@ -335,6 +348,96 @@ final class InitCommand extends Command
         $name = (string) preg_replace('/^[^a-z]+/', '', $name);
 
         return $name === '' ? 'app' : $name;
+    }
+
+    /**
+     * The PHP extensions the image gets beyond its own (ship.json's phpExtensions). A note says
+     * what's added anyway, and why: what the project's packages declare (see PhpExtensions) and
+     * what the chosen services need; one of those listed before is left out of the answer's
+     * default, since listing it is no longer needed. The answer is the rest, comma-separated.
+     *
+     * @param array<string, string> $selected
+     * @param list<array{group: string, service: string, name: string}> $additional
+     * @param list<string> $current what ship.json lists, or the answer given before going back
+     * @return list<string>
+     */
+    private function promptForPhpExtensions(Ui $ui, array $selected, array $additional, array $current): array
+    {
+        $automatic = [];
+        foreach (PhpExtensions::declaredBy($this->projectRoot) as $extension => $packages) {
+            $automatic[$extension] = count($packages) > 2
+                ? "{$packages[0]}, {$packages[1]} and " . (count($packages) - 2) . ' more'
+                : implode(', ', $packages);
+        }
+        foreach ([...array_values($selected), ...array_column($additional, 'service')] as $key) {
+            $service = $this->registry->has($key) ? $this->registry->get($key) : null;
+            if ($service instanceof RequiresPhpExtensions) {
+                foreach ($service->requiredPhpExtensions() as $extension) {
+                    $automatic[$extension] ??= "the {$service->label()} service";
+                }
+            }
+        }
+        ksort($automatic);
+
+        $redundant = array_values(array_filter($current, static fn (string $extension): bool => isset($automatic[$extension]) || PhpExtensions::isInImage($extension)));
+        $current = array_values(array_diff($current, $redundant));
+
+        $lines = ['Every image has PHP\'s usual extensions, plus intl, pcntl, pdo_mysql, pdo_pgsql, redis, sockets and zip.'];
+        if ($automatic !== []) {
+            $lines[] = 'Added for this project: ' . implode(', ', array_map(
+                static fn (string $extension, string $why): string => "{$extension} ({$why})",
+                array_keys($automatic),
+                $automatic,
+            )) . '.';
+        }
+        if ($redundant !== []) {
+            $lines[] = 'No longer needed in your list, since the image has them anyway: ' . implode(', ', $redundant) . '.';
+        }
+        $ui->note(implode("\n", $lines));
+
+        return array_map(strtolower(...), self::networkList($ui->text(
+            'Other PHP extensions (optional)',
+            default: implode(', ', $current),
+            placeholder: 'gd',
+            hint: 'Comma-separated, ones your code needs that no package declares',
+            validate: static function (string $answer) use ($automatic): ?string {
+                foreach (self::networkList(strtolower($answer)) as $extension) {
+                    $problem = match (true) {
+                        preg_match('/^[a-z][a-z0-9_]*(?:-[0-9][0-9a-z.]*)?$/', $extension) !== 1 => "\"{$extension}\" isn't an extension name, such as gd or imagick.",
+                        PhpExtensions::isInImage($extension) => "{$extension} is in every image already.",
+                        isset($automatic[$extension]) => "{$extension} is added already ({$automatic[$extension]}).",
+                        default => null,
+                    };
+
+                    if ($problem !== null) {
+                        return $problem;
+                    }
+                }
+
+                return null;
+            },
+            required: false,
+        )));
+    }
+
+    /**
+     * The extensions the chosen services add (see RequiresPhpExtensions).
+     *
+     * @param array<string, string> $selected
+     * @param list<array{group: string, service: string, name: string}> $additional
+     * @return list<string>
+     */
+    private function serviceExtensions(array $selected, array $additional): array
+    {
+        $extensions = [];
+        foreach ([...array_values($selected), ...array_column($additional, 'service')] as $key) {
+            $service = $this->registry->has($key) ? $this->registry->get($key) : null;
+            if ($service instanceof RequiresPhpExtensions) {
+                $extensions = [...$extensions, ...$service->requiredPhpExtensions()];
+            }
+        }
+
+        return $extensions;
     }
 
     /**

@@ -27,6 +27,14 @@ final class PhpExtensions
     ];
 
     /**
+     * Whether every ship image has $extension already (see IN_IMAGE).
+     */
+    public static function isInImage(string $extension): bool
+    {
+        return in_array(strtolower($extension), self::IN_IMAGE, true);
+    }
+
+    /**
      * The declared extensions the images lack, sorted, as install-php-extensions names them.
      * Development-only packages count only for the development image ($withDev): production's
      * `composer install --no-dev` doesn't install them.
@@ -35,22 +43,46 @@ final class PhpExtensions
      */
     public static function missingFromComposer(string $projectRoot, bool $withDev = true): array
     {
-        $required = [];
+        return array_keys(self::declaredBy($projectRoot, $withDev));
+    }
+
+    /**
+     * The declared extensions the images lack, each with the packages that declare it ("the
+     * project" for its own composer.json), sorted by extension.
+     *
+     * @return array<string, list<string>>
+     */
+    public static function declaredBy(string $projectRoot, bool $withDev = true): array
+    {
+        $declared = [];
 
         $lock = json_decode((string) @file_get_contents($projectRoot . '/composer.lock'), associative: true);
         foreach ($withDev ? ['packages', 'packages-dev'] : ['packages'] as $key) {
             foreach (is_array($lock) && is_array($lock[$key] ?? null) ? $lock[$key] : [] as $package) {
-                $required = [...$required, ...self::extensionsIn(is_array($package) ? ($package['require'] ?? null) : null)];
+                if (!is_array($package)) {
+                    continue;
+                }
+
+                foreach (self::extensionsIn($package['require'] ?? null) as $extension) {
+                    $declared[$extension][] = is_string($package['name'] ?? null) ? $package['name'] : 'a package';
+                }
             }
         }
 
         $composer = json_decode((string) @file_get_contents($projectRoot . '/composer.json'), associative: true);
         foreach ($withDev ? ['require', 'require-dev'] : ['require'] as $key) {
-            $required = [...$required, ...self::extensionsIn(is_array($composer) ? ($composer[$key] ?? null) : null)];
+            foreach (self::extensionsIn(is_array($composer) ? ($composer[$key] ?? null) : null) as $extension) {
+                $declared[$extension][] = 'the project';
+            }
         }
 
-        $missing = array_values(array_unique(array_diff($required, self::IN_IMAGE)));
-        sort($missing);
+        $missing = [];
+        foreach ($declared as $extension => $by) {
+            if (!self::isInImage($extension)) {
+                $missing[$extension] = array_values(array_unique($by));
+            }
+        }
+        ksort($missing);
 
         return $missing;
     }

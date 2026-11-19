@@ -118,7 +118,7 @@ final class TempestAdapterTest extends TestCase
         $this->tempestProject();
 
         $tester = new CommandTester(new InitCommand($this->projectRoot, new ServiceRegistry([]), new PackageManagerVersions(static fn (string $url): ?string => null)));
-        $tester->setInputs(['', 'no', '', '8.4', '', '']);
+        $tester->setInputs(['', 'no', '', '', '8.4', '', '']);
         $tester->execute([]);
 
         self::assertStringContainsString('Tempest needs PHP 8.5 or newer', $tester->getDisplay());

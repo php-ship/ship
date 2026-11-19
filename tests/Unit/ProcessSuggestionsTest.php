@@ -171,6 +171,10 @@ final class ProcessSuggestionsTest extends TestCase
         $tester->setInputs($inputs);
         $tester->execute([]);
 
+        // Every scripted run here answers the networks question with nothing: an answer landing
+        // on the wrong question shows up as a network.
+        self::assertArrayNotHasKey('externalNetwork', json_decode((string) file_get_contents($this->projectRoot . '/ship.json'), true));
+
         return $tester;
     }
 
@@ -190,7 +194,7 @@ final class ProcessSuggestionsTest extends TestCase
         $this->laravelProject();
 
         // Name; Horizon and the scheduler ticked (labels, comma-separated); one of our own; PHP; Node.
-        $this->init(['', 'Horizon: runs queued jobs and its dashboard (horizon),Scheduler: runs scheduled tasks every minute (schedule:work) (scheduler)', 'yes', 'mailer', 'php artisan queue:work --queue=emails', '', 'no', '', '8.4', '']);
+        $this->init(['', 'Horizon: runs queued jobs and its dashboard (horizon),Scheduler: runs scheduled tasks every minute (schedule:work) (scheduler)', 'yes', 'mailer', 'php artisan queue:work --queue=emails', '', 'no', '', '', '8.4', '']);
 
         $processes = json_decode((string) file_get_contents($this->projectRoot . '/ship.json'), true)['processes'];
         self::assertSame(['command' => 'php artisan horizon', 'healthcheck' => 'php artisan horizon:status'], $processes['horizon']);
@@ -212,14 +216,14 @@ final class ProcessSuggestionsTest extends TestCase
         ]]));
 
         // Name; Horizon and the mailer stay ticked; nothing new; PHP; Node.
-        $tester = $this->init(['', 'Horizon: runs queued jobs and its dashboard (horizon),mailer: php artisan queue:work --queue=emails', 'no', '', '8.4', '']);
+        $tester = $this->init(['', 'Horizon: runs queued jobs and its dashboard (horizon),mailer: php artisan queue:work --queue=emails', 'no', '', '', '8.4', '']);
 
         self::assertStringContainsString('mailer: php artisan queue:work --queue=emails', $tester->getDisplay());
         $processes = json_decode((string) file_get_contents($this->projectRoot . '/ship.json'), true)['processes'];
         self::assertSame(['horizon' => 'php artisan horizon --environment=production', 'mailer' => 'php artisan queue:work --queue=emails'], $processes);
 
         // Unticking a process of one's own removes it.
-        $this->init(['', 'Horizon: runs queued jobs and its dashboard (horizon)', 'no', '', '8.4', '']);
+        $this->init(['', 'Horizon: runs queued jobs and its dashboard (horizon)', 'no', '', '', '8.4', '']);
         self::assertSame(['horizon'], array_keys(json_decode((string) file_get_contents($this->projectRoot . '/ship.json'), true)['processes']));
     }
 
@@ -227,7 +231,7 @@ final class ProcessSuggestionsTest extends TestCase
     {
         $this->laravelProject();
 
-        $tester = $this->init(['', 'None', 'yes', 'app', 'mailer', 'php artisan queue:work', 'php artisan queue:monitor', 'no', '', '8.4', '']);
+        $tester = $this->init(['', 'None', 'yes', 'app', 'mailer', 'php artisan queue:work', 'php artisan queue:monitor', 'no', '', '', '8.4', '']);
 
         self::assertStringContainsString('"app" is already used', $tester->getDisplay());
         self::assertSame(

@@ -103,12 +103,12 @@ final class ExternalNetworksTest extends TestCase
         };
 
         // Name, no processes, the networks (a bad one first), PHP, Node.
-        $tester = $run(['', 'no', 'proxy, bad name', ' proxy , monitoring,proxy ', '8.4', '']);
+        $tester = $run(['', 'no', '', 'proxy, bad name', ' proxy , monitoring,proxy ', '8.4', '']);
         self::assertStringContainsString('"bad name" isn\'t a Docker network name', $tester->getDisplay());
         self::assertSame(['proxy', 'monitoring'], $this->written());
 
         // Enter keeps them.
-        $run(['', 'no', '', '8.4', '']);
+        $run(['', 'no', '', '', '8.4', '']);
         self::assertSame(['proxy', 'monitoring'], $this->written());
     }
 }

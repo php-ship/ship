@@ -169,6 +169,7 @@ final class InitCommandServiceSelectionTest extends TestCase
             'Object storage', 'SeaweedFS (S3-compatible storage)',
             'yes', 'Object storage', 'Garage (S3-compatible storage, lightweight alt.)', 'archive', 'no',
             'no', // no processes of our own
+            '', // no other PHP extensions
             '', // no external networks
             '8.4', '24',
         ]);
@@ -219,6 +220,7 @@ final class InitCommandServiceSelectionTest extends TestCase
             'yes', 'Database', 'MySQL', 'analytics', 'no',
             // PHP / Node versions.
             'no', // no processes of our own
+            '', // no other PHP extensions
             '', // no external networks
             '8.4', '24',
         ]);
@@ -241,6 +243,7 @@ final class InitCommandServiceSelectionTest extends TestCase
             'yes', 'Cache', 'Redis', 'analytics', 'queue',
             'no',
             'no', // no processes of our own
+            '', // no other PHP extensions
             '', // no external networks
             '8.4', '24',
         ]);
@@ -279,6 +282,7 @@ final class InitCommandServiceSelectionTest extends TestCase
             'yes', 'Database', 'MySQL', $invalidName, 'analytics',
             'no',
             'no', // no processes of our own
+            '', // no other PHP extensions
             '', // no external networks
             '8.4', '24',
         ]);
@@ -388,6 +392,7 @@ final class InitCommandServiceSelectionTest extends TestCase
             'no',
             'Distroless (runs on older CPUs too; no shell in the container)',
             'no', // no processes of our own
+            '', // no other PHP extensions
             '', // no external networks
             '8.4', '24',
         ]);
@@ -409,6 +414,7 @@ final class InitCommandServiceSelectionTest extends TestCase
             'no',
             '',
             'no', // no processes of our own
+            '', // no other PHP extensions
             '', // no external networks
             '8.4', '24',
         ]);
@@ -427,7 +433,7 @@ final class InitCommandServiceSelectionTest extends TestCase
 
         $command = new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults()));
         $tester = new CommandTester($command);
-        $tester->setInputs(['', '', '', 'no', '', 'no', '', '8.4', '24']);
+        $tester->setInputs(['', '', '', 'no', '', 'no', '', '', '8.4', '24']);
         $tester->execute([]);
 
         self::assertSame('distroless', $this->shipJson()['siloImage']);
@@ -457,7 +463,7 @@ final class InitCommandServiceSelectionTest extends TestCase
     {
         $command = new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults()));
         $tester = new CommandTester($command);
-        $tester->setInputs(['', 'None', 'no', 'no', '', '8.1', '8.4']);
+        $tester->setInputs(['', 'None', 'no', 'no', '', '', '8.1', '8.4']);
         $tester->execute([]);
 
         self::assertStringContainsString('past end of life', $tester->getDisplay());

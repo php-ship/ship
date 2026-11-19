@@ -192,6 +192,10 @@ vendor/bin/ship down
   and Scheduler's schedules for Symfony; the scheduler and the async command
   worker for Tempest), then processes of your own: a name, a command, and an
   optional health check command (see [`processes`](#configuration-shipjson));
+- which **PHP extensions** the image needs beyond what's added anyway: it
+  first says what that is and why (what every image has, what your
+  Composer packages declare, what the chosen services need), then takes the
+  rest, comma-separated, starting from what ship.json lists;
 - the **external networks** a reverse proxy shares with the app,
   comma-separated (the hint lists the ones on this machine);
 - the PHP and Node.js versions and the JavaScript package manager,
@@ -568,9 +572,11 @@ plain, readable JSON document:
   your Composer packages declare: every `ext-*` requirement in
   `composer.lock` (and your own `composer.json`) that the image lacks is
   installed without being listed here — `bcmath` for `dragon-code/support`,
-  say — and `ship init`'s summary shows them. Development-only packages
-  count for the development image only. So list an extension here only when
-  your code needs one no package declares, e.g. `gd` for image handling:
+  say. Development-only packages count for the development image only. So
+  list an extension here only when your code needs one no package declares,
+  e.g. `gd` for image handling. `ship init` asks for these, after saying
+  what's added anyway and why, and drops from the list any that are now
+  added anyway:
   ```json
   "phpExtensions": ["gd"]
   ```
