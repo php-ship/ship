@@ -183,7 +183,7 @@ final class PackageManagerCommand extends Command
         $steps = ['set -e'];
 
         if ($remove !== []) {
-            $steps[] = 'rm -rf ' . implode(' ', array_map(static fn (string $path): string => escapeshellarg(rtrim($path, '/')), $remove));
+            $steps[] = 'rm -rf ' . implode(' ', array_map(static fn (string $path): string => self::shellQuote(rtrim($path, '/')), $remove));
         }
 
         if ($tool === 'npm') {
@@ -192,10 +192,19 @@ final class PackageManagerCommand extends Command
             $steps[] = 'npm install';
         } else {
             // Resolves the version, records it (with its checksum) in packageManager, and installs.
-            $steps[] = 'corepack use ' . escapeshellarg("{$tool}@{$version}");
+            $steps[] = 'corepack use ' . self::shellQuote("{$tool}@{$version}");
         }
 
         return implode(' && ', $steps);
+    }
+
+    /**
+     * Quotes for the container's POSIX sh. Not escapeshellarg(), which quotes for the host's shell:
+     * on Windows it uses double quotes and drops "%" and "!".
+     */
+    private static function shellQuote(string $value): string
+    {
+        return "'" . str_replace("'", "'\\''", $value) . "'";
     }
 
     /**

@@ -123,7 +123,8 @@ jobs:
       - name: ship init (MySQL + Redis)
         working-directory: /tmp/ci-fixture
         run: |
-          printf 'MySQL\nRedis\nNone\nNone\nNone\nNone\nNone\nNone\nNone\nNone\n8.4\n' \
+          # The checklist of kinds, a service for each, no extra instances, PHP, Node, package manager.
+          printf 'Database,Cache\nMySQL\nRedis\nno\n8.4\n\n\n' \
             | php "$GITHUB_WORKSPACE/bin/ship" init
 
       - name: Point .env at the ship-provisioned services
@@ -284,7 +285,8 @@ jobs:
       - name: ship init (MySQL + Redis + Octane/Swoole)
         working-directory: /tmp/ci-fixture-swoole
         run: |
-          printf 'MySQL\nRedis\n1\nNone\nNone\nNone\nNone\nNone\nNone\nNone\n8.4\n' \
+          # The checklist of kinds, a service for each, no extra instances, PHP, Node, package manager.
+          printf 'Database,Cache,Application runtime\nMySQL\nRedis\nOctane (Swoole) — default\nno\n8.4\n\n\n' \
             | php "$GITHUB_WORKSPACE/bin/ship" init
 
       - name: Point .env at the ship-provisioned services (Swoole fixture)
@@ -359,7 +361,8 @@ jobs:
       - name: ship init (MySQL + Redis, default runtime)
         working-directory: /tmp/ci-fixture-mutagen
         run: |
-          printf 'MySQL\nRedis\nNone\nNone\nNone\nNone\nNone\nNone\nNone\nNone\n8.4\n' \
+          # The checklist of kinds, a service for each, no extra instances, PHP, Node, package manager.
+          printf 'Database,Cache\nMySQL\nRedis\nno\n8.4\n\n\n' \
             | php "$GITHUB_WORKSPACE/bin/ship" init
 
       - name: Point .env at the ship-provisioned services (Mutagen fixture)

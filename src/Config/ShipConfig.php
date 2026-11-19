@@ -11,6 +11,11 @@ use RuntimeException;
  */
 final class ShipConfig
 {
+    /**
+     * A PHP branch or exact release ("8.4", "8.4.12"): ship.schema.json's pattern for "php".
+     */
+    public const PHP_VERSION_PATTERN = '/^\d+\.\d+(?:\.\d+)?$/';
+
     public const SILO_IMAGE_STANDARD = 'standard';
     public const SILO_IMAGE_DISTROLESS = 'distroless';
     public const SILO_IMAGES = [self::SILO_IMAGE_STANDARD, self::SILO_IMAGE_DISTROLESS];
@@ -336,6 +341,13 @@ final class ShipConfig
             if (isset($data[$key]) && !is_string($data[$key])) {
                 throw new RuntimeException("ship.json's \"{$key}\" must be a string at {$path}.");
             }
+        }
+
+        // The same pattern as ship.schema.json's "php".
+        if (isset($data['php']) && is_string($data['php']) && preg_match(self::PHP_VERSION_PATTERN, $data['php']) !== 1) {
+            throw new RuntimeException(
+                "ship.json's \"php\" must be a PHP version such as \"8.4\" or \"8.4.12\" at {$path}, not \"{$data['php']}\".",
+            );
         }
 
         if (isset($data['siloImage']) && !in_array($data['siloImage'], self::SILO_IMAGES, true)) {

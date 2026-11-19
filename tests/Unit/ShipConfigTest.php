@@ -139,6 +139,20 @@ final class ShipConfigTest extends TestCase
         ShipConfig::fromFile($this->projectRoot . '/ship.json');
     }
 
+    /**
+     * "php" follows the shared schema's pattern, so a stray answer such as "None" can't become an
+     * image tag (php:None-fpm-alpine).
+     */
+    public function test_from_file_rejects_a_php_value_that_isnt_a_version(): void
+    {
+        file_put_contents($this->projectRoot . '/ship.json', json_encode(['php' => 'None', 'services' => []]));
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('"php" must be a PHP version');
+
+        ShipConfig::fromFile($this->projectRoot . '/ship.json');
+    }
+
     public function test_from_file_rejects_a_non_string_deploy_command(): void
     {
         file_put_contents(

@@ -122,7 +122,8 @@ final class InitCommand extends Command
             hint: $minimumPhp !== null
                 ? "{$minimumPhp['framework']} needs {$minimumPhp['version']} or newer"
                 : 'A supported branch, such as 8.4, or an exact release',
-            validate: fn (string $answer): ?string => PhpSecurityFloor::problemWith(trim($answer))
+            validate: fn (string $answer): ?string => (preg_match(ShipConfig::PHP_VERSION_PATTERN, trim($answer)) === 1 ? null : 'Use a PHP version such as 8.4 or 8.4.12.')
+                ?? PhpSecurityFloor::problemWith(trim($answer))
                 ?? Frameworks::phpVersionProblem($this->projectRoot, $answer, $this->extensionFrameworkAdapters),
         );
         $nodeVersion = $ui->text(

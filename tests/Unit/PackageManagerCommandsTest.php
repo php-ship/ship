@@ -144,6 +144,16 @@ final class PackageManagerCommandsTest extends TestCase
         );
     }
 
+    /**
+     * Quoted for the container's sh whatever the host is (escapeshellarg() quotes for the host).
+     */
+    public function test_the_container_script_quotes_for_a_posix_shell(): void
+    {
+        $command = new PackageManagerCommand($this->projectRoot, new ProcessRunner());
+
+        self::assertSame("'it'\\''s'", (new \ReflectionMethod($command, 'shellQuote'))->invoke(null, "it's"));
+    }
+
     public function test_the_registry_lookup_follows_the_projects_yarn_line(): void
     {
         $versions = $this->versions();
