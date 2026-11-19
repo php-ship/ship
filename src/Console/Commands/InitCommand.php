@@ -57,6 +57,20 @@ final class InitCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        // Everything `ship init` doesn't ask about (name, processes, deploy commands, ...) comes
+        // from the existing ship.json. One it can't read would be replaced by a new file without
+        // them, so it stops instead and leaves the file as it is.
+        $path = $this->projectRoot . '/ship.json';
+        if (is_file($path) && ShipConfig::tryFromFile($path) === null) {
+            json_decode((string) file_get_contents($path));
+            $output->writeln(sprintf(
+                '<error>ship: ship.json can\'t be read (%s), so `ship init` stops rather than replace it and lose its settings. Fix it, or move it away to start over.</error>',
+                json_last_error() === JSON_ERROR_NONE ? 'it isn\'t a JSON object' : json_last_error_msg(),
+            ));
+
+            return Command::FAILURE;
+        }
+
         $ui = ($this->ui)($input, $output);
         // The questions get a clean screen; the terminal's earlier content comes back with the
         // summary below it (see Ui::enterFullScreen()).

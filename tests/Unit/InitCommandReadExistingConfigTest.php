@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use Ship\Config\ShipConfig;
 use Ship\Console\Commands\InitCommand;
 use Ship\Services\ServiceRegistry;
+use Symfony\Component\Console\Tester\CommandTester;
 use Symfony\Component\Filesystem\Filesystem;
 
 final class InitCommandReadExistingConfigTest extends TestCase
@@ -134,5 +135,23 @@ final class InitCommandReadExistingConfigTest extends TestCase
         $command = new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults()));
 
         return (new \ReflectionMethod($command, 'readExistingConfig'))->invoke($command);
+    }
+
+    /**
+     * An unreadable ship.json isn't replaced: that would lose every setting `ship init` doesn't
+     * ask about (name, processes, deploy commands, ...).
+     */
+    public function test_init_refuses_to_replace_a_ship_json_it_cannot_read(): void
+    {
+        $broken = "{\n    \"name\": \"client\",\n    \"php\": \"8.4\",\n}\n";
+        file_put_contents($this->projectRoot . '/ship.json', $broken);
+
+        $tester = new CommandTester(new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults())));
+        $exitCode = $tester->execute([], ['interactive' => false]);
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString("ship.json can't be read", $tester->getDisplay());
+        self::assertSame($broken, file_get_contents($this->projectRoot . '/ship.json'));
+        self::assertDirectoryDoesNotExist($this->projectRoot . '/ship');
     }
 }
