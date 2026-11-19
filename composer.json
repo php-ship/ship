@@ -15,8 +15,8 @@
         "laravel/prompts": "^0.3",
         "symfony/console": "^7.4 || ^8.0",
         "symfony/process": "^7.0 || ^8.0",
-        "symfony/yaml": "^7.0 || ^8.0",
-        "symfony/filesystem": "^7.0 || ^8.0"
+        "symfony/yaml": "^7.4.23 || ^8.1.11",
+        "symfony/filesystem": "^7.4.23 || ^8.1.11"
     },
     "require-dev": {
         "friendsofphp/php-cs-fixer": "^3.75",
