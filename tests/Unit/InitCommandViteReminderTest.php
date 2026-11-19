@@ -6,6 +6,7 @@ namespace Ship\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
 use Ship\Console\Commands\InitCommand;
+use Ship\Node\PackageManagerVersions;
 use Ship\Services\ServiceRegistry;
 use Symfony\Component\Console\Tester\CommandTester;
 use Symfony\Component\Filesystem\Filesystem;
@@ -31,7 +32,8 @@ final class InitCommandViteReminderTest extends TestCase
 
     private function runInit(): string
     {
-        $command = new InitCommand($this->projectRoot, new ServiceRegistry([]));
+        // No network: the package manager prompt's version lookup finds nothing.
+        $command = new InitCommand($this->projectRoot, new ServiceRegistry([]), new PackageManagerVersions(static fn (string $url): ?string => null));
         $tester = new CommandTester($command);
         $tester->execute([], ['interactive' => false]);
 

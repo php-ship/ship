@@ -11,6 +11,7 @@ use Ship\Console\Commands\PackageManagerCommand;
 use Ship\Console\Commands\ProxyCommand;
 use Ship\Contracts\ShipEnvironment;
 use Ship\Docker\ComposeFileBuilder;
+use Ship\Node\PackageManager;
 use Ship\Node\PackageManagerVersions;
 use Ship\Runtime\ProcessRunner;
 use Ship\Services\ServiceRegistry;
@@ -52,6 +53,7 @@ final class PackageManagerCommandsTest extends TestCase
             str_ends_with($url, '/pnpm') => '{"dist-tags":{"latest":"12.21.0"}}',
             str_ends_with($url, '/yarn') => '{"dist-tags":{"latest":"1.22.22"}}',
             str_ends_with($url, '/@yarnpkg%2fcli-dist') => '{"dist-tags":{"latest":"4.18.1"}}',
+            str_ends_with($url, '/dist/index.json') => '[{"version":"v26.13.1","npm":"11.20.0"},{"version":"v24.22.3","npm":"11.19.1"},{"version":"v24.22.2","npm":"11.19.0"}]',
             default => null,
         });
     }
@@ -187,16 +189,50 @@ final class PackageManagerCommandsTest extends TestCase
         self::assertStringNotContainsString('ship package-manager', $tester->getDisplay());
     }
 
-    public function test_init_leaves_an_npm_project_untouched(): void
+    /**
+     * npm is recorded at the version the project's Node comes with (the default Node, 24, here).
+     */
+    public function test_init_records_the_npm_the_projects_node_comes_with(): void
     {
         $this->packageJson();
         touch($this->projectRoot . '/package-lock.json');
-        $before = file_get_contents($this->projectRoot . '/package.json');
 
-        $tester = new CommandTester(new InitCommand($this->projectRoot, new ServiceRegistry([]), $this->versions(static fn (string $url): ?string => throw new \LogicException('no lookup expected'))));
+        $tester = new CommandTester(new InitCommand($this->projectRoot, new ServiceRegistry([]), $this->versions()));
         $tester->execute([], ['interactive' => false]);
 
-        self::assertSame($before, file_get_contents($this->projectRoot . '/package.json'));
+        self::assertStringContainsString('"packageManager": "npm@11.19.1"', (string) file_get_contents($this->projectRoot . '/package.json'));
+        self::assertStringNotContainsString('ship package-manager', $tester->getDisplay());
+    }
+
+    /**
+     * Choosing npm for a Yarn project records it, so `ship up` reminds and the build refuses until
+     * `ship package-manager npm` finishes the switch.
+     */
+    public function test_init_choosing_npm_for_a_yarn_project_records_an_unfinished_switch(): void
+    {
+        $this->packageJson();
+        file_put_contents($this->projectRoot . '/yarn.lock', "__metadata:\n  version: 8\n");
+
+        $tester = new CommandTester(new InitCommand($this->projectRoot, new ServiceRegistry([]), $this->versions()));
+        // No additional instances, PHP and Node versions (defaults), then npm instead of Yarn.
+        $tester->setInputs(['', '', '', 'npm']);
+        $tester->execute([]);
+
+        $pm = PackageManager::inspect($this->projectRoot);
+
+        self::assertSame('npm', $pm->declared);
+        self::assertNull($pm->buildTool());
+        self::assertStringContainsString('`ship package-manager npm`', (string) $pm->problem());
+        // SymfonyStyle wraps the note, so compare without the line breaks.
+        self::assertStringContainsString('`ship package-manager npm`', (string) preg_replace('/\s*\n\s*!?\s*/', ' ', $tester->getDisplay()));
+    }
+
+    public function test_the_npm_lookup_takes_the_newest_release_of_the_node_version(): void
+    {
+        self::assertSame('npm@11.19.1', $this->versions()->latest('npm', $this->projectRoot, '24'));
+        self::assertSame('npm@11.20.0', $this->versions()->latest('npm', $this->projectRoot, '26'));
+        self::assertSame('npm@11.19.0', $this->versions()->latest('npm', $this->projectRoot, '24.22.2'));
+        self::assertNull($this->versions()->latest('npm', $this->projectRoot, '99'));
     }
 
     /**

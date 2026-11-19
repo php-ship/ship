@@ -188,6 +188,7 @@ release`.
 | `ship release --tag <tag> [--force] [--no-env]` | Builds the same images (re-tagged) and assembles the portable release under `dist/ship/<tag>/`, described by `release.json` ([the ship-release contract](https://github.com/ship-ecosystem/spec/blob/main/docs/release-contract.md)). `--force` replaces an existing release of that tag; `--no-env` leaves `.env.production` out. Needs `name` in `ship.json`. See [Production releases](#production-releases). |
 | `ship down [--volumes]` | `docker compose down`. `--volumes` also deletes named volumes (database/storage data — use with care). |
 | `ship exec <service> <cmd...>` | Runs an arbitrary command inside a running service container. The generic escape hatch every shortcut below wraps. |
+
 | `ship shell [service]` | Opens an interactive shell (`sh`) in a service; defaults to `app`. |
 | `ship logs [service] [-f]` | Tails logs for one service, or all services if none given. `-f`/`--follow` streams live. |
 | `ship db [instance]` | Opens a database's interactive client shell (`psql`/`mysql`/`mariadb`/`mongosh`/`sqlcmd`), reading credentials from that container's own environment. Omit `instance` for the default database; name one of `additionalServices`' database entries to open that instance instead. Fails clearly if no database is selected, or the named instance doesn't exist. |
@@ -200,9 +201,12 @@ release`.
 | `ship artisan <args...>` | Proxies to `php artisan` inside `app` — only registered when Laravel's `artisan` is detected at the project root. |
 | `ship console <args...>` | Proxies to `php bin/console` inside `app` — only registered when Symfony's `bin/console` is detected at the project root. |
 
-Every proxied command forwards its arguments exactly as typed (including
-flags like `-m` in `ship artisan make:model Post -m`), so `ship` doesn't
-need to know about every artisan or console subcommand.
+`ship exec` and every proxied command forward their arguments exactly as
+typed, flags included (`-m` in `ship artisan make:model Post -m`), so `ship`
+doesn't need to know about every artisan or console subcommand. That
+includes flags ship has too: `ship pnpm --version` prints pnpm's version and
+`ship artisan migrate --help` shows artisan's help. ship's own options go
+before the command name (`ship -q npm install`).
 
 ## Services
 
@@ -440,9 +444,11 @@ first use. Downloaded versions are kept in a volume, so a rebuilt image
 doesn't download them again. npm is the one Node comes with.
 
 `ship init` asks which package manager the project uses, defaulting to the
-one it already uses, so pressing Enter changes nothing. For Yarn or pnpm it
-records the current version in `packageManager`; npm needs no record, since
-its lockfile decides.
+one it already uses, and records it in `packageManager`: Yarn's and pnpm's
+current version (a Yarn 1 project stays on Yarn 1), or the npm the project's
+Node version comes with. Choosing a different tool than the project uses
+records the choice, and `ship up` reminds you to finish the switch with
+`ship package-manager`, which needs the container.
 
 Mixing package managers breaks a project quietly: each reads only its own
 lockfile, and they lay out `node_modules` differently. So ship stops it

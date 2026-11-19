@@ -98,7 +98,7 @@ final class InitCommand extends Command
             return $answer;
         });
         $nodeVersion = $io->ask('Node.js version', '24');
-        $this->promptForPackageManager($io, $input);
+        $this->promptForPackageManager($io, $input, (string) $nodeVersion);
 
         $config = new ShipConfig(
             phpVersion: (string) $phpVersion,
@@ -355,14 +355,15 @@ final class InitCommand extends Command
      * Which package manager the project uses, for a project with a package.json. The default is
      * what it already uses (see PackageManager), so pressing Enter changes nothing.
      *
-     * Yarn or pnpm is recorded in package.json's packageManager, at the registry's current version
-     * (the project's own Yarn line, for a Yarn 1 lockfile). Recording it is all a project that
-     * doesn't use another tool yet needs. Moving a project off another tool also removes its
-     * lockfile and installed packages and reinstalls, which needs the container, so it's left to
-     * `ship package-manager`: the recorded choice makes `ship up` remind the user, and the
-     * production build refuse, until it's done. npm needs no record: its lockfile decides.
+     * The choice is recorded in package.json's packageManager at its current version (see
+     * PackageManagerVersions: the project's own Yarn line for a Yarn 1 lockfile, and for npm the
+     * npm its Node version comes with). Recording it is all a project that doesn't use another tool
+     * yet needs. Moving a project off another tool also removes its lockfile and installed packages
+     * and reinstalls, which needs the container, so it's left to `ship package-manager`: the
+     * recorded choice makes `ship up` remind the user, and the production build refuse, until it's
+     * done.
      */
-    private function promptForPackageManager(SymfonyStyle $io, InputInterface $input): void
+    private function promptForPackageManager(SymfonyStyle $io, InputInterface $input, string $nodeVersion): void
     {
         $current = PackageManager::inspect($this->projectRoot);
 
@@ -378,11 +379,16 @@ final class InitCommand extends Command
 
         $switching = $current->problem() !== null || ($current->tool() !== null && $current->tool() !== $choice);
 
-        if ($choice !== 'npm' && $current->declared !== $choice) {
-            $spec = $this->packageManagerVersions->latest($choice, $this->projectRoot);
+        if ($current->declared !== $choice) {
+            $spec = $this->packageManagerVersions->latest($choice, $this->projectRoot, $nodeVersion);
 
             if ($spec === null) {
-                $io->warning("Couldn't reach the npm registry to look up {$choice}'s current version, so package.json is unchanged. Run `ship package-manager {$choice}` after `ship up`.");
+                $io->warning(sprintf(
+                    "Couldn't look up %s's current version (is the network down?), so package.json is unchanged. Run `ship package-manager %s` after `ship up` to %s.",
+                    $choice,
+                    $choice,
+                    $switching ? 'switch the project to it' : 'record it',
+                ));
 
                 return;
             }

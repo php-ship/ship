@@ -3,10 +3,15 @@
 
 declare(strict_types=1);
 
-$autoloadPaths = [
-    __DIR__ . '/../vendor/autoload.php',      // running from within this repo
-    __DIR__ . '/../../../autoload.php',       // installed as a dependency
-];
+// The project's autoloader comes first, so its classes (Laravel Prompts, ship.json's extensions)
+// load too. Composer's bin proxy (vendor/bin/ship) names it; without the proxy, ship's own
+// location is used. That isn't enough on its own: under a path repository ship's directory is a
+// symlink to a checkout with its own vendor/, which knows nothing of the project.
+$autoloadPaths = array_values(array_filter([
+    $GLOBALS['_composer_autoload_path'] ?? null, // run through vendor/bin/ship
+    __DIR__ . '/../../../autoload.php',          // installed as a dependency
+    __DIR__ . '/../vendor/autoload.php',         // running from within this repo
+]));
 
 $autoloaded = false;
 

@@ -5,9 +5,12 @@ declare(strict_types=1);
 namespace Ship\Node;
 
 /**
- * The current version of Yarn or pnpm, from the npm registry, for `ship init` to record in
- * package.json's packageManager without a container (`ship package-manager` asks Corepack, in the
- * container, instead).
+ * The current version of a package manager, for `ship init` to record in package.json's
+ * packageManager without a container (`ship package-manager` asks Corepack, or npm itself, in the
+ * container instead).
+ *
+ * npm is the one bundled with the project's Node version: the newest release of that version in
+ * nodejs.org's release index, which is what the node image carries.
  *
  * Yarn has two lines: Yarn 1 ("classic", the `yarn` package, with "# yarn lockfile v1" lockfiles)
  * and Yarn 2+ (the `@yarnpkg/cli-dist` package). A project with a Yarn 1 lockfile keeps Yarn 1;
@@ -16,6 +19,8 @@ namespace Ship\Node;
 final class PackageManagerVersions
 {
     private const REGISTRY = 'https://registry.npmjs.org/';
+
+    private const NODE_RELEASES = 'https://nodejs.org/dist/index.json';
 
     /**
      * @var \Closure(string): ?string fetches a URL's body, or null on failure
@@ -39,14 +44,19 @@ final class PackageManagerVersions
     }
 
     /**
-     * "pnpm@12.21.0", "yarn@4.18.1" or "yarn@1.22.22", or null when the registry can't be reached.
+     * "pnpm@12.21.0", "yarn@4.18.1", "yarn@1.22.22" or "npm@11.19.1" (the npm $nodeVersion comes
+     * with), or null when it can't be looked up.
      */
-    public function latest(string $tool, string $projectRoot): ?string
+    public function latest(string $tool, string $projectRoot, string $nodeVersion = '24'): ?string
     {
+        if ($tool === 'npm') {
+            return $this->bundledNpm($nodeVersion);
+        }
+
         $package = match ($tool) {
             'pnpm' => 'pnpm',
             'yarn' => self::usesYarnClassic($projectRoot) ? 'yarn' : '@yarnpkg/cli-dist',
-            default => throw new \InvalidArgumentException("No registry version for {$tool}: npm comes with Node."),
+            default => throw new \InvalidArgumentException("ship doesn't support {$tool}."),
         };
 
         $body = ($this->fetch)(self::REGISTRY . str_replace('/', '%2f', $package));
@@ -55,6 +65,31 @@ final class PackageManagerVersions
         $version = is_array($data) && is_array($data['dist-tags'] ?? null) ? ($data['dist-tags']['latest'] ?? null) : null;
 
         return is_string($version) && preg_match('/^\d+\.\d+\.\d+$/', $version) === 1 ? "{$tool}@{$version}" : null;
+    }
+
+    private function bundledNpm(string $nodeVersion): ?string
+    {
+        $body = ($this->fetch)(self::NODE_RELEASES);
+        /** @var mixed $releases */
+        $releases = $body === null ? null : json_decode($body, associative: true);
+
+        if (!is_array($releases)) {
+            return null;
+        }
+
+        // Newest first; "24" matches v24.x.y, "24.11" matches v24.11.y, "24.11.1" only itself.
+        $wanted = 'v' . trim($nodeVersion);
+        foreach ($releases as $release) {
+            $version = is_array($release) ? ($release['version'] ?? null) : null;
+
+            if (is_string($version) && ($version === $wanted || str_starts_with($version, $wanted . '.'))) {
+                $npm = $release['npm'] ?? null;
+
+                return is_string($npm) && preg_match('/^\d+\.\d+\.\d+$/', $npm) === 1 ? "npm@{$npm}" : null;
+            }
+        }
+
+        return null;
     }
 
     public static function usesYarnClassic(string $projectRoot): bool

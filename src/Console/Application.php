@@ -28,11 +28,16 @@ use Ship\Services\ServiceRegistry;
 use Ship\Support\ShipVersion;
 use Symfony\Component\Console\Application as SymfonyApplication;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Output\OutputInterface;
 
 final class Application extends SymfonyApplication
 {
     /** @var list<FrameworkAdapter> */
     private array $extensionFrameworkAdapters = [];
+
+    /** @var list<string> commands that forward everything after their name (see ForwardingArgvInput) */
+    private array $forwardingCommands = [];
 
     public function __construct(private readonly string $projectRoot)
     {
@@ -93,6 +98,25 @@ final class Application extends SymfonyApplication
     private function registerCommand(Command $command): void
     {
         $this->addCommand($command);
+
+        if ($command instanceof ProxyCommand || $command instanceof ExecCommand) {
+            $this->forwardingCommands[] = (string) $command->getName();
+        }
+    }
+
+    /**
+     * Reads the command line with ForwardingArgvInput, so a forwarded `--version`, `--help`, `-q`
+     * or `-n` reaches the command it's for instead of ship.
+     */
+    public function run(?InputInterface $input = null, ?OutputInterface $output = null): int
+    {
+        if ($input === null) {
+            /** @var list<string> $argv */
+            $argv = $_SERVER['argv'] ?? [];
+            $input = new ForwardingArgvInput($argv, $this->forwardingCommands);
+        }
+
+        return parent::run($input, $output);
     }
 
     /**
