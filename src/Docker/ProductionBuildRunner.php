@@ -71,7 +71,7 @@ final class ProductionBuildRunner
 
         $this->generateEntrypoint($config, $projectRoot, $extensionFrameworkAdapters);
 
-        $composeYaml = (new ComposeFileBuilder($registry))->build($config, ShipEnvironment::Production, projectName: $projectName);
+        $composeYaml = (new ComposeFileBuilder($registry))->build($config, ShipEnvironment::Production, projectName: $projectName, projectRoot: $projectRoot);
         /** @var array{services: array<string, array<string, mixed>>} $parsed */
         $parsed = Yaml::parse($composeYaml);
 

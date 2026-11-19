@@ -23,6 +23,12 @@ final class ComposeFileBuilder
      */
     private const OPTIONAL_ENV_FILE = [['path' => '.env', 'required' => false]];
 
+    /**
+     * The project being built for (see build()): its composer.lock adds the PHP extensions its
+     * packages declare. Null builds from ship.json alone.
+     */
+    private ?string $projectRoot = null;
+
     public function __construct(
         private readonly ServiceRegistry $registry,
     ) {
@@ -45,7 +51,9 @@ final class ComposeFileBuilder
         bool $mutagenSync = false,
         ?array $hostUser = null,
         ?string $projectName = null,
+        ?string $projectRoot = null,
     ): string {
+        $this->projectRoot = $projectRoot;
         $serviceNames = $config->serviceNames;
 
         $this->assertNoServiceNameCollisions($config->services, $serviceNames);
@@ -91,7 +99,7 @@ final class ComposeFileBuilder
             $compose['services'],
             $config->phpVersion,
             $config->nodeVersion,
-            $this->phpExtensionsBuildArg($config),
+            $this->phpExtensionsBuildArg($config, $this->projectRoot, $environment),
         );
         $compose['services'] = $this->backfillRestartPolicy($compose['services']);
 
@@ -683,9 +691,14 @@ final class ComposeFileBuilder
      * ship.json's `phpExtensions` plus whatever the selected services (default and named
      * instances) need for their PHP client (see RequiresPhpExtensions), deduplicated in that order.
      */
-    private function phpExtensionsBuildArg(ShipConfig $config): string
+    private function phpExtensionsBuildArg(ShipConfig $config, ?string $projectRoot, ShipEnvironment $environment): string
     {
-        $extensions = $config->phpExtensions;
+        // What the project's packages declare and the image lacks (see PhpExtensions; production
+        // leaves out development-only packages), then ship.json's own list and the services' clients.
+        $extensions = [
+            ...($projectRoot !== null ? PhpExtensions::missingFromComposer($projectRoot, withDev: $environment->isDevelopment()) : []),
+            ...$config->phpExtensions,
+        ];
         $keys = [...array_values($config->services), ...array_column($config->additionalServices, 'service')];
 
         foreach ($keys as $key) {
@@ -785,7 +798,7 @@ final class ComposeFileBuilder
                         'PHP_VERSION' => $config->phpVersion,
                         'NODE_VERSION' => $config->nodeVersion,
                         'OCTANE_RUNTIME' => $this->runtimeBuildArg($runtime),
-                        'PHP_EXTENSIONS' => $this->phpExtensionsBuildArg($config),
+                        'PHP_EXTENSIONS' => $this->phpExtensionsBuildArg($config, $this->projectRoot, $environment),
                         // The production `npm run build` bakes .env.production's VITE_* settings into
                         // the bundle. Read from the build's environment, not written into this file
                         // (see ViteBuildEnv and ProductionBuildRunner).

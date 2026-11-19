@@ -191,6 +191,7 @@ final class ConfigTestCommand extends Command
                 $config,
                 $environment,
                 projectName: ProjectName::resolve($config, $this->projectRoot),
+                projectRoot: $this->projectRoot,
             );
         } catch (\Throwable $e) {
             $this->problems++;

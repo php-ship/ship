@@ -91,6 +91,7 @@ final class UpCommand extends Command
             $mutagenSync,
             $hostUser,
             ProjectName::resolve($config, $this->projectRoot),
+            $this->projectRoot,
         );
 
         $composeDir = $this->projectRoot . '/ship';

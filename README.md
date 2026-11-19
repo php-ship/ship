@@ -564,12 +564,15 @@ plain, readable JSON document:
   every project already gets (`pdo_pgsql`, `pdo_mysql`, `intl`,
   `mbstring`, `opcache`, `pcntl`, `redis`, `zip`, `sockets`), and beyond
   what a selected service adds on its own (`mongodb` for MongoDB,
-  `memcached` for Memcached, `pdo_sqlsrv` for SQL Server). Omitted here
-  since most
-  projects don't need any — hand-edit it in when a Composer package's
-  own platform requirement isn't already covered, e.g.:
+  `memcached` for Memcached, `pdo_sqlsrv` for SQL Server), and beyond what
+  your Composer packages declare: every `ext-*` requirement in
+  `composer.lock` (and your own `composer.json`) that the image lacks is
+  installed without being listed here — `bcmath` for `dragon-code/support`,
+  say — and `ship init`'s summary shows them. Development-only packages
+  count for the development image only. So list an extension here only when
+  your code needs one no package declares, e.g. `gd` for image handling:
   ```json
-  "phpExtensions": ["gd", "zip", "bcmath"]
+  "phpExtensions": ["gd"]
   ```
   Fed to [`mlocati/docker-php-extension-installer`](https://github.com/mlocati/docker-php-extension-installer),
   which handles each extension's own build dependencies for you.

@@ -71,7 +71,7 @@ final class BuildCommand extends Command
         // Fail on a missing required credential before Docker is invoked (see
         // RequiredEnv::missingFrom()). .env.production is read leniently: a project with no
         // credentialed service doesn't need the file.
-        $prodCompose = (new ComposeFileBuilder($registry))->build($config, ShipEnvironment::Production, projectName: $projectName);
+        $prodCompose = (new ComposeFileBuilder($registry))->build($config, ShipEnvironment::Production, projectName: $projectName, projectRoot: $this->projectRoot);
         $missingEnv = RequiredEnv::missingFrom($prodCompose, EnvFile::parse($this->projectRoot . '/.env.production'));
         if ($missingEnv !== []) {
             $output->writeln(sprintf(

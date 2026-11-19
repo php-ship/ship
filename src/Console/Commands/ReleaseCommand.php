@@ -150,7 +150,7 @@ final class ReleaseCommand extends Command
 
         // Fail on a missing required setting before Docker is invoked: ship's own credentials (see
         // RequiredEnv::missingFrom()) and what the framework can't run without.
-        $prodCompose = (new ComposeFileBuilder($registry))->build($config, ShipEnvironment::Production, projectName: $projectName);
+        $prodCompose = (new ComposeFileBuilder($registry))->build($config, ShipEnvironment::Production, projectName: $projectName, projectRoot: $this->projectRoot);
         $missingEnv = array_values(array_unique([
             ...RequiredEnv::missingFrom($prodCompose, $productionEnv),
             ...array_filter(

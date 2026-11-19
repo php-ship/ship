@@ -8,6 +8,7 @@ use Ship\Config\ShipConfig;
 use Ship\Console\Ui;
 use Ship\Contracts\FrameworkAdapter;
 use Ship\Docker\DockerignoreGuard;
+use Ship\Docker\PhpExtensions;
 use Ship\Frameworks\Frameworks;
 use Ship\Node\PackageManager;
 use Ship\Node\PackageManagerVersions;
@@ -307,6 +308,10 @@ final class InitCommand extends Command
             ...($summary === [] ? [['Services', 'None']] : $summary),
             ...($processes['commands'] === [] ? [] : [['Processes', implode(', ', array_keys($processes['commands']))]]),
             ...($networks === [] ? [] : [['External networks', implode(', ', $networks)]]),
+            // What the image installs beyond its own: the packages' declared needs and ship.json's.
+            ...(($extensions = array_values(array_unique([...PhpExtensions::missingFromComposer($this->projectRoot, withDev: false), ...($existing->phpExtensions ?? [])]))) === []
+                ? []
+                : [['PHP extensions', implode(', ', $extensions)]]),
             ['PHP', $phpVersion],
             ['Node.js', $nodeVersion . ($chosenPackageManager !== null ? ', ' . self::PACKAGE_MANAGERS[$chosenPackageManager] : '')],
         ]);
