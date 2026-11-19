@@ -464,4 +464,21 @@ final class InitCommandServiceSelectionTest extends TestCase
         self::assertStringContainsString('Lowercase letters and digits', $tester->getDisplay());
         self::assertSame('my-app', $this->shipJson()['name']);
     }
+
+    /**
+     * With no service chosen, extra instances are simply the project's services, and plain
+     * questions say nothing about Ctrl+U, which only Prompts' own interface supports.
+     */
+    public function test_with_no_services_chosen_it_offers_to_add_a_service(): void
+    {
+        $tester = new CommandTester(new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults())));
+        $tester->setInputs(['', 'None', 'yes', 'Database', 'MySQL', 'analytics', 'no', 'no', '', '8.4']);
+        $tester->execute([]);
+
+        self::assertStringContainsString('Add a service?', $tester->getDisplay());
+        self::assertStringContainsString('Add another service?', $tester->getDisplay());
+        self::assertStringNotContainsString('second instance', $tester->getDisplay());
+        self::assertStringNotContainsString('Ctrl+U', $tester->getDisplay());
+        self::assertSame([['group' => 'database', 'service' => 'mysql', 'name' => 'analytics']], $this->shipJson()['additionalServices']);
+    }
 }

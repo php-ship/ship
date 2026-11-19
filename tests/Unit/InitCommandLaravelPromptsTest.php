@@ -83,6 +83,13 @@ final class InitCommandLaravelPromptsTest extends TestCase
 
         self::assertStringContainsString('past end of life', $tester->getDisplay());
         self::assertStringContainsString('Run `ship up`', $tester->getDisplay());
+
+        // Going back is offered in the hints of the steps after the first, not on the first.
+        $display = $tester->getDisplay();
+        $checklist = (int) strpos($display, 'Which services does this project need?');
+        self::assertStringNotContainsString('Ctrl+U', substr($display, 0, $checklist));
+        self::assertStringContainsString('Ctrl+U to go back', substr($display, $checklist));
+        self::assertStringNotContainsString('Ctrl+U goes back to the previous question', $display);
     }
 
     /**

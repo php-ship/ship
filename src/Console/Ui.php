@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Ship\Console;
 
 use Laravel\Prompts\ConfirmPrompt;
-use Laravel\Prompts\FormBuilder;
 use Laravel\Prompts\MultiSelectPrompt;
 use Laravel\Prompts\Prompt;
 use Laravel\Prompts\SelectPrompt;
@@ -36,6 +35,9 @@ final class Ui
 
     private bool $fullScreen = false;
 
+    /** Whether the next question's hint says Ctrl+U goes back (see offeringBack()). */
+    private bool $offerBack = false;
+
     /**
      * @param ?bool $rich forces the interface either way (tests faking Prompts' terminal); null
      *        decides from the input and output
@@ -61,12 +63,12 @@ final class Ui
      */
     public function text(string $label, string $default = '', string $placeholder = '', string $hint = '', ?\Closure $validate = null, bool $required = true): string
     {
-        return \Laravel\Prompts\text(label: $label, placeholder: $placeholder, default: $default, required: $required, validate: $validate, hint: $hint);
+        return \Laravel\Prompts\text(label: $label, placeholder: $placeholder, default: $default, required: $required, validate: $validate, hint: $this->hint($hint));
     }
 
     public function confirm(string $label, bool $default = false, string $hint = ''): bool
     {
-        return \Laravel\Prompts\confirm(label: $label, default: $default, hint: $hint);
+        return \Laravel\Prompts\confirm(label: $label, default: $default, hint: $this->hint($hint));
     }
 
     /**
@@ -76,7 +78,7 @@ final class Ui
     {
         $default ??= array_key_first($options) ?? throw new \LogicException('select() needs at least one option.');
 
-        return (string) \Laravel\Prompts\select(label: $label, options: $options, default: $default, scroll: 10, hint: $hint);
+        return (string) \Laravel\Prompts\select(label: $label, options: $options, default: $default, scroll: 10, hint: $this->hint($hint));
     }
 
     /**
@@ -86,7 +88,7 @@ final class Ui
      */
     public function multiselect(string $label, array $options, array $default = [], string $hint = ''): array
     {
-        $ticked = array_map(strval(...), \Laravel\Prompts\multiselect(label: $label, options: $options, default: $default, scroll: 10, required: false, hint: $hint));
+        $ticked = array_map(strval(...), \Laravel\Prompts\multiselect(label: $label, options: $options, default: $default, scroll: 10, required: false, hint: $this->hint($hint)));
 
         return array_values(array_filter(array_map(strval(...), array_keys($options)), static fn (string $key): bool => in_array($key, $ticked, true)));
     }
@@ -135,11 +137,44 @@ final class Ui
 
     /**
      * Questions asked as steps of one form: Ctrl+U goes back to the previous step (Prompts' own
-     * interface only; plain questions can't go back).
+     * interface only; plain questions can't go back). See Form.
      */
-    public function form(): FormBuilder
+    public function form(): Form
     {
-        return \Laravel\Prompts\form();
+        return new Form(\Laravel\Prompts\form(), $this);
+    }
+
+    /**
+     * Runs $ask with the first question it asks saying, in its hint, that Ctrl+U goes back.
+     *
+     * @template T
+     * @param \Closure(): T $ask
+     * @return T
+     */
+    public function offeringBack(\Closure $ask): mixed
+    {
+        $this->offerBack = true;
+
+        try {
+            return $ask();
+        } finally {
+            $this->offerBack = false;
+        }
+    }
+
+    /**
+     * $hint, with "Ctrl+U to go back" when this question offers it; only the first question of
+     * offeringBack() does, and only in Prompts' own interface.
+     */
+    private function hint(string $hint): string
+    {
+        if (!$this->offerBack || !$this->rich) {
+            return $hint;
+        }
+
+        $this->offerBack = false;
+
+        return $hint === '' ? 'Ctrl+U to go back' : "{$hint} · Ctrl+U to go back";
     }
 
     public function note(string $message): void

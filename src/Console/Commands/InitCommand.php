@@ -78,10 +78,6 @@ final class InitCommand extends Command
         $ui->enterFullScreen('ship init was cancelled: nothing was written.');
         $ui->intro('ship init');
 
-        if ($ui->rich) {
-            $ui->info('Ctrl+U goes back to the previous question.');
-        }
-
         $existing = $this->readExistingConfig();
 
         if ($existing !== null) {
@@ -126,7 +122,7 @@ final class InitCommand extends Command
                 fn (array $answers, mixed $previous): string => $ui->text(
                     'Project name',
                     default: is_string($previous) ? $previous : ($existing->name ?? self::nameFromDirectory($this->projectRoot)),
-                    hint: 'Names its containers, images and data volumes. Keep it once deployed: a new name means new, empty volumes',
+                    hint: 'Names its containers, images and volumes; keep it once deployed',
                     validate: static fn (string $answer): ?string => preg_match(ShipConfig::NAME_PATTERN, trim($answer)) === 1
                         ? null
                         : 'Lowercase letters and digits, words joined by "-" or "_", starting with a letter.',
@@ -142,7 +138,7 @@ final class InitCommand extends Command
                         array_keys($offered),
                         static fn (string $group): bool => isset($offered[$group][$existing->services[$group] ?? '']),
                     )),
-                    'Space ticks a kind, Enter continues; you pick the service for each next',
+                    'Space ticks, Enter continues',
                 ),
                 name: 'kinds',
             );
@@ -169,6 +165,7 @@ final class InitCommand extends Command
                 // Going back to it keeps the instances added before (it then asks to add another).
                 fn (array $answers, mixed $previous): array => $this->promptForAdditionalInstances(
                     $ui,
+                    self::selectedServices($answers),
                     is_array($previous) ? ShipConfig::filterAdditionalServices($previous) : ($existing->additionalServices ?? []),
                 ),
                 name: 'additionalServices',
@@ -200,8 +197,8 @@ final class InitCommand extends Command
                     'External networks (optional)',
                     default: implode(', ', is_array($previous) ? $previous : ($existing->externalNetworks ?? [])),
                     placeholder: 'proxy',
-                    hint: 'Comma-separated Docker networks created outside ship, e.g. a reverse proxy\'s'
-                        . ($localNetworks !== [] ? '. On this machine: ' . implode(', ', $localNetworks) : ''),
+                    hint: 'Comma-separated, e.g. a reverse proxy\'s'
+                        . ($localNetworks !== [] ? '; on this machine: ' . implode(', ', $localNetworks) : ''),
                     validate: static function (string $answer): ?string {
                         foreach (self::networkList($answer) as $name) {
                             if (preg_match(ShipConfig::NETWORK_NAME_PATTERN, $name) !== 1) {
@@ -486,10 +483,12 @@ final class InitCommand extends Command
      * $existing entries are kept as-is rather than re-prompted for; remove one by editing
      * ship.json.
      *
+     * @param array<string, string> $selected the services chosen above; with none, these are simply
+     *        the project's services
      * @param list<array{group: string, service: string, name: string}> $existing
      * @return list<array{group: string, service: string, name: string}>
      */
-    private function promptForAdditionalInstances(Ui $ui, array $existing = []): array
+    private function promptForAdditionalInstances(Ui $ui, array $selected, array $existing = []): array
     {
         $additional = $existing;
         $usedNames = array_map(static fn (array $a): string => $a['name'], $existing);
@@ -504,9 +503,15 @@ final class InitCommand extends Command
         }
 
         while ($ui->confirm(
-            $additional === [] ? 'Add a second instance of a service, e.g. a second database?' : 'Add another one?',
+            // With no service chosen above, these are simply the project's services.
+            match (true) {
+                $selected === [] && $additional === [] => 'Add a service?',
+                $selected === [] => 'Add another service?',
+                $additional === [] => 'Add a second instance of a service, e.g. a second database?',
+                default => 'Add another one?',
+            },
             false,
-            $additional === [] ? 'Each instance gets its own container, data volume and env var prefix' : '',
+            $additional === [] ? 'Each gets its own container, volume and env var prefix' : '',
         )) {
             $group = $ui->select('Which kind of service?', array_combine(
                 $groupChoices,
@@ -568,7 +573,7 @@ final class InitCommand extends Command
                 'Which processes should run beside the app in production?',
                 $options,
                 array_values(array_filter(array_keys($suggested), static fn (string $name): bool => isset($state['commands'][$name]))),
-                'Each runs in its own container from the app\'s image. In development you start them yourself',
+                'Production only; in development you start them yourself',
             );
 
             foreach ($suggested as $name => $process) {
@@ -608,13 +613,13 @@ final class InitCommand extends Command
             $state['commands'][$name] = trim($ui->text(
                 'Command',
                 placeholder: 'php artisan queue:work --queue=emails',
-                hint: 'Runs in the app\'s image, as www-data, restarted if it stops',
+                hint: 'Runs from the app\'s image, as www-data',
             ));
 
             $healthcheck = trim($ui->text(
                 'Health check command (optional)',
                 placeholder: 'php artisan horizon:status',
-                hint: 'Exits 0 while the process works. Empty: healthy once it has stayed up 10 seconds',
+                hint: 'Exits 0 while it works; empty: healthy once up 10 seconds',
                 required: false,
             ));
             if ($healthcheck !== '') {
@@ -712,7 +717,7 @@ final class InitCommand extends Command
             self::PACKAGE_MANAGERS,
             $default,
             match (true) {
-                $current->problem() !== null => 'The project has lockfiles of more than one; ship will ask you to finish the switch',
+                $current->problem() !== null => 'Mixed lockfiles; finish with ship package-manager',
                 $current->tool() !== null => "The project uses {$current->tool()} now",
                 default => 'The project has no lockfile yet',
             },
