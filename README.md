@@ -180,8 +180,9 @@ package manager, and ends with a summary. Re-run it any time: every question
 starts at the project's current setting, so pressing Enter keeps it. In a
 terminal it uses [Laravel Prompts](https://github.com/laravel/prompts)
 (arrow keys, space to tick, answers checked as you type, Ctrl+U to go back
-to the previous question, which keeps the answer you gave); nothing is
-written until the last answer. With `-n` it takes
+to the previous question, which keeps the answer you gave), on a clean
+screen that gives the terminal's earlier content back when it ends, with
+the summary below it; nothing is written until the last answer. With `-n` it takes
 every default, and without a terminal (piped, CI, native Windows) it asks plain
 numbered questions instead.
 

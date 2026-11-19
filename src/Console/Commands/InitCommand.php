@@ -58,6 +58,9 @@ final class InitCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $ui = ($this->ui)($input, $output);
+        // The questions get a clean screen; the terminal's earlier content comes back with the
+        // summary below it (see Ui::enterFullScreen()).
+        $ui->enterFullScreen('ship init was cancelled: nothing was written.');
         $ui->intro('ship init');
 
         if ($ui->rich) {
@@ -100,7 +103,7 @@ final class InitCommand extends Command
         // them both ways.
         $instanceGroups = array_values(array_intersect(self::GROUPS_SUPPORTING_ADDITIONAL_INSTANCES, array_keys($offered)));
 
-        $answers = $ui->form()
+        $form = $ui->form()
             ->addIf(
                 $offered !== [],
                 fn (array $answers, mixed $previous): array => $ui->multiselect(
@@ -117,7 +120,7 @@ final class InitCommand extends Command
 
         foreach ($offered as $group => $choices) {
             [$label, $hint] = $this->groups()[$group];
-            $answers->addIf(
+            $form->addIf(
                 static fn (array $answers): bool => in_array($group, $answers['kinds'] ?? [], true),
                 static function (array $answers, mixed $previous) use ($ui, $label, $hint, $choices, $existing, $group): string {
                     // "None" last, so a kind ticked by mistake (an Octane runtime when php-fpm
@@ -131,7 +134,7 @@ final class InitCommand extends Command
             );
         }
 
-        $answers = $answers
+        $form = $form
             ->addIf(
                 $instanceGroups !== [],
                 // Going back to it keeps the instances added before (it then asks to add another).
@@ -180,8 +183,19 @@ final class InitCommand extends Command
                 $packageManager->hasPackageJson,
                 fn (array $answers, mixed $previous): string => $this->askPackageManager($ui, $packageManager, is_string($previous) ? $previous : null),
                 name: 'packageManager',
-            )
-            ->submit();
+            );
+
+        // The terminal's own screen comes back however the questions end, before an error is
+        // printed (which would otherwise vanish with the alternate screen).
+        try {
+            $answers = $form->submit();
+        } finally {
+            $ui->leaveFullScreen();
+        }
+
+        if ($ui->rich) {
+            $ui->intro('ship init');
+        }
 
         $selected = self::selectedServices($answers);
         $summary = [];

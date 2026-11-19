@@ -33,11 +33,13 @@ final class Ui
 
     private readonly SymfonyStyle $io;
 
+    private bool $fullScreen = false;
+
     /**
      * @param ?bool $rich forces the interface either way (tests faking Prompts' terminal); null
      *        decides from the input and output
      */
-    public function __construct(InputInterface $input, OutputInterface $output, ?bool $rich = null)
+    public function __construct(InputInterface $input, private readonly OutputInterface $output, ?bool $rich = null)
     {
         $this->io = new SymfonyStyle($input, $output);
         $this->rich = $rich ?? $input->isInteractive()
@@ -91,6 +93,43 @@ final class Ui
     public function intro(string $title): void
     {
         $this->rich ? \Laravel\Prompts\intro($title) : $this->io->title($title);
+    }
+
+    /**
+     * Asks on a clean screen, the terminal's alternate screen (as vim or less do), so the questions
+     * don't scroll what the terminal showed away; leaveFullScreen() brings it back, and what's
+     * printed after that stays in the scrollback. Prompts' own interface only.
+     *
+     * The screen is brought back however the run ends: Prompts handles Ctrl+C by exiting the
+     * process, so a shutdown function restores it and prints $cancelled.
+     */
+    public function enterFullScreen(string $cancelled): void
+    {
+        if (!$this->rich || $this->fullScreen) {
+            return;
+        }
+
+        $this->fullScreen = true;
+        // Switch to the alternate screen, cursor home, clear it.
+        $this->output->write("\e[?1049h\e[H\e[2J");
+
+        register_shutdown_function(function () use ($cancelled): void {
+            if ($this->fullScreen) {
+                $this->leaveFullScreen();
+                $this->output->writeln($cancelled);
+            }
+        });
+    }
+
+    public function leaveFullScreen(): void
+    {
+        if (!$this->fullScreen) {
+            return;
+        }
+
+        $this->fullScreen = false;
+        // Back to the main screen, as it was before.
+        $this->output->write("\e[?1049l");
     }
 
     /**
