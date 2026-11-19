@@ -4,20 +4,25 @@ declare(strict_types=1);
 
 namespace Ship\Tests\Unit;
 
+use Laravel\Prompts\Key;
+use Laravel\Prompts\Prompt;
 use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\TestCase;
 use Ship\Console\Commands\InitCommand;
+use Ship\Console\Ui;
 use Ship\Services\ServiceRegistry;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Tester\CommandTester;
 use Symfony\Component\Filesystem\Filesystem;
 
 /**
- * Exercises InitCommand::select()'s Laravel Prompts branch against a hand-rolled fake
- * (tests/Fixtures/fake-laravel-prompts.php) in a separate process. The real package can't be a
- * dev dependency: it autoloads its functions globally, which would switch every other InitCommand
- * test onto this branch.
+ * `ship init` through Laravel Prompts' own interface, with its terminal faked (Prompt::fake()):
+ * key presses instead of typed answers. Every other InitCommand test goes through the plain
+ * fallback (see Ui).
  *
- * Skipped on Windows, where canUseLaravelPromptsInteractiveUi() is always false.
+ * In a separate process: falling back is sticky in Prompts, so a process that already ran a plain
+ * `ship init` can't draw this one.
  */
 final class InitCommandLaravelPromptsTest extends TestCase
 {
@@ -26,7 +31,7 @@ final class InitCommandLaravelPromptsTest extends TestCase
     protected function setUp(): void
     {
         if (PHP_OS_FAMILY === 'Windows') {
-            self::markTestSkipped('canUseLaravelPromptsInteractiveUi() never returns true on Windows.');
+            self::markTestSkipped('Prompts refuses to draw on native Windows, where ship uses the plain fallback.');
         }
 
         $this->projectRoot = sys_get_temp_dir() . '/ship-init-prompts-test-' . bin2hex(random_bytes(8));
@@ -41,22 +46,40 @@ final class InitCommandLaravelPromptsTest extends TestCase
     }
 
     #[RunInSeparateProcess]
-    public function test_selecting_a_non_default_option_through_the_prompts_ui_lands_in_ship_json(): void
+    public function test_arrow_keys_choose_services_and_an_invalid_version_is_asked_again(): void
     {
-        require __DIR__ . '/../Fixtures/fake-laravel-prompts.php';
+        $registry = new ServiceRegistry(ServiceRegistry::defaults());
+        Prompt::fake([
+            // The checklist: tick Database (the first kind), continue.
+            Key::SPACE, Key::ENTER,
+            // Database: its first service.
+            Key::ENTER,
+            // No additional instances.
+            Key::ENTER,
+            // PHP: an end-of-life branch is refused in place, then 8.4 is typed.
+            ...array_fill(0, 3, Key::BACKSPACE), '7', '.', '4', Key::ENTER,
+            ...array_fill(0, 3, Key::BACKSPACE), '8', '.', '4', Key::ENTER,
+            // Node: the default.
+            Key::ENTER,
+        ]);
 
-        $command = new InitCommand($this->projectRoot, new ServiceRegistry(ServiceRegistry::defaults()));
-        $tester = new CommandTester($command);
+        $tester = new CommandTester(new InitCommand(
+            $this->projectRoot,
+            $registry,
+            ui: static fn (InputInterface $input, OutputInterface $output): Ui => new Ui($input, $output, rich: true),
+        ));
         $tester->execute([]);
 
         self::assertSame(0, $tester->getStatusCode());
 
-        $config = json_decode(
-            file_get_contents($this->projectRoot . '/ship.json'),
-            associative: true,
-            flags: JSON_THROW_ON_ERROR,
-        );
+        /** @var array{php: string, services: array<string, string>} $config */
+        $config = json_decode((string) file_get_contents($this->projectRoot . '/ship.json'), associative: true, flags: JSON_THROW_ON_ERROR);
 
-        self::assertSame('postgres', $config['services']['database']);
+        self::assertSame($registry->inGroup('database')[0]->key(), $config['services']['database']);
+        self::assertSame(['database'], array_keys($config['services']));
+        self::assertSame('8.4', $config['php']);
+
+        self::assertStringContainsString('past end of life', $tester->getDisplay());
+        self::assertStringContainsString('Run `ship up`', $tester->getDisplay());
     }
 }

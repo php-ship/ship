@@ -172,7 +172,16 @@ vendor/bin/ship shell     # drop into the app container
 vendor/bin/ship down
 ```
 
-`ship init` writes `ship.json` and publishes a `ship/` directory (Dockerfile,
+`ship init` asks which kinds of service the project needs (a checklist), then
+which service for each, then the PHP and Node.js versions and the JavaScript
+package manager, and ends with a summary. Re-run it any time: every question
+starts at the project's current setting, so pressing Enter keeps it. In a
+terminal it uses [Laravel Prompts](https://github.com/laravel/prompts)
+(arrow keys, space to tick, answers checked as you type); with `-n` it takes
+every default, and without a terminal (piped, CI, native Windows) it asks plain
+numbered questions instead.
+
+It writes `ship.json` and publishes a `ship/` directory (Dockerfile,
 nginx/php config) into your project root — both are meant to be committed.
 Production is a separate pair of commands, not a flag on `ship up` — see
 [Production releases](#production-releases) below for `ship build`/`ship
@@ -210,7 +219,7 @@ before the command name (`ship -q npm install`).
 
 ## Services
 
-`ship init` asks for one service per group, and `additionalServices` adds
+`ship init` asks for at most one service per group, and `additionalServices` adds
 named second instances where that makes sense (see
 [Multiple instances of a service](#multiple-instances-of-a-service)). The
 tables below show, per group, what each built-in service wires up and what

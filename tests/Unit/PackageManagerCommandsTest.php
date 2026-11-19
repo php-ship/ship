@@ -214,8 +214,9 @@ final class PackageManagerCommandsTest extends TestCase
         file_put_contents($this->projectRoot . '/yarn.lock', "__metadata:\n  version: 8\n");
 
         $tester = new CommandTester(new InitCommand($this->projectRoot, new ServiceRegistry([]), $this->versions()));
-        // No additional instances, PHP and Node versions (defaults), then npm instead of Yarn.
-        $tester->setInputs(['', '', '', 'npm']);
+        // PHP and Node versions (defaults), then npm instead of Yarn. With no services there's no
+        // question about additional instances.
+        $tester->setInputs(['', '', 'npm']);
         $tester->execute([]);
 
         $pm = PackageManager::inspect($this->projectRoot);

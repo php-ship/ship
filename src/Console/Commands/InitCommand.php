@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ship\Console\Commands;
 
 use Ship\Config\ShipConfig;
+use Ship\Console\Ui;
 use Ship\Docker\DockerignoreGuard;
 use Ship\Node\PackageManager;
 use Ship\Node\PackageManagerVersions;
@@ -15,71 +16,89 @@ use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
-use Symfony\Component\Console\Question\ChoiceQuestion;
-use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\Filesystem\Filesystem;
 
 #[AsCommand(name: 'init', description: 'Select services and generate ship.json + docker-compose.yml')]
 final class InitCommand extends Command
 {
-    private const NONE = '__none__';
-
     // Groups whose services give each instance its own env var prefix and compose service name
     // (see SupportsNamedInstances). Only one runtime, testing driver, frontend tool,
     // broadcasting server or message broker makes sense per project.
+    private const PACKAGE_MANAGERS = ['npm' => 'npm', 'yarn' => 'Yarn', 'pnpm' => 'pnpm'];
+
     private const GROUPS_SUPPORTING_ADDITIONAL_INSTANCES = ['database', 'cache', 'storage', 'search', 'mail'];
 
     private readonly PackageManagerVersions $packageManagerVersions;
 
+    /** @var \Closure(InputInterface, OutputInterface): Ui */
+    private readonly \Closure $ui;
+
+    /**
+     * @param ?\Closure(InputInterface, OutputInterface): Ui $ui builds the interface (tests force
+     *        Prompts' own, with its terminal faked)
+     */
     public function __construct(
         private readonly string          $projectRoot,
         private readonly ServiceRegistry $registry,
         ?PackageManagerVersions $packageManagerVersions = null,
+        ?\Closure $ui = null,
     ) {
         parent::__construct();
         $this->packageManagerVersions = $packageManagerVersions ?? new PackageManagerVersions();
+        $this->ui = $ui ?? static fn (InputInterface $input, OutputInterface $output): Ui => new Ui($input, $output);
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $io = new SymfonyStyle($input, $output);
-        $io->title('ship init');
+        $ui = ($this->ui)($input, $output);
+        $ui->intro('ship init');
 
         $existing = $this->readExistingConfig();
 
-        $selected = [];
+        if ($existing !== null) {
+            $ui->note('This project already has a ship.json: every question defaults to its current setting, so pressing Enter keeps it.');
+        }
 
-        foreach ($this->groups() as $group => $label) {
+        $selected = [];
+        $summary = [];
+
+        // One checklist of the kinds of service the project needs, then a choice for each one
+        // ticked. A kind starts ticked when the project has a service of it that's still offered,
+        // so re-running `ship init` and accepting every prompt keeps the project's services.
+        $offered = [];
+        foreach ($this->groups() as $group => [$label]) {
             $options = $this->registry->inGroup($group);
 
-            if ($options === []) {
-                continue;
-            }
-
-            // Keyed by service key, so both prompt backends return the same shape.
-            $choices = [self::NONE => 'None', ...array_combine(
-                array_map(static fn ($s) => $s->key(), $options),
-                array_map(static fn ($s) => $s->label(), $options),
-            )];
-
-            // Default to the existing selection, so re-running `ship init` and accepting every
-            // prompt keeps the project's services.
-            $default = $existing->services[$group] ?? self::NONE;
-            if (!isset($choices[$default])) {
-                $default = self::NONE;
-            }
-
-            $answer = $this->select($io, $input, "Select a {$label}", $choices, $default);
-
-            if ($answer !== self::NONE) {
-                $selected[$group] = $answer;
+            if ($options !== []) {
+                $offered[$group] = array_combine(
+                    array_map(static fn ($s) => $s->key(), $options),
+                    array_map(static fn ($s) => $s->label(), $options),
+                );
             }
         }
 
-        $additionalServices = $this->promptForAdditionalInstances($io, $input, $existing->additionalServices ?? []);
+        $kinds = $offered === [] ? [] : $ui->multiselect(
+            'Which services does this project need?',
+            array_map(fn (string $group): string => $this->groups()[$group][0], array_combine(array_keys($offered), array_keys($offered))),
+            array_values(array_filter(
+                array_keys($offered),
+                static fn (string $group): bool => isset($offered[$group][$existing->services[$group] ?? '']),
+            )),
+            'Space ticks a kind, Enter continues; you pick the service for each next',
+        );
+
+        foreach ($kinds as $group) {
+            [$label, $hint] = $this->groups()[$group];
+            $choices = $offered[$group];
+            $current = $existing->services[$group] ?? null;
+            $answer = $ui->select($label, $choices, $current !== null && isset($choices[$current]) ? $current : null, $hint);
+            $selected[$group] = $answer;
+            $summary[] = [$label, $choices[$answer]];
+        }
+
+        $additionalServices = $this->promptForAdditionalInstances($ui, $existing->additionalServices ?? []);
         $siloImage = $this->promptForSiloImage(
-            $io,
-            $input,
+            $ui,
             $selected,
             $additionalServices,
             $existing->siloImage ?? ShipConfig::SILO_IMAGE_STANDARD,
@@ -87,24 +106,27 @@ final class InitCommand extends Command
 
         // Rejects an end-of-life branch or a pinned patch release with known vulnerabilities
         // here, rather than at the end of the first `ship up`.
-        $phpVersion = $io->ask('PHP version', '8.4', static function (?string $answer): string {
-            $answer = trim((string) $answer);
-            $problem = PhpSecurityFloor::problemWith($answer);
-
-            if ($problem !== null) {
-                throw new \RuntimeException($problem);
-            }
-
-            return $answer;
-        });
-        $nodeVersion = $io->ask('Node.js version', '24');
-        $this->promptForPackageManager($io, $input, (string) $nodeVersion);
+        $phpVersion = $ui->text(
+            'PHP version',
+            default: $existing->phpVersion ?? '8.4',
+            hint: 'A supported branch, such as 8.4, or an exact release',
+            validate: static fn (string $answer): ?string => PhpSecurityFloor::problemWith(trim($answer)),
+        );
+        $nodeVersion = $ui->text(
+            'Node.js version',
+            default: $existing->nodeVersion ?? '24',
+            hint: 'A major version, such as 24, or an exact release',
+            validate: static fn (string $answer): ?string => preg_match('/^\d+(\.\d+){0,2}$/', trim($answer)) === 1
+                ? null
+                : 'Use a Node.js version such as 24 or 24.11.',
+        );
+        $packageManager = $this->promptForPackageManager($ui, $nodeVersion);
 
         $config = new ShipConfig(
-            phpVersion: (string) $phpVersion,
+            phpVersion: $phpVersion,
             services: $selected,
             extensions: $existing->extensions ?? [],
-            nodeVersion: (string) $nodeVersion,
+            nodeVersion: $nodeVersion,
             additionalServices: $additionalServices,
             serviceNames: $existing->serviceNames ?? [],
             externalNetwork: $existing?->externalNetwork,
@@ -119,12 +141,33 @@ final class InitCommand extends Command
         $config->toFile($this->projectRoot . '/ship.json');
 
         $this->publishStubs($selected, $additionalServices, $config->serviceNames['app'] ?? 'app');
-        $this->warnAboutViteDevServerConfigIfNeeded($io);
-        $this->warnAboutMissingReverbPackageIfNeeded($io, $selected);
 
-        $io->success('Wrote ship.json and published the ship/ directory. Run `ship up` to build and start the environment.');
+        foreach ($additionalServices as $instance) {
+            $summary[] = ["{$this->groups()[$instance['group']][0]} \"{$instance['name']}\"", $this->serviceLabel($instance['group'], $instance['service'])];
+        }
+        $ui->table(['Service', 'Choice'], [
+            ...($summary === [] ? [['Services', 'None']] : $summary),
+            ['PHP', $phpVersion],
+            ['Node.js', $nodeVersion . ($packageManager !== null ? ', ' . self::PACKAGE_MANAGERS[$packageManager] : '')],
+        ]);
+
+        $this->warnAboutViteDevServerConfigIfNeeded($ui);
+        $this->warnAboutMissingReverbPackageIfNeeded($ui, $selected);
+
+        $ui->outro('Wrote ship.json and ship/. Run `ship up` to build and start it.');
 
         return Command::SUCCESS;
+    }
+
+    private function serviceLabel(string $group, string $key): string
+    {
+        foreach ($this->registry->inGroup($group) as $service) {
+            if ($service->key() === $key) {
+                return $service->label();
+            }
+        }
+
+        return $key;
     }
 
     /**
@@ -142,7 +185,7 @@ final class InitCommand extends Command
      * ship publishes Vite's dev server port but doesn't edit an existing vite.config.js. Warns only
      * when the project uses Vite and the config doesn't already look handled.
      */
-    private function warnAboutViteDevServerConfigIfNeeded(SymfonyStyle $io): void
+    private function warnAboutViteDevServerConfigIfNeeded(Ui $ui): void
     {
         if (!$this->projectUsesVite()) {
             return;
@@ -154,22 +197,21 @@ final class InitCommand extends Command
             return;
         }
 
-        $io->warning(sprintf(
+        $ui->warning(sprintf(
             'This project uses Vite. Its dev server (`ship npm run dev`) needs one addition to %s '
             . 'to be reachable from your browser through Docker -- add this to the `server` option:',
             $configPath !== null ? basename($configPath) : 'vite.config.js',
         ));
 
-        $io->writeln(<<<'JS'
-                server: {
-                    host: '0.0.0.0',           // bind inside the container, not just loopback
-                    port: Number(process.env.VITE_PORT ?? 5173),
-                    strictPort: true,          // fail fast instead of silently picking another
-                                                // port -- one ship's docker-compose.yml doesn't publish
-                    hmr: { host: 'localhost' }, // what the *browser* connects back to for HMR
-                },
+        $ui->code(<<<'JS'
+            server: {
+                host: '0.0.0.0',           // bind inside the container, not just loopback
+                port: Number(process.env.VITE_PORT ?? 5173),
+                strictPort: true,          // fail fast instead of silently picking another
+                                            // port -- one ship's docker-compose.yml doesn't publish
+                hmr: { host: 'localhost' }, // what the *browser* connects back to for HMR
+            },
             JS);
-        $io->newLine();
     }
 
     /**
@@ -178,7 +220,7 @@ final class InitCommand extends Command
      *
      * @param array<string, string> $selected
      */
-    private function warnAboutMissingReverbPackageIfNeeded(SymfonyStyle $io, array $selected): void
+    private function warnAboutMissingReverbPackageIfNeeded(Ui $ui, array $selected): void
     {
         if (($selected['broadcasting'] ?? null) !== 'reverb') {
             return;
@@ -188,13 +230,11 @@ final class InitCommand extends Command
             return;
         }
 
-        $io->warning(
+        $ui->warning(
             'Reverb was selected but `laravel/reverb` isn\'t installed yet. The reverb container will '
             . 'fail to start until you run:'
         );
-        $io->writeln('    composer require laravel/reverb');
-        $io->writeln('    php artisan install:broadcasting');
-        $io->newLine();
+        $ui->code("ship composer require laravel/reverb\nship artisan install:broadcasting");
     }
 
     /**
@@ -207,55 +247,51 @@ final class InitCommand extends Command
      * @param list<array{group: string, service: string, name: string}> $existing
      * @return list<array{group: string, service: string, name: string}>
      */
-    private function promptForAdditionalInstances(SymfonyStyle $io, InputInterface $input, array $existing = []): array
+    private function promptForAdditionalInstances(Ui $ui, array $existing = []): array
     {
         $additional = $existing;
         $usedNames = array_map(static fn (array $a): string => $a['name'], $existing);
 
-        while ($io->confirm(
-            $additional === []
-                ? 'Add a named additional service instance (e.g. a second database)?'
-                : 'Add another one?',
+        $groupChoices = array_values(array_filter(
+            self::GROUPS_SUPPORTING_ADDITIONAL_INSTANCES,
+            fn (string $group): bool => $this->registry->inGroup($group) !== [],
+        ));
+
+        if ($groupChoices === []) {
+            return $additional;
+        }
+
+        while ($ui->confirm(
+            $additional === [] ? 'Add a second instance of a service, e.g. a second database?' : 'Add another one?',
             false,
+            $additional === [] ? 'Each instance gets its own container, data volume and env var prefix' : '',
         )) {
-            $groupChoices = array_filter(
-                self::GROUPS_SUPPORTING_ADDITIONAL_INSTANCES,
-                fn (string $group): bool => $this->registry->inGroup($group) !== [],
-            );
-
-            if ($groupChoices === []) {
-                break;
-            }
-
-            $group = $this->select($io, $input, 'Which kind of service?', array_combine($groupChoices, $groupChoices));
+            $group = $ui->select('Which kind of service?', array_combine(
+                $groupChoices,
+                array_map(fn (string $group): string => $this->groups()[$group][0], $groupChoices),
+            ));
             $options = $this->registry->inGroup($group);
-            $choices = array_combine(
+            $service = $ui->select('Which one?', array_combine(
                 array_map(static fn ($s) => $s->key(), $options),
                 array_map(static fn ($s) => $s->label(), $options),
-            );
-            $service = $this->select($io, $input, 'Which one?', $choices);
+            ));
 
-            do {
-                $name = strtolower((string) $io->ask(
-                    'Name this instance (used as its env var prefix and compose service suffix, '
-                        . 'e.g. "analytics")',
-                ));
+            // The name becomes a compose service suffix and an env var prefix (see
+            // SupportsNamedInstances); anything outside this charset breaks one or the other.
+            $name = strtolower($ui->text(
+                'Name this instance',
+                placeholder: 'analytics',
+                hint: 'Its env var prefix and compose service suffix',
+                validate: static function (string $answer) use ($usedNames): ?string {
+                    $name = strtolower(trim($answer));
 
-                // The name becomes a compose service suffix and an env var prefix (see
-                // SupportsNamedInstances); anything outside this charset breaks one or the other.
-                if ($name === '') {
-                    $io->warning('A name is required.');
-                } elseif (preg_match('/^[a-z][a-z0-9_]*$/', $name) !== 1) {
-                    $io->warning(
-                        "\"{$name}\" can only contain lowercase letters, numbers, and underscores, "
-                            . 'and must start with a letter.',
-                    );
-                    $name = '';
-                } elseif (in_array($name, $usedNames, true)) {
-                    $io->warning("\"{$name}\" is already used -- pick a different name.");
-                    $name = '';
-                }
-            } while ($name === '');
+                    return match (true) {
+                        preg_match('/^[a-z][a-z0-9_]*$/', $name) !== 1 => "\"{$name}\" can only contain lowercase letters, numbers, and underscores, and must start with a letter.",
+                        in_array($name, $usedNames, true) => "\"{$name}\" is already used: pick a different name.",
+                        default => null,
+                    };
+                },
+            ));
 
             $usedNames[] = $name;
             $additional[] = ['group' => $group, 'service' => $service, 'name' => $name];
@@ -273,8 +309,7 @@ final class InitCommand extends Command
      * @param list<array{group: string, service: string, name: string}> $additionalServices
      */
     private function promptForSiloImage(
-        SymfonyStyle $io,
-        InputInterface $input,
+        Ui $ui,
         array $selected,
         array $additionalServices,
         string $current,
@@ -286,22 +321,20 @@ final class InitCommand extends Command
             return $current;
         }
 
-        $io->note([
+        $ui->note(implode("\n\n", [
             'Silo publishes two images of the same release. The standard one is built on RHEL 9, '
                 . 'which requires a CPU with the x86-64-v2 instruction set: on an older CPU, or a '
                 . 'virtual machine that exposes a generic CPU model, its container fails to start. '
                 . 'The distroless one has no such requirement, but no shell either, so `ship shell` '
                 . 'can\'t open one in it.',
             'Pick distroless if any machine that will run this stack (yours, a teammate\'s, the '
-                . 'production server) might be affected. On Linux, check a machine with:',
-            '    /lib64/ld-linux-x86-64.so.2 --help | grep x86-64-v2',
-            'It prints "x86-64-v2 (supported, searched)" when the standard image will run. You can '
-                . 'switch later with ship.json\'s "siloImage"; both images use the same data volume.',
-        ]);
+                . 'production server) might be affected. On Linux, check a machine with '
+                . '`/lib64/ld-linux-x86-64.so.2 --help | grep x86-64-v2`: it prints '
+                . '"x86-64-v2 (supported, searched)" when the standard image will run.',
+            'You can switch later with ship.json\'s "siloImage"; both images use the same data volume.',
+        ]));
 
-        return $this->select(
-            $io,
-            $input,
+        return $ui->select(
             'Which Silo image?',
             [
                 ShipConfig::SILO_IMAGE_STANDARD => 'Standard (needs an x86-64-v2 CPU)',
@@ -363,19 +396,28 @@ final class InitCommand extends Command
      * recorded choice makes `ship up` remind the user, and the production build refuse, until it's
      * done.
      */
-    private function promptForPackageManager(SymfonyStyle $io, InputInterface $input, string $nodeVersion): void
+    private function promptForPackageManager(Ui $ui, string $nodeVersion): ?string
     {
         $current = PackageManager::inspect($this->projectRoot);
 
         if (!$current->hasPackageJson) {
-            return;
+            return null;
         }
 
         $default = $current->tool()
             ?? (in_array($current->declared, PackageManager::TOOLS, true) ? $current->declared : null)
             ?? ($current->lockfileTools[0] ?? 'npm');
 
-        $choice = $this->select($io, $input, 'JavaScript package manager', ['npm' => 'npm', 'yarn' => 'Yarn', 'pnpm' => 'pnpm'], $default);
+        $choice = $ui->select(
+            'JavaScript package manager',
+            self::PACKAGE_MANAGERS,
+            $default,
+            match (true) {
+                $current->problem() !== null => 'The project has lockfiles of more than one; ship will ask you to finish the switch',
+                $current->tool() !== null => "The project uses {$current->tool()} now",
+                default => 'The project has no lockfile yet',
+            },
+        );
 
         $switching = $current->problem() !== null || ($current->tool() !== null && $current->tool() !== $choice);
 
@@ -383,74 +425,25 @@ final class InitCommand extends Command
             $spec = $this->packageManagerVersions->latest($choice, $this->projectRoot, $nodeVersion);
 
             if ($spec === null) {
-                $io->warning(sprintf(
+                $ui->warning(sprintf(
                     "Couldn't look up %s's current version (is the network down?), so package.json is unchanged. Run `ship package-manager %s` after `ship up` to %s.",
                     $choice,
                     $choice,
                     $switching ? 'switch the project to it' : 'record it',
                 ));
 
-                return;
+                return $choice;
             }
 
             PackageManagerVersions::record($this->projectRoot, $spec);
-            $io->writeln("Recorded \"packageManager\": \"{$spec}\" in package.json.");
+            $ui->info("Recorded \"packageManager\": \"{$spec}\" in package.json.");
         }
 
         if ($switching) {
-            $io->note("Switching the project to {$choice} removes the old lockfile and node_modules and reinstalls, in the container: run `ship up`, then `ship package-manager {$choice}`.");
-        }
-    }
-
-    /**
-     * Uses Laravel Prompts' select() when usable, falling back to ChoiceQuestion.
-     *
-     * Prompts isn't a hard dependency because it conflicts with laravel/framework 10.17-10.24;
-     * Laravel 11+ already ships it.
-     *
-     * @param array<string, string> $choicesByKey option key => label
-     * @param ?string $default a key of $choicesByKey, or null for the first one (Prompts rejects a
-     *        default that isn't one of its options).
-     */
-    private function select(
-        SymfonyStyle $io,
-        InputInterface $input,
-        string $label,
-        array $choicesByKey,
-        ?string $default = null,
-    ): string {
-        $default ??= array_key_first($choicesByKey)
-            ?? throw new \LogicException('select() called with no choices to pick from.');
-
-        if ($this->canUseLaravelPromptsInteractiveUi($input)) {
-            /** @var string */
-            return \Laravel\Prompts\select(label: $label, options: $choicesByKey, default: $default);
+            $ui->note("Switching the project to {$choice} removes the old lockfile and node_modules and reinstalls, in the container: run `ship up`, then `ship package-manager {$choice}`.");
         }
 
-        // A numeric list, so the prompt shows "[1] Postgres" instead of internal service keys.
-        $labels = array_values($choicesByKey);
-        $keys = array_keys($choicesByKey);
-        $defaultIndex = array_search($default, $keys, strict: true);
-
-        $question = new ChoiceQuestion($label, $labels, $defaultIndex === false ? 0 : $defaultIndex);
-        $question->setErrorMessage('%s is not a valid choice.');
-
-        /** @var string $answerLabel */
-        $answerLabel = $io->askQuestion($question);
-        $index = array_search($answerLabel, $labels, strict: true);
-
-        return $index === false ? $default : $keys[$index];
-    }
-
-    /**
-     * Prompts' own fallback for Windows is wired up by Laravel's provider, which doesn't run when
-     * Prompts is called standalone, so the same conditions are checked here.
-     */
-    private function canUseLaravelPromptsInteractiveUi(InputInterface $input): bool
-    {
-        return function_exists('Laravel\Prompts\select')
-            && $input->isInteractive()
-            && PHP_OS_FAMILY !== 'Windows';
+        return $choice;
     }
 
     /**
@@ -533,21 +526,23 @@ final class InitCommand extends Command
     }
 
     /**
-     * @return array<string, string>
+     * Each group's label and the hint shown under its question.
+     *
+     * @return array<string, array{string, string}>
      */
     private function groups(): array
     {
         return [
-            'database' => 'database',
-            'cache' => 'cache',
-            'runtime' => 'application runtime',
-            'storage' => 'object storage',
-            'search' => 'search engine',
-            'mail' => 'mail capture service',
-            'testing' => 'browser testing driver',
-            'frontend' => 'frontend tooling',
-            'broadcasting' => 'broadcasting service',
-            'broker' => 'message broker',
+            'database' => ['Database', 'The app\'s primary database; add more below'],
+            'cache' => ['Cache', 'Sessions, cache and queues'],
+            'runtime' => ['Application runtime', 'None runs PHP-FPM behind nginx'],
+            'storage' => ['Object storage', 'An S3-compatible bucket for uploads'],
+            'search' => ['Search engine', ''],
+            'mail' => ['Mail capture', 'Catches every email sent in development'],
+            'testing' => ['Browser testing', ''],
+            'frontend' => ['Frontend tooling', ''],
+            'broadcasting' => ['Broadcasting', 'WebSockets for real-time events'],
+            'broker' => ['Message broker', ''],
         ];
     }
 }
